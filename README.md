@@ -116,13 +116,40 @@ agente Claude classifica o regime percebido (via momentum/volatilidade públicos
 e recebe as lições aprendidas em condições parecidas, não apenas as mais
 recentes — o desenho do FinMem/FinAgent.
 
+## Trilha sim → paper → live
+
+A camada live (`market/live.py`) usa a mesma interface dos agentes — eles não
+sabem se estão no simulador ou numa exchange real. Cinco travas independentes:
+
+| Trava | Default | Efeito |
+|---|---|---|
+| `dry_run` | **ligado** | ordens são logadas e simuladas, nunca enviadas |
+| `testnet` | **ligado** | chamadas reais vão para o sandbox da exchange |
+| `max_order_quote` | 50 | qualquer ordem acima é **cortada** para o teto |
+| `max_daily_quote` | 200 | compras param quando o gasto do dia (UTC) atinge o teto |
+| `approve_above_quote` | 25 | ordem acima disso exige callback de aprovação humana; sem callback, é **recusada** |
+
+```python
+from cryptoarena.market import LiveExchange, LiveFeed, LiveLimits
+
+feed = LiveFeed("binance", {"BTCUSDT": "BTC/USDT"})
+exchange = LiveExchange(
+    "binance", api_key=..., api_secret=...,
+    limits=LiveLimits(max_order_quote=25, max_daily_quote=100),
+    dry_run=True,          # desligue por último, depois de dias de dry-run limpo
+    testnet=True,          # desligue só depois do testnet
+    confirm=lambda order, valor: input(f"aprovar {valor:.2f}? [y/N] ") == "y",
+)
+```
+
+Progressão recomendada: simulador → `dry_run` com feed real → testnet →
+real com `LiveLimits` mínimos. E no lado da exchange: **API key só-trade
+(sem saque)**, restrição por IP e subconta com o valor que você aceita perder.
+
 ## Roadmap (ideias colhidas do estado da arte¹)
 
 - **Debate bull vs. bear** antes de cada decisão do agente LLM — TradingAgents.
 - **Contrafactuais**: "quanto teria rendido só segurar?" anexado a cada lição.
-- **Sim → paper → live**: mesma interface de agente rodando contra o simulador,
-  depois CCXT dry-run, e só então (opcional, com limites de gasto rígidos)
-  uma carteira real.
 
 ¹ Levantamento de agosto/2026: freqtrade (FreqAI-RL), Hummingbot, Jesse,
 TradingAgents (Tauric), ai-hedge-fund (virattt), eliza, FinMem, FinCon,

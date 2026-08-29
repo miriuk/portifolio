@@ -95,6 +95,8 @@ def run_episode(
                 if candle is None:
                     continue
                 fill = exchange.execute(vetted, candle)
+                if fill is None:  # live guards may refuse an order
+                    continue
                 pnl = _realized_pnl(agent, fill)
                 try:
                     agent.wallet.apply(fill)
