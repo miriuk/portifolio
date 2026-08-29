@@ -9,7 +9,8 @@ from .arena.tournament import run_tournament
 from .learning.memory import TradeJournal
 
 
-def build_agents(cash: float, with_llm: bool, llm_model: str, journal=None) -> list:
+def build_agents(cash: float, with_llm: bool, llm_model: str, journal=None,
+                 debate: bool = False) -> list:
     agents = [
         MomentumAgent("momentum-1", cash),
         MomentumAgent("momentum-2", cash, params={"lookback": 48, "entry_threshold": 0.035}),
@@ -20,7 +21,7 @@ def build_agents(cash: float, with_llm: bool, llm_model: str, journal=None) -> l
     if with_llm:
         if ClaudeTraderAgent.available():
             agents.append(ClaudeTraderAgent("claude-trader", cash, model=llm_model,
-                                            journal=journal))
+                                            journal=journal, debate=debate))
         else:
             print("warning: no ANTHROPIC_API_KEY / auth profile found — "
                   "running without the LLM agent (rule agents still learn).")
@@ -44,6 +45,9 @@ def main() -> None:
     run.add_argument("--llm", action="store_true",
                      help="include the Claude trader agent (needs API credentials)")
     run.add_argument("--llm-model", default="claude-opus-5")
+    run.add_argument("--debate", action="store_true",
+                     help="LLM agent runs a bull/bear debate before each "
+                          "decision (3 extra API calls per decision)")
     run.add_argument("--no-evolve", action="store_true")
     run.add_argument("--endogenous", action="store_true",
                      help="agents trade against a shared order book and "
@@ -61,7 +65,8 @@ def main() -> None:
 
     if args.command == "run":
         journal = TradeJournal(args.db)
-        agents = build_agents(args.cash, args.llm, args.llm_model, journal=journal)
+        agents = build_agents(args.cash, args.llm, args.llm_model, journal=journal,
+                              debate=args.debate)
         try:
             run_tournament(agents, journal, episodes=args.episodes,
                            steps_per_episode=args.steps, seed=args.seed,

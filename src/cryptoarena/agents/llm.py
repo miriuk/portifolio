@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 from ..market.exchange import Order
 from .base import MarketView, TradingAgent
+from .debate import run_debate
 
 DEFAULT_MODEL = "claude-opus-5"
 
@@ -57,7 +58,7 @@ class ClaudeTraderAgent(TradingAgent):
     def __init__(self, agent_id: str, starting_cash: float = 10_000.0,
                  persona: str = "disciplined swing trader; patient, hates leverage and hype",
                  model: str = DEFAULT_MODEL, decision_interval: int = 24,
-                 client=None, journal=None):
+                 client=None, journal=None, debate: bool = False):
         super().__init__(agent_id, starting_cash)
         self.persona = persona
         self.model = model
@@ -65,7 +66,9 @@ class ClaudeTraderAgent(TradingAgent):
         self._lessons: list[str] = []
         self._client = client
         self.journal = journal   # enables condition-matched lesson retrieval
+        self.debate = debate     # bull/bear debate before deciding (3 extra calls)
         self.api_calls = 0
+        self.last_debate = None
 
     @property
     def client(self):
@@ -143,8 +146,22 @@ class ClaudeTraderAgent(TradingAgent):
         lessons = "\n".join(f"- {l}" for l in recalled) or "- (no lessons yet)"
         system = SYSTEM_PROMPT.format(agent_id=self.agent_id, persona=self.persona,
                                       lessons=lessons)
-        prompt = (f"Step {view.step}. Current market state:\n\n{self._market_summary(view)}\n\n"
-                  "Return your decisions.")
+        summary = self._market_summary(view)
+        verdict_text = ""
+        if self.debate:
+            try:
+                result = run_debate(self.client, self.model, summary, lessons)
+                self.api_calls += 3
+                self.last_debate = result
+                v = result.verdict
+                verdict_text = (f"\n\nYour research desk debated this market. "
+                                f"Judge's rating: {v.rating} "
+                                f"(conviction {v.conviction:.0%}). Plan: {v.plan}\n"
+                                f"Weigh this rating; deviate only with a strong reason.")
+            except Exception as exc:
+                print(f"[{self.agent_id}] debate failed, deciding without it: {exc}")
+        prompt = (f"Step {view.step}. Current market state:\n\n{summary}"
+                  f"{verdict_text}\n\nReturn your decisions.")
         try:
             response = self.client.messages.parse(
                 model=self.model,

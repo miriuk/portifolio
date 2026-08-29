@@ -116,6 +116,21 @@ agente Claude classifica o regime percebido (via momentum/volatilidade públicos
 e recebe as lições aprendidas em condições parecidas, não apenas as mais
 recentes — o desenho do FinMem/FinAgent.
 
+## Debate bull vs. bear
+
+```bash
+cryptoarena run --episodes 5 --llm --debate
+```
+
+Antes de cada decisão, o agente Claude convoca sua "mesa de research"
+(padrão portado do [TradingAgents](https://github.com/TauricResearch/TradingAgents),
+Apache-2.0): um analista **bull** monta o melhor caso para comprar, um **bear**
+o rebate ponto a ponto, e um juiz converte o debate num rating estruturado
+(buy / overweight / hold / underweight / sell) com plano e convicção — que o
+trader precisa pesar na decisão final. O debate força o modelo a considerar os
+dois lados em vez de ancorar na primeira leitura (custo: 3 chamadas extras por
+decisão; por isso é opt-in).
+
 ## Trilha sim → paper → live
 
 A camada live (`market/live.py`) usa a mesma interface dos agentes — eles não
@@ -148,7 +163,6 @@ real com `LiveLimits` mínimos. E no lado da exchange: **API key só-trade
 
 ## Roadmap (ideias colhidas do estado da arte¹)
 
-- **Debate bull vs. bear** antes de cada decisão do agente LLM — TradingAgents.
 - **Contrafactuais**: "quanto teria rendido só segurar?" anexado a cada lição.
 
 ¹ Levantamento de agosto/2026: freqtrade (FreqAI-RL), Hummingbot, Jesse,
