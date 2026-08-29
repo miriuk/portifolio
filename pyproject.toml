@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cryptoarena"
+version = "0.1.0"
+description = "Simulated crypto market arena where trading agents compete, fail, and learn from their own trade history"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+    "pandas>=2.0",
+    "pyyaml>=6.0",
+    "anthropic>=0.40",
+]
+
+[project.optional-dependencies]
+live = ["ccxt>=4.0"]
+dev = ["pytest>=7.0"]
+
+[project.scripts]
+cryptoarena = "cryptoarena.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
