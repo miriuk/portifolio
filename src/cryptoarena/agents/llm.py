@@ -57,13 +57,14 @@ class ClaudeTraderAgent(TradingAgent):
     def __init__(self, agent_id: str, starting_cash: float = 10_000.0,
                  persona: str = "disciplined swing trader; patient, hates leverage and hype",
                  model: str = DEFAULT_MODEL, decision_interval: int = 24,
-                 client=None):
+                 client=None, journal=None):
         super().__init__(agent_id, starting_cash)
         self.persona = persona
         self.model = model
         self.decision_interval = decision_interval
         self._lessons: list[str] = []
         self._client = client
+        self.journal = journal   # enables condition-matched lesson retrieval
         self.api_calls = 0
 
     @property
@@ -80,6 +81,32 @@ class ClaudeTraderAgent(TradingAgent):
     def learn(self, lessons: list[str]) -> None:
         self._lessons.extend(lessons)
         self._lessons = self._lessons[-12:]
+
+    def perceive_regime(self, view: MarketView) -> str:
+        """Classify current conditions from public indicators only (the true
+        regime is hidden). Used to retrieve lessons learned under similar
+        conditions instead of merely recent ones."""
+        moms, vols = [], []
+        for symbol in view.candles:
+            m = self.momentum(symbol, 72)
+            v = self.volatility(symbol, 24)
+            if m is not None:
+                moms.append(m)
+            if v is not None:
+                vols.append(v)
+        if not moms:
+            return ""
+        mom = sum(moms) / len(moms)
+        vol = sum(vols) / len(vols) if vols else 0.0
+        if mom > 0.15 and vol > 0.02:
+            return "mania"
+        if mom < -0.15 and vol > 0.02:
+            return "crash"
+        if mom > 0.05:
+            return "bull"
+        if mom < -0.05:
+            return "bear"
+        return "chop"
 
     def _market_summary(self, view: MarketView) -> str:
         lines = []
@@ -108,7 +135,12 @@ class ClaudeTraderAgent(TradingAgent):
     def decide(self, view: MarketView) -> list[Order]:
         if view.step % self.decision_interval != 0 or view.step < 72:
             return []
-        lessons = "\n".join(f"- {l}" for l in self._lessons) or "- (no lessons yet)"
+        recalled = self._lessons
+        if self.journal is not None:
+            regime = self.perceive_regime(view)
+            recalled = self.journal.lessons_for(self.agent_id, limit=12,
+                                                regime=regime or None)
+        lessons = "\n".join(f"- {l}" for l in recalled) or "- (no lessons yet)"
         system = SYSTEM_PROMPT.format(agent_id=self.agent_id, persona=self.persona,
                                       lessons=lessons)
         prompt = (f"Step {view.step}. Current market state:\n\n{self._market_summary(view)}\n\n"

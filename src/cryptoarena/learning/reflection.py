@@ -82,19 +82,25 @@ def reflect_on_episode(journal: TradeJournal, stats: EpisodeStats) -> list[str]:
             f"episode {s.episode}: drawdown reached {s.max_drawdown:.0%} — "
             "position sizing too large for current volatility."
         )
+    regime_of: dict[str, str] = {}
     for regime, pnl in sorted(s.pnl_by_regime.items(), key=lambda kv: kv[1]):
         if pnl < -s.start_equity * 0.02:
-            lessons.append(
+            text = (
                 f"episode {s.episode}: lost {pnl:.2f} trading in '{regime}' regime — "
                 f"this strategy is mismatched to '{regime}'; reduce activity there."
             )
+            lessons.append(text)
+            regime_of[text] = regime
     if s.return_pct > 0.05 and s.win_rate > 0.55:
         best = max(s.pnl_by_regime, key=s.pnl_by_regime.get) if s.pnl_by_regime else None
         if best:
-            lessons.append(
+            text = (
                 f"episode {s.episode}: +{s.return_pct:.1%} with {s.win_rate:.0%} win rate, "
                 f"strongest in '{best}' regime — lean into this setup."
             )
+            lessons.append(text)
+            regime_of[text] = best
     for lesson in lessons:
-        journal.add_lesson(s.agent_id, s.episode, lesson)
+        journal.add_lesson(s.agent_id, s.episode, lesson,
+                           regime=regime_of.get(lesson, ""))
     return lessons

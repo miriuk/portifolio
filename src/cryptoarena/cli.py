@@ -9,7 +9,7 @@ from .arena.tournament import run_tournament
 from .learning.memory import TradeJournal
 
 
-def build_agents(cash: float, with_llm: bool, llm_model: str) -> list:
+def build_agents(cash: float, with_llm: bool, llm_model: str, journal=None) -> list:
     agents = [
         MomentumAgent("momentum-1", cash),
         MomentumAgent("momentum-2", cash, params={"lookback": 48, "entry_threshold": 0.035}),
@@ -19,7 +19,8 @@ def build_agents(cash: float, with_llm: bool, llm_model: str) -> list:
     ]
     if with_llm:
         if ClaudeTraderAgent.available():
-            agents.append(ClaudeTraderAgent("claude-trader", cash, model=llm_model))
+            agents.append(ClaudeTraderAgent("claude-trader", cash, model=llm_model,
+                                            journal=journal))
         else:
             print("warning: no ANTHROPIC_API_KEY / auth profile found — "
                   "running without the LLM agent (rule agents still learn).")
@@ -60,7 +61,7 @@ def main() -> None:
 
     if args.command == "run":
         journal = TradeJournal(args.db)
-        agents = build_agents(args.cash, args.llm, args.llm_model)
+        agents = build_agents(args.cash, args.llm, args.llm_model, journal=journal)
         try:
             run_tournament(agents, journal, episodes=args.episodes,
                            steps_per_episode=args.steps, seed=args.seed,

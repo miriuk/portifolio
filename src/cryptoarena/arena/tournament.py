@@ -109,6 +109,10 @@ def run_tournament(
                 if verbose:
                     print(f"  {line}")
 
+        # memories fade unless reinforced; stale ones are forgotten
+        for agent in agents:
+            journal.decay_lessons(agent.agent_id)
+
         # persist current params every episode
         for agent in agents:
             params = agent.get_params()

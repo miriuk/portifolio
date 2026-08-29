@@ -107,10 +107,17 @@ grande paga preço médio pior, deixa o book mais fino para o próximo agente no
 mesmo passo, e o candle seguinte abre onde o fluxo empurrou o preço. Erros de
 tamanho de ordem viram perdas reais de execução (padrão do `llm_trading_sim`).
 
+## Memória em camadas
+
+As lições têm **importância**: uma lição repetida é reforçada (importância sobe,
+decai mais devagar) em vez de duplicada; a cada episódio todas decaem 15% e as
+que caem abaixo do limiar são esquecidas. A recuperação é **por condição**: o
+agente Claude classifica o regime percebido (via momentum/volatilidade públicos)
+e recebe as lições aprendidas em condições parecidas, não apenas as mais
+recentes — o desenho do FinMem/FinAgent.
+
 ## Roadmap (ideias colhidas do estado da arte¹)
 
-- **Memória em camadas** com decaimento e promoção de insights lucrativos
-  (working → shallow → deep), recuperação por regime, não por recência — FinMem/FinAgent.
 - **Debate bull vs. bear** antes de cada decisão do agente LLM — TradingAgents.
 - **Contrafactuais**: "quanto teria rendido só segurar?" anexado a cada lição.
 - **Sim → paper → live**: mesma interface de agente rodando contra o simulador,
