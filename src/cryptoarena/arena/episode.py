@@ -38,7 +38,8 @@ def run_episode(
     journal with the market regime at the time, so reflection can attribute
     outcomes to conditions.
     """
-    exchange = exchange or SimulatedExchange()
+    if exchange is None:
+        exchange = market if hasattr(market, "execute") else SimulatedExchange()
     risk = {a.agent_id: RiskManager() for a in agents}
     result = EpisodeResult(episode=episode)
     for a in agents:

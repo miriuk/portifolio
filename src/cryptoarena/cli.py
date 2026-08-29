@@ -44,6 +44,9 @@ def main() -> None:
                      help="include the Claude trader agent (needs API credentials)")
     run.add_argument("--llm-model", default="claude-opus-5")
     run.add_argument("--no-evolve", action="store_true")
+    run.add_argument("--endogenous", action="store_true",
+                     help="agents trade against a shared order book and "
+                          "move prices with their own orders")
 
     lessons = sub.add_parser("lessons", help="show an agent's learned lessons")
     lessons.add_argument("agent_id")
@@ -61,7 +64,8 @@ def main() -> None:
         try:
             run_tournament(agents, journal, episodes=args.episodes,
                            steps_per_episode=args.steps, seed=args.seed,
-                           evolve=not args.no_evolve)
+                           evolve=not args.no_evolve,
+                           endogenous=args.endogenous)
         finally:
             journal.close()
     elif args.command == "lessons":

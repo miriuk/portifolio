@@ -94,10 +94,21 @@ src/cryptoarena/
 └── arena/       episódio, torneio com loop de aprendizado, leaderboard
 ```
 
+## Mercado endógeno (order book)
+
+```bash
+cryptoarena run --episodes 5 --endogenous
+```
+
+Em vez de preços vindos de um gerador, os agentes negociam contra um **order
+book compartilhado**: noise traders cotam liquidez em torno de um valor
+fundamental oculto, e as ordens dos agentes consomem essa liquidez — uma compra
+grande paga preço médio pior, deixa o book mais fino para o próximo agente no
+mesmo passo, e o candle seguinte abre onde o fluxo empurrou o preço. Erros de
+tamanho de ordem viram perdas reais de execução (padrão do `llm_trading_sim`).
+
 ## Roadmap (ideias colhidas do estado da arte¹)
 
-- **Order book endógeno**: agentes negociando uns contra os outros (preço movido
-  pelos próprios agentes), com fills parciais — padrão do `llm_trading_sim`.
 - **Memória em camadas** com decaimento e promoção de insights lucrativos
   (working → shallow → deep), recuperação por regime, não por recência — FinMem/FinAgent.
 - **Debate bull vs. bear** antes de cada decisão do agente LLM — TradingAgents.

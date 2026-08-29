@@ -7,6 +7,7 @@ from ..agents.llm import ClaudeTraderAgent
 from ..learning.evolution import evolve_population
 from ..learning.memory import TradeJournal
 from ..learning.reflection import compute_stats, reflect_on_episode
+from ..market.endogenous import EndogenousMarket
 from ..market.synthetic import SyntheticMarket
 from .episode import run_episode
 from .leaderboard import leaderboard_table
@@ -22,6 +23,7 @@ def run_tournament(
     evolve: bool = True,
     verbose: bool = True,
     market_factory=None,
+    endogenous: bool = False,
 ) -> dict[str, list]:
     """The full learning loop:
 
@@ -52,6 +54,8 @@ def run_tournament(
             print(f"\n=== episode {episode}/{episodes} ===")
         if market_factory is not None:
             market = market_factory(episode)
+        elif endogenous:
+            market = EndogenousMarket(symbols, seed=int(rng.integers(1 << 31)))
         else:
             market = SyntheticMarket(symbols, seed=int(rng.integers(1 << 31)))
         for agent in agents:
