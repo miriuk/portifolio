@@ -34,7 +34,29 @@ CREATE TABLE IF NOT EXISTS agent_state (
     params TEXT NOT NULL,      -- JSON of tunable parameters
     generation INTEGER DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS equity_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent_id TEXT NOT NULL,
+    episode INTEGER NOT NULL,
+    step INTEGER NOT NULL,
+    equity REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS episode_summary (
+    agent_id TEXT NOT NULL,
+    episode INTEGER NOT NULL,
+    start_equity REAL NOT NULL,
+    end_equity REAL NOT NULL,
+    n_trades INTEGER NOT NULL,
+    n_wins INTEGER NOT NULL,
+    n_losses INTEGER NOT NULL,
+    n_stop_losses INTEGER NOT NULL,
+    fees REAL NOT NULL,
+    max_drawdown REAL NOT NULL,
+    halted INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (agent_id, episode)
+);
 CREATE INDEX IF NOT EXISTS idx_trades_agent ON trades (agent_id, episode);
+CREATE INDEX IF NOT EXISTS idx_equity_agent ON equity_snapshots (agent_id, episode, step);
 """
 
 
@@ -63,6 +85,8 @@ class TradeJournal:
     def __init__(self, db_path: str | Path = "arena.db"):
         self.db_path = str(db_path)
         self._conn = sqlite3.connect(self.db_path)
+        # WAL lets a dashboard read the DB concurrently while a run is writing to it.
+        self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.executescript(SCHEMA)
         cols = {r[1] for r in self._conn.execute("PRAGMA table_info(lessons)")}
         if "regime" not in cols:
@@ -173,3 +197,31 @@ class TradeJournal:
         if row is None:
             return None
         return json.loads(row[0]), row[1]
+
+    def record_equity(self, agent_id: str, episode: int, step: int, equity: float) -> None:
+        """One point of a live equity curve — read by the dashboard while a
+        run is still in progress (WAL mode makes this safe concurrently)."""
+        self._conn.execute(
+            "INSERT INTO equity_snapshots (agent_id, episode, step, equity) VALUES (?, ?, ?, ?)",
+            (agent_id, episode, step, equity),
+        )
+        self._conn.commit()
+
+    def record_episode_summary(self, stats, halted: bool = False) -> None:
+        """Persist an EpisodeStats snapshot so the leaderboard survives the
+        run and can be read by a separate dashboard process."""
+        self._conn.execute(
+            """INSERT INTO episode_summary (agent_id, episode, start_equity, end_equity,
+               n_trades, n_wins, n_losses, n_stop_losses, fees, max_drawdown, halted)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(agent_id, episode) DO UPDATE SET
+                 start_equity=excluded.start_equity, end_equity=excluded.end_equity,
+                 n_trades=excluded.n_trades, n_wins=excluded.n_wins,
+                 n_losses=excluded.n_losses, n_stop_losses=excluded.n_stop_losses,
+                 fees=excluded.fees, max_drawdown=excluded.max_drawdown,
+                 halted=excluded.halted""",
+            (stats.agent_id, stats.episode, stats.start_equity, stats.end_equity,
+             stats.n_trades, stats.n_wins, stats.n_losses, stats.n_stop_losses,
+             stats.fees, stats.max_drawdown, int(halted)),
+        )
+        self._conn.commit()

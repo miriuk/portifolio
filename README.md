@@ -116,6 +116,25 @@ agente Claude classifica o regime percebido (via momentum/volatilidade públicos
 e recebe as lições aprendidas em condições parecidas, não apenas as mais
 recentes — o desenho do FinMem/FinAgent.
 
+## Dashboard ao vivo
+
+```bash
+pip install -e ".[ui]"
+cryptoarena dashboard          # abre em http://localhost:8501
+```
+
+Em outro terminal, rode o torneio apontando para o mesmo `--db`:
+
+```bash
+cryptoarena run --episodes 5
+```
+
+O dashboard lê o banco SQLite direto (modo WAL, leitura segura enquanto o
+torneio escreve) e atualiza sozinho a cada 5 segundos: leaderboard
+cumulativo, curvas de patrimônio por agente, trades recentes e as lições
+que cada agente está aprendendo, ordenadas por importância. Funciona com
+qualquer `--db` customizado: `cryptoarena dashboard --db meu_arena.db`.
+
 ## Debate bull vs. bear
 
 ```bash

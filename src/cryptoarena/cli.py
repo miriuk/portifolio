@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 from .agents.llm import ClaudeTraderAgent
@@ -61,6 +62,10 @@ def main() -> None:
     reset = sub.add_parser("reset", help="wipe the journal (start learning from zero)")
     reset.add_argument("--db", default="arena.db")
 
+    dash = sub.add_parser("dashboard", help="launch a live web dashboard (Streamlit)")
+    dash.add_argument("--db", default="arena.db")
+    dash.add_argument("--port", type=int, default=8501)
+
     args = parser.parse_args()
 
     if args.command == "run":
@@ -91,6 +96,19 @@ def main() -> None:
             print(f"removed {path}")
         else:
             print(f"{path} does not exist")
+    elif args.command == "dashboard":
+        import subprocess
+        try:
+            import streamlit  # noqa: F401
+        except ImportError:
+            print("Streamlit isn't installed. Run: pip install -e \".[ui]\"")
+            raise SystemExit(1)
+        dashboard_path = Path(__file__).parent / "dashboard.py"
+        subprocess.run([
+            sys.executable, "-m", "streamlit", "run", str(dashboard_path),
+            "--server.port", str(args.port),
+            "--", "--db", args.db,
+        ])
 
 
 if __name__ == "__main__":

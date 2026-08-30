@@ -60,6 +60,7 @@ def run_episode(
 
             equity = agent.wallet.equity(prices)
             result.equity_curves[agent.agent_id].append(equity)
+            journal.record_equity(agent.agent_id, episode, step, equity)
             if rm.peak_equity > 0:
                 dd = 1 - equity / rm.peak_equity
                 result.max_drawdown[agent.agent_id] = max(

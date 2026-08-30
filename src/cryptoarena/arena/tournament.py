@@ -76,6 +76,7 @@ def run_tournament(
             episode_stats.append(stats)
             all_stats[agent.agent_id].append(stats)
             full_curves[agent.agent_id].extend(curve)
+            journal.record_episode_summary(stats, halted=result.halted[agent.agent_id])
 
             lessons = reflect_on_episode(journal, stats)
             if isinstance(agent, ClaudeTraderAgent):
