@@ -61,7 +61,7 @@ def main() -> None:
     surv.add_argument("--days", type=int, default=30)
     surv.add_argument("--budget", type=float, default=5.0,
                       help="starting cash per founder (and per clone)")
-    surv.add_argument("--clone-at", type=float, default=2.0,
+    surv.add_argument("--clone-at", type=float, default=1.1,
                       help="hire a clone once equity reaches this multiple of the budget")
     surv.add_argument("--target", type=float, default=0.005,
                       help="daily return needed to earn the right to clone")

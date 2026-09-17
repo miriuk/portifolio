@@ -31,7 +31,7 @@ class RunConfig:
     # survival mode
     days: int = 30
     budget: float = 5.0
-    clone_at: float = 2.0
+    clone_at: float = 1.1
     daily_target: float = 0.005
     death_below: float = 0.6
     daily_cost: float = 0.001

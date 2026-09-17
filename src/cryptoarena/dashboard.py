@@ -177,9 +177,9 @@ def run_controls(db_path: str) -> background.RunState | None:
             days = st.slider("Days", 5, 180, 60)
             budget = st.number_input("Budget per agent", 1.0, 100_000.0, 5.0, step=1.0,
                                      help="a fiver each — clones cost a full budget")
-            clone_at = st.slider("Hire a clone at × budget", 1.1, 4.0, 2.0, 0.1,
+            clone_at = st.slider("Hire a clone at × budget", 1.05, 4.0, 1.1, 0.05,
                                  help="an agent hires a copy of itself once its equity "
-                                      "reaches this multiple of its budget (2 = doubled)")
+                                      "reaches this multiple of its budget (1.1 = +10%, 2 = doubled)")
             target = st.slider("Daily target %", 0.0, 3.0, 0.5, 0.1)
             death = st.slider("Dead below % of budget", 0, 95, 60, 5)
             cost = st.slider("Cost of living %/day", 0.0, 2.0, 0.1, 0.05)

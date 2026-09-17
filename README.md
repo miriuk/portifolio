@@ -181,7 +181,7 @@ viés de sobrevivência.
 | Parâmetro | Default | O que faz |
 |---|---|---|
 | `--budget` | 5 | uma "nota de cinco" por agente (unidades de cotação) |
-| `--clone-at` | 2.0 | contrata um clone só quando o patrimônio atinge esse múltiplo do orçamento (2 = dobrou); o filho recebe um orçamento inteiro, pago pelo pai |
+| `--clone-at` | 1.1 | contrata um clone quando o patrimônio atinge esse múltiplo do orçamento (1.1 = +10%; 2 = dobrou); o filho recebe um orçamento inteiro, pago pelo pai |
 | `--target` | 0.5%/dia | meta diária: define sequências, festas e imunidade |
 | `--death` | 60% | estagiário é dispensado abaixo dessa fração do próprio orçamento |
 | `--cost` | 0.1%/dia | aluguel: sai do caixa todo dia, operando ou não |

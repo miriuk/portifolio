@@ -33,7 +33,7 @@ class SurvivalConfig:
     death_below: float = 0.6        # dead when equity < own budget * this
     daily_cost: float = 0.001       # cost of living (compute/API), fraction of own budget per day
     max_population: int = 12
-    clone_at: float = 2.0           # hire a clone only once equity reaches this × own budget
+    clone_at: float = 1.1           # hire a clone once equity reaches this × own budget (+10%)
     pressure: float = 0.0           # each missed target scales order size by (1 + pressure)
     week_days: int = 7              # happy hour every N days for whoever beat the weekly target
     explore_every: int = 3          # every Nth intern is born mutated (exploration); the rest are faithful copies
