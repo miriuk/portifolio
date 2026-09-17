@@ -39,9 +39,12 @@ def build_state(data: dict[str, pd.DataFrame], running: bool = False) -> dict:
                             survival)
     events = []
     if not survival.empty:
-        notable = survival[survival["event"].isin(["born", "died", "cloned", "spared"])].tail(8)
+        notable = survival[survival["event"].isin(
+            ["born", "died", "cloned", "spared", "trained"])].tail(8)
         events = [{"day": int(r["day"]), "agent_id": r["agent_id"], "event": r["event"],
-                   "detail": str(r["detail"] or "")} for _, r in notable.iterrows()]
+                   "detail": str(r["detail"] or ""),
+                   "other": (r["parent_id"] if isinstance(r["parent_id"], str) else None)}
+                  for _, r in notable.iterrows()]
     day = int(summary["episode"].max()) if not summary.empty else 0
     alive = [v for v in vitals if v.alive]
     return {

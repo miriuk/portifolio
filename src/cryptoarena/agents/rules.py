@@ -21,11 +21,33 @@ class ParamAgent(TradingAgent):
     def set_params(self, params: dict) -> None:
         self.params.update({k: v for k, v in params.items() if k in self.DEFAULTS})
 
-    def clone(self, agent_id: str, starting_cash: float, rng=None) -> "ParamAgent":
-        from ..learning.evolution import mutate_params
-        import numpy as np
-        params = mutate_params(self.params, rng or np.random.default_rng())
-        return type(self)(agent_id, starting_cash, params=params)
+    def clone(self, agent_id: str, starting_cash: float, rng=None,
+              mutate: bool = False) -> "ParamAgent":
+        from collections import deque
+        params = dict(self.params)
+        if mutate:
+            import numpy as np
+            from ..learning.evolution import mutate_params
+            params = mutate_params(params, rng or np.random.default_rng())
+        child = type(self)(agent_id, starting_cash, params=params)
+        # born with the parent's view of the market, so indicators work on day one
+        child.history = {sym: deque(h, maxlen=h.maxlen) for sym, h in self.history.items()}
+        return child
+
+    def imitate(self, params: dict, rate: float) -> None:
+        for key, target in params.items():
+            if key not in self.DEFAULTS or isinstance(target, bool) \
+                    or not isinstance(target, (int, float)):
+                continue
+            mine = self.params.get(key, self.DEFAULTS[key])
+            moved = mine + rate * (target - mine)
+            self.params[key] = type(self.DEFAULTS[key])(round(moved) if isinstance(
+                self.DEFAULTS[key], int) else moved)
+
+    def _can_buy(self) -> bool:
+        """Enough cash to place an order worth having — relative to the
+        agent's own budget, so a small intern can trade too."""
+        return self.wallet.cash > max(self.starting_cash * 0.05, 1.0)
 
     def learn(self, lessons: list[str]) -> None:
         """Map lesson themes onto parameter nudges — errors change behavior.
@@ -76,7 +98,7 @@ class MomentumAgent(ParamAgent):
             if mom is None:
                 continue
             held = self.wallet.positions.get(symbol, 0.0)
-            if mom > self.params["entry_threshold"] and self.wallet.cash > 100:
+            if mom > self.params["entry_threshold"] and self._can_buy():
                 orders.append(Order(self.agent_id, symbol, "buy",
                                     self._order_amount(view),
                                     reason=f"momentum {mom:+.2%}"))
@@ -109,7 +131,7 @@ class MeanReversionAgent(ParamAgent):
             deviation = (candle.close - avg) / avg
             held = self.wallet.positions.get(symbol, 0.0)
             basis = self.wallet.cost_basis.get(symbol, 0.0)
-            if deviation < -self.params["entry_threshold"] and self.wallet.cash > 100:
+            if deviation < -self.params["entry_threshold"] and self._can_buy():
                 orders.append(Order(self.agent_id, symbol, "buy",
                                     self._order_amount(view),
                                     reason=f"dip {deviation:+.2%} vs sma"))
@@ -150,7 +172,7 @@ class BreakoutAgent(ParamAgent):
                 continue
             cooled = view.step - self._last_trade_step >= int(self.params["cooldown"])
             if cooled and candle.close > prior_high * (1 + self.params["entry_threshold"]) \
-                    and self.wallet.cash > 100:
+                    and self._can_buy():
                 orders.append(Order(self.agent_id, symbol, "buy",
                                     self._order_amount(view),
                                     reason=f"breakout above {prior_high:.2f}"))

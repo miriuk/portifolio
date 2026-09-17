@@ -173,8 +173,71 @@ def test_happy_hour_rewards_weekly_winners(tmp_path):
     journal.close()
 
 
-def test_clone_mutation_is_seeded():
-    parent = MomentumAgent("momentum-1", 1_000.0)
-    a = parent.clone("momentum-2", 500.0, np.random.default_rng(0)).get_params()
-    b = parent.clone("momentum-3", 500.0, np.random.default_rng(0)).get_params()
-    assert a == b and a != parent.get_params()
+def test_clone_is_faithful_by_default_and_warm():
+    from collections import deque
+    from cryptoarena.market.candle import Candle
+    parent = MomentumAgent("momentum-1", 1_000.0, params={"lookback": 30})
+    parent.history["BTCUSDT"] = deque(
+        [Candle("BTCUSDT", t, 100.0, 101.0, 99.0, 100.0 + t, 1.0) for t in range(80)], maxlen=200)
+    child = parent.clone("momentum-2", 120.0)
+    assert child.get_params() == parent.get_params()                 # same brain
+    assert child.momentum("BTCUSDT", 30) == parent.momentum("BTCUSDT", 30)   # same eyes, day one
+    child.history["BTCUSDT"].append(Candle("BTCUSDT", 99, 1, 1, 1, 1.0, 1.0))
+    assert len(parent.history["BTCUSDT"]) == 80                      # but its own copy
+    assert child._can_buy() and child.wallet.cash == 120.0           # and it can trade
+
+    mutated = parent.clone("momentum-3", 120.0, np.random.default_rng(0), mutate=True)
+    again = parent.clone("momentum-4", 120.0, np.random.default_rng(0), mutate=True)
+    assert mutated.get_params() != parent.get_params()
+    assert mutated.get_params() == again.get_params()                # seeded exploration
+
+
+def test_small_intern_can_buy_and_imitation_moves_params():
+    intern = MomentumAgent("momentum-2", 80.0, params={"entry_threshold": 0.04, "cooldown": 8})
+    assert intern._can_buy()                       # 80 > 5% of 80; the old 'cash > 100' blocked it
+    intern.wallet.cash = 3.0
+    assert not intern._can_buy()
+    intern.imitate({"entry_threshold": 0.02, "cooldown": 4, "lookback": 24, "junk": 9}, 0.5)
+    assert intern.params["entry_threshold"] == 0.03
+    assert intern.params["cooldown"] == 6 and isinstance(intern.params["cooldown"], int)
+    assert "junk" not in intern.params
+
+
+def test_weekly_training_imitates_the_best_specialist(tmp_path):
+    from cryptoarena.arena.survival import _weekly_training
+    journal = TradeJournal(tmp_path / "s.db")
+    good = Individual(MomentumAgent("momentum-1", 1000.0, params={"entry_threshold": 0.010}),
+                      "momentum", 1000.0, None, 0, 0)
+    bad = Individual(MomentumAgent("momentum-2", 1000.0, params={"entry_threshold": 0.050}),
+                     "momentum", 1000.0, None, 0, 0)
+    other = Individual(MeanReversionAgent("meanrev-1", 1000.0), "meanreversion", 1000.0, None, 0, 0)
+    intern = Individual(MomentumAgent("momentum-3", 200.0, params={"entry_threshold": 0.030}),
+                        "momentum", 200.0, "momentum-2", 1, 3)
+    stats = lambda aid, ep, s, e: type("S", (), dict(   # noqa: E731
+        agent_id=aid, episode=ep, start_equity=s, end_equity=e, n_trades=1, n_wins=1,
+        n_losses=0, n_stop_losses=0, fees=0.0, max_drawdown=0.0))()
+    for ep in range(1, 8):
+        journal.record_episode_summary(stats("momentum-1", ep, 1000 + 10 * (ep - 1), 1000 + 10 * ep))
+        journal.record_episode_summary(stats("momentum-2", ep, 1000 - 5 * (ep - 1), 1000 - 5 * ep))
+    cfg = SurvivalConfig(imitation_rate=0.5, week_days=7)
+    trained = _weekly_training(7, [good, bad, other, intern], cfg, journal)
+    assert trained == [("momentum-3", "momentum-1")]         # the best week, not the parent
+    assert abs(intern.agent.params["entry_threshold"] - 0.020) < 1e-9
+    ev = journal._conn.execute("SELECT parent_id, detail FROM survival_events WHERE event='trained'").fetchone()
+    assert ev[0] == "momentum-1" and "imitated momentum-1" in ev[1]
+    assert journal.load_params("momentum-3")[0]["entry_threshold"] == intern.agent.params["entry_threshold"]
+    journal.close()
+
+
+def test_tip_also_nudges_parameters(tmp_path):
+    from cryptoarena.arena.survival import _consult_mentor
+    journal = TradeJournal(tmp_path / "s.db")
+    senior = Individual(MomentumAgent("momentum-1", 1000.0, params={"cooldown": 4}), "momentum",
+                        1000.0, None, 0, 0)
+    intern = Individual(MomentumAgent("momentum-2", 200.0, params={"cooldown": 14}), "momentum",
+                        200.0, "momentum-1", 1, 3)
+    journal.add_lesson("momentum-1", 2, "day 2: fees ate a losing day — overtrading; trade less.")
+    assert _consult_mentor(intern, 4, [senior, intern], journal, tip_rate=0.5) == "momentum-1"
+    # learn() nudges cooldown up (overtrading), then imitation pulls halfway to the mentor's 4
+    assert intern.agent.params["cooldown"] < 14
+    journal.close()

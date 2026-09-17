@@ -53,10 +53,15 @@ class TradingAgent(ABC):
     def reset_wallet(self) -> None:
         self.wallet = Wallet(cash=self.starting_cash)
 
-    def clone(self, agent_id: str, starting_cash: float, rng=None) -> "TradingAgent | None":
-        """A fresh offspring with (mutated) parameters, or None if this
+    def clone(self, agent_id: str, starting_cash: float, rng=None,
+              mutate: bool = False) -> "TradingAgent | None":
+        """A fresh offspring: a faithful copy by default (parameters and the
+        warmed-up indicator history), mutated only when asked. None if this
         agent type cannot reproduce."""
         return None
+
+    def imitate(self, params: dict, rate: float) -> None:
+        """Move own tunable parameters a fraction of the way towards `params`."""
 
     # --- indicator helpers ---------------------------------------------------
     def closes(self, symbol: str, n: int) -> list[float]:

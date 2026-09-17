@@ -315,6 +315,7 @@ const REGIME_LINES = { crash: `Regime flipped to crash. Who's still long?`, mani
 const EVENT_LINES = e => e.event === 'born' ? `Welcome to the intern room, ${e.agent_id}. Same target, smaller budget.`
   : e.event === 'died' ? `Heads up: ${e.agent_id} was let go for missing the target. Desk's empty.`
   : e.event === 'spared' ? `${e.agent_id} was below the line today — last week's win kept them here.`
+  : e.event === 'trained' ? `${e.agent_id} rewrote half their playbook after ${e.other || 'the best specialist'}'s week.`
   : `${e.agent_id} hired an intern. Someone actually made money.`;
 const ASK = [(a, m) => `${m.agent_id}, got a minute? Missed the target ${a.misses > 1 ? a.misses + ' days running' : 'yesterday'}.`,
              (a, m) => `Any tips on ${sym(a)}, ${m.agent_id}? My book says buy and my gut says run.`,

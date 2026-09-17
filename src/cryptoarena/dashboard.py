@@ -124,11 +124,11 @@ def colony_view(events: pd.DataFrame) -> None:
         st.caption(f"🏆 employee of the week: **{f['agent_id']}** ({f['detail']})")
     notable = events[events["event"].isin(["born", "cloned", "died", "target_hit",
                                            "consulted", "party", "employee_of_week",
-                                           "immune", "spared"])].copy()
+                                           "immune", "spared", "trained"])].copy()
     notable["event"] = notable["event"].replace({
         "died": "let go", "consulted": "asked a tip", "party": "happy hour",
         "employee_of_week": "employee of the week", "immune": "immunity earned",
-        "spared": "spared by immunity"})
+        "spared": "spared by immunity", "trained": "weekly training"})
     with st.expander(f"event log ({len(notable)} events)"):
         st.dataframe(notable[["day", "agent_id", "event", "equity", "detail"]]
                      .sort_values("day", ascending=False),

@@ -244,6 +244,17 @@ O melhor da semana vira **funcionário da semana**: o quadro na parede do
 meio da sala mostra o nome, ele ganha um 🏆 sobre a cabeça, o ego sobe
 (humor "proud") — e a lição "lean into this setup" entra na memória dele.
 
+**Como os estagiários aprendem.** Um estagiário nasce como **cópia fiel**
+do pai — mesmos parâmetros, o livro inteiro de lições e o histórico de
+indicadores já aquecido, para poder decidir desde o primeiro dia (a cada
+`explore_every`=3 contratações, uma nasce **mutada**, para a colônia
+continuar explorando). O limite de caixa para comprar é **proporcional ao
+orçamento** do agente, então um estagiário pequeno também opera. E o
+aprendizado é numérico, não só uma frase: toda semana cada estagiário move
+seus parâmetros metade do caminho (`imitation_rate`) na direção do
+especialista da mesma estratégia com a **melhor semana** (evento
+`trained`), e cada dica de mentor também puxa 10% (`tip_rate`).
+
 **Imunidade.** O prêmio que importa: quem venceu a semana **não pode ser
 dispensado na semana seguinte**, mesmo sem bater a meta. Um estagiário
 imune que cai abaixo da linha é "poupado" (evento `spared`) em vez de

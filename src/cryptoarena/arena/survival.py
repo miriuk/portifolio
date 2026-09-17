@@ -36,6 +36,9 @@ class SurvivalConfig:
     min_clone_budget: float = 0.05  # a child needs at least this * budget to be born
     pressure: float = 0.0           # each missed target scales order size by (1 + pressure)
     week_days: int = 7              # happy hour every N days for whoever beat the weekly target
+    explore_every: int = 3          # every Nth intern is born mutated (exploration); the rest are faithful copies
+    imitation_rate: float = 0.5     # weekly: interns move this far towards the best specialist's params
+    tip_rate: float = 0.1           # a tip also nudges the intern's params towards the mentor's
     seed: int | None = None
     endogenous: bool = True
     symbols: dict[str, float] | None = None
@@ -166,21 +169,25 @@ def run_survival(
                 journal.record_survival_event(
                     day, ind.agent_id, "target_hit", end, ind.parent_id, ind.generation,
                     ind.strategy, f"streak {ind.streak}")
+                n_interns = sum(1 for i in result.population if i.generation > 0) + len(births)
                 child = _try_clone(ind, day, end, cfg, rng, journal, next_id,
-                                   population_size=len(alive) + len(births))
+                                   population_size=len(alive) + len(births),
+                                   mutate=(n_interns + 1) % cfg.explore_every == 0)
                 if child is not None:
                     births.append(child)
             else:
                 ind.streak = 0
                 ind.misses += 1
-                _consult_mentor(ind, day, alive, journal)
+                _consult_mentor(ind, day, alive, journal, cfg.tip_rate)
             journal.record_survival_event(day, ind.agent_id, "survived", end,
                                           ind.parent_id, ind.generation, ind.strategy,
                                           f"cost {cost:.2f}")
             journal.decay_lessons(ind.agent_id)
 
         if day % cfg.week_days == 0:
-            _happy_hour(day, day // cfg.week_days, [i for i in alive if i.alive], cfg, journal)
+            still_here = [i for i in alive if i.alive]
+            _happy_hour(day, day // cfg.week_days, still_here, cfg, journal)
+            _weekly_training(day, still_here, cfg, journal)
         result.population.extend(births)
         survivors = result.alive
         result.alive_per_day.append(len(survivors))
@@ -248,11 +255,50 @@ def _happy_hour(day: int, week: int, alive: list[Individual], cfg: SurvivalConfi
     return [i.agent_id for _, i in winners]
 
 
+def _week_return(journal: TradeJournal, agent_id: str, day: int, week_days: int) -> float | None:
+    rows = journal._conn.execute(
+        """SELECT start_equity, end_equity FROM episode_summary
+           WHERE agent_id = ? AND episode > ? AND episode <= ? ORDER BY episode""",
+        (agent_id, day - week_days, day)).fetchall()
+    if not rows or rows[0][0] <= 0:
+        return None
+    return rows[-1][1] / rows[0][0] - 1
+
+
+def _weekly_training(day: int, alive: list[Individual], cfg: SurvivalConfig,
+                     journal: TradeJournal) -> list[tuple[str, str]]:
+    """Imitation learning: every intern moves its parameters part of the
+    way towards the same-strategy specialist who had the best week. The
+    knowledge transfer is numeric, not a sentence. Returns (intern, mentor)."""
+    if not cfg.imitation_rate:
+        return []
+    trained = []
+    for intern in alive:
+        if intern.generation == 0 or intern.agent.get_params() is None:
+            continue
+        peers = [s for s in alive if s.generation == 0 and type(s.agent) is type(intern.agent)]
+        scored = [(r, s) for s in peers
+                  if (r := _week_return(journal, s.agent_id, day, cfg.week_days)) is not None]
+        if not scored:
+            continue
+        best_ret, mentor = max(scored, key=lambda rs: rs[0])
+        intern.agent.imitate(mentor.agent.get_params(), cfg.imitation_rate)
+        prev = journal.load_params(intern.agent_id)
+        journal.save_params(intern.agent_id, intern.agent.get_params(), prev[1] if prev else 0)
+        journal.record_survival_event(day, intern.agent_id, "trained", best_ret,
+                                      mentor.agent_id, intern.generation, intern.strategy,
+                                      f"imitated {mentor.agent_id} ({best_ret:+.1%} this week) "
+                                      f"at {cfg.imitation_rate:.0%}")
+        trained.append((intern.agent_id, mentor.agent_id))
+    return trained
+
+
 def _consult_mentor(intern: Individual, day: int, alive: list[Individual],
-                    journal: TradeJournal) -> str | None:
+                    journal: TradeJournal, tip_rate: float = 0.0) -> str | None:
     """An intern (any clone) who missed the target asks a senior for a tip
     and actually learns it: the mentor's most important lesson is copied
-    into the intern's memory. Founders never ask; they are the mentors.
+    into the intern's memory, and its parameters nudge towards the mentor's
+    when they share a strategy. Founders never ask; they are the mentors.
     Returns the mentor's id, or None if nobody was consulted."""
     if intern.generation == 0:
         return None
@@ -271,6 +317,8 @@ def _consult_mentor(intern: Individual, day: int, alive: list[Individual],
         return None
     tip = tips[-1]
     intern.agent.learn([tip])
+    if tip_rate and type(mentor.agent) is type(intern.agent) and mentor.agent.get_params():
+        intern.agent.imitate(mentor.agent.get_params(), tip_rate)
     journal.add_lesson(intern.agent_id, day, f"tip from {mentor.agent_id}: {tip}")
     journal.record_survival_event(day, intern.agent_id, "consulted", 0.0,
                                   mentor.agent_id, intern.generation, intern.strategy, tip)
@@ -278,9 +326,11 @@ def _consult_mentor(intern: Individual, day: int, alive: list[Individual],
 
 
 def _try_clone(parent: Individual, day: int, equity: float, cfg: SurvivalConfig, rng,
-               journal, next_id, population_size: int) -> Individual | None:
+               journal, next_id, population_size: int, mutate: bool = False) -> Individual | None:
     """A child is paid out of the parent's profit (equity above its own
-    budget), in cash — so a parent fully invested has to wait."""
+    budget), in cash — so a parent fully invested has to wait. It is a
+    faithful copy of the parent (parameters, lessons, warmed-up indicators)
+    unless this birth is an exploration one, in which case it is mutated."""
     if population_size >= cfg.max_population:
         return None
     wallet = parent.agent.wallet
@@ -289,13 +339,13 @@ def _try_clone(parent: Individual, day: int, equity: float, cfg: SurvivalConfig,
     if child_budget < parent.budget * cfg.min_clone_budget:
         return None
     child_id = next_id(parent.agent_id.rsplit("-", 1)[0])
-    child_agent = parent.agent.clone(child_id, child_budget, rng)
+    child_agent = parent.agent.clone(child_id, child_budget, rng, mutate=mutate)
     if child_agent is None:
         return None
     wallet.cash -= child_budget
     child = Individual(child_agent, parent.strategy, child_budget, parent.agent_id,
                        parent.generation + 1, born_day=day)
-    inherited = journal.lessons_for(parent.agent_id)
+    inherited = journal.lessons_for(parent.agent_id, limit=100)   # the whole book
     child_agent.learn(inherited)
     for lesson in inherited:
         journal.add_lesson(child_id, day, lesson)
@@ -309,5 +359,6 @@ def _try_clone(parent: Individual, day: int, equity: float, cfg: SurvivalConfig,
                                   parent.parent_id, parent.generation, parent.strategy,
                                   f"child {child_id} with {child_budget:.0f}")
     journal.record_survival_event(day, child_id, "born", child_budget, parent.agent_id,
-                                  child.generation, child.strategy)
+                                  child.generation, child.strategy,
+                                  "mutated (exploration)" if mutate else "faithful copy")
     return child
