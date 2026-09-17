@@ -20,7 +20,7 @@ def test_lineage_dot_marks_parents_and_deaths():
     dot = lineage_dot(events)
     assert dot.startswith("digraph lineage")
     assert '"momentum-1" -> "momentum-2"' in dot
-    assert "✝ day 30" in dot                       # the dead are labelled
+    assert "let go · day 30" in dot                # the dismissed are labelled, gently
     assert dot.count('fillcolor="#f7931a"') == 1   # only the living founder keeps its color
     assert "gen 0 · 1,234" in dot                  # living nodes show their latest equity
 

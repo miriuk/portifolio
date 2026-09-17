@@ -59,19 +59,27 @@ const pct = v => (v >= 0 ? '+' : '') + (v * 100).toFixed(2) + '%';
 
 // ---------------------------------------------------------------- furniture
 const ticker = { x: 5.5, y: -0.4 };                      // big board on the back wall
-const couch = { x: 0.8, y: GRID_H - 0.9 }, coffee = { x: GRID_W - 1.2, y: GRID_H - 0.9 },
-      board = { x: GRID_W - 0.4, y: 1 };
-const graveyard = { x: 0.5, y: 0.5 };
+const couch = { x: 0.8, y: GRID_H - 0.9 }, coffee = { x: 3.6, y: GRID_H - 0.9 },
+      board = { x: GRID_W - 0.4, y: 1 }, exit = { x: 0, y: 3.6 };
+const ROOM = { x: 6.2, y: 5.9 };            // the interns' room: bottom-right corner
 const agents = (STATE && STATE.agents) || [];
 const alive = agents.filter(a => a.alive);
-const dead = agents.filter(a => !a.alive);
-// desks in rows of 4, centred
-alive.forEach((a, i) => {
-  const cols = Math.min(4, Math.max(1, alive.length));
+const gone = agents.filter(a => !a.alive);   // let go for missing the target
+const seniors = alive.filter(a => a.role !== 'intern');
+const interns = alive.filter(a => a.role === 'intern');
+// specialists: rows of 4 on the main floor
+seniors.forEach((a, i) => {
   const row = Math.floor(i / 4), col = i % 4;
-  const rowCount = Math.min(4, alive.length - row * 4);
-  a.desk = { x: 2.4 + col * 2.2 + (4 - rowCount) * 1.1, y: 2.2 + row * 2.3 };
+  const rowCount = Math.min(4, seniors.length - row * 4);
+  a.desk = { x: 2.2 + col * 2.2 + (4 - rowCount) * 1.1, y: 1.6 + row * 1.9 };
 });
+// interns: smaller desks in their own room, rows of 3
+interns.forEach((a, i) => {
+  const row = Math.floor(i / 3), col = i % 3;
+  a.desk = { x: ROOM.x + 0.6 + col * 1.7, y: ROOM.y + 0.5 + row * 1.15 };
+});
+const byId = Object.fromEntries(alive.map(a => [a.agent_id, a]));
+const mentorOf = a => byId[a.mentor] || byId[a.parent_id] || seniors[hash(a.agent_id) % Math.max(1, seniors.length)] || null;
 
 // ---------------------------------------------------------------- drawing primitives
 function tile(x, y, fill, stroke) {
@@ -139,33 +147,69 @@ function drawTickerBoard(t) {
 }
 function drawDesk(a, t) {
   const { x, y } = a.desk;
-  cube(x, y, 1.6, 0.8, 14, '#3b3f4a');                                  // desk
-  cube(x + 0.55, y + 0.15, 0.5, 0.08, 16, '#111827', 14);                // monitor
+  const small = a.role === 'intern';
+  cube(x, y, small ? 1.3 : 1.6, small ? 0.6 : 0.8, small ? 12 : 14, small ? '#4b4f5a' : '#3b3f4a');   // desk
+  cube(x + 0.55, y + 0.15, 0.5, 0.08, small ? 14 : 16, '#111827', small ? 12 : 14);                     // monitor
   const glow = a.day_return > 0 ? '#22c55e' : a.day_return < 0 ? '#ef4444' : '#38bdf8';
-  const s = iso(x + 0.8, y + 0.19, 14 + 10); ctx.fillStyle = glow; ctx.globalAlpha = .55 + .25 * Math.sin(t / 300 + hash(a.agent_id));
+  const s = iso(x + 0.8, y + 0.19, (small ? 12 : 14) + 10); ctx.fillStyle = glow; ctx.globalAlpha = .55 + .25 * Math.sin(t / 300 + hash(a.agent_id));
   ctx.fillRect(s.x - 9, s.y - 6, 18, 8); ctx.globalAlpha = 1;
-  label(a.agent_id, x + 0.8, y + 0.9, -2, '#cbd5e1', 10);
+  label(a.agent_id, x + 0.8, y + (small ? 0.7 : 0.9), -2, '#cbd5e1', small ? 9 : 10);
 }
 function drawCouch() { cube(couch.x, couch.y, 2.2, 0.9, 10, '#6b3a3a'); cube(couch.x, couch.y, 2.2, 0.25, 22, '#7a4444'); }
 function drawCoffee() { cube(coffee.x, coffee.y, 0.7, 0.7, 26, '#475569'); const p = iso(coffee.x + .35, coffee.y + .35, 30); ctx.fillStyle = '#fbbf24'; ctx.fillRect(p.x - 2, p.y - 2, 4, 4); }
 function drawBoard() { cube(board.x, board.y, 0.15, 2.2, 40, '#e2e8f0', 20); cube(board.x, board.y, 0.15, 2.2, 20, '#94a3b8'); }
 function drawPlant(x, y) { cube(x, y, 0.5, 0.5, 8, '#7c3f2a'); cube(x - .1, y - .1, 0.7, 0.7, 6, '#16a34a', 8); cube(x + .05, y + .05, 0.4, 0.4, 8, '#22c55e', 14); }
-function drawGrave(a, i) {
-  const x = graveyard.x + (i % 3) * 0.9, y = graveyard.y + Math.floor(i / 3) * 0.9 + 3.5;
-  cube(x, y, 0.5, 0.2, 18, '#6b7280'); label('✝ ' + a.agent_id, x + .25, y + .5, -2, '#9ca3af', 9);
+function drawRoom() {   // low glass partition around the interns' room
+  cube(ROOM.x - 0.1, ROOM.y - 0.1, GRID_W - ROOM.x + 0.1, 0.12, 22, '#334155');
+  cube(ROOM.x - 0.1, ROOM.y - 0.1, 0.12, GRID_H - ROOM.y + 0.1, 22, '#334155');
+  label('INTERNS', ROOM.x + (GRID_W - ROOM.x) / 2, ROOM.y - 0.35, 30, '#64748b', 10);
+}
+function drawExit() {    // door on the left wall, and the notice about who was let go
+  const a = iso(exit.x, exit.y, 0), b = iso(exit.x, exit.y + 1, 0), c = iso(exit.x, exit.y + 1, 60), d = iso(exit.x, exit.y, 60);
+  ctx.fillStyle = '#1f2937'; ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.lineTo(c.x, c.y); ctx.lineTo(d.x, d.y); ctx.fill();
+  ctx.fillStyle = '#22c55e'; const s = iso(exit.x, exit.y + 0.5, 64); ctx.font = 'bold 9px ui-sans-serif'; ctx.textAlign = 'center'; ctx.fillText('EXIT', s.x, s.y);
+  if (gone.length) {
+    const n = iso(exit.x, exit.y + 2.6, 46); ctx.fillStyle = '#e2e8f0'; ctx.fillRect(n.x - 46, n.y - 30, 92, 12 + gone.length * 11);
+    ctx.fillStyle = '#334155'; ctx.font = 'bold 8px ui-sans-serif'; ctx.fillText('LET GO · missed target', n.x, n.y - 21);
+    ctx.font = '8px ui-sans-serif'; gone.forEach((g, i) => ctx.fillText(g.agent_id, n.x, n.y - 10 + i * 11));
+  }
 }
 
 // ---------------------------------------------------------------- behaviour: where is everyone
+// one intern at a time gets up and walks to a specialist's desk for a tip
+const VISIT_MS = 16000, VISIT = { walk: 4000, talk: 6000 };
+function currentVisit(t) {
+  if (!interns.length || !seniors.length) return null;
+  const slot = Math.floor(t / VISIT_MS), age = t - slot * VISIT_MS;
+  const intern = interns[slot % interns.length], mentor = mentorOf(intern);
+  if (!mentor || !mentor.desk || age > VISIT.walk * 2 + VISIT.talk) return null;
+  const phase = age < VISIT.walk ? 'going' : age < VISIT.walk + VISIT.talk ? 'talking' : 'returning';
+  return { intern, mentor, phase, age, slot };
+}
 function position(a, t) {
   const s = hash(a.agent_id), T = t / 1000;
   const desk = { x: a.desk.x + 0.8, y: a.desk.y + 1.25 };
-  const wander = (from, to, period, phase) => { const k = (Math.sin(T / period * Math.PI * 2 + phase) + 1) / 2; return { x: from.x + (to.x - from.x) * k, y: from.y + (to.y - from.y) * k }; };
+  const lerp = (p, q, k) => ({ x: p.x + (q.x - p.x) * k, y: p.y + (q.y - p.y) * k });
+  const ease = k => k < .5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+  const v = currentVisit(t);
+  if (v && v.intern === a) {
+    const spot = { x: v.mentor.desk.x + 1.9, y: v.mentor.desk.y + 1.0 };   // beside the mentor's chair
+    if (v.phase === 'going') return { ...lerp(desk, spot, ease(v.age / VISIT.walk)), z: 0, pose: 'walk' };
+    if (v.phase === 'talking') return { ...spot, z: 0, pose: 'stand' };
+    return { ...lerp(spot, desk, ease((v.age - VISIT.walk - VISIT.talk) / VISIT.walk)), z: 0, pose: 'walk' };
+  }
+  if (v && v.mentor === a) return { ...desk, z: 0, pose: 'stand' };          // turns to help
+  const wander = (from, to, period, phase) => lerp(from, to, (Math.sin(T / period * Math.PI * 2 + phase) + 1) / 2);
+  const intern = a.role === 'intern';
   switch (a.activity) {
-    case 'resting':     return { ...wander(desk, { x: couch.x + 1.1, y: couch.y + 1.3 }, 40, s % 7), z: 0, pose: 'slump' };
-    case 'pacing':      return { ...wander({ x: desk.x - 1.2, y: desk.y }, { x: desk.x + 1.2, y: desk.y }, 3 + (s % 3), s % 5), z: 0, pose: 'walk' };
-    case 'studying':    return { ...wander(desk, { x: board.x - 0.9, y: board.y + 1.1 }, 30, s % 11), z: 0, pose: 'stand' };
+    case 'resting':     return intern ? { ...desk, z: 0, pose: 'slump' }
+                        : { ...wander(desk, { x: couch.x + 1.1, y: couch.y + 1.3 }, 40, s % 7), z: 0, pose: 'slump' };
+    case 'pacing':      return { ...wander({ x: desk.x - (intern ? 0.5 : 1.2), y: desk.y }, { x: desk.x + (intern ? 0.5 : 1.2), y: desk.y }, 3 + (s % 3), s % 5), z: 0, pose: 'walk' };
+    case 'studying':    return intern ? { ...wander(desk, { x: GRID_W - 0.9, y: GRID_H - 0.8 }, 30, s % 11), z: 0, pose: 'stand' }
+                        : { ...wander(desk, { x: board.x - 0.9, y: board.y + 1.1 }, 30, s % 11), z: 0, pose: 'stand' };
     case 'celebrating': return { ...desk, z: Math.abs(Math.sin(T * 6 + s)) * 14, pose: 'arms' };
-    case 'watching':    return { ...wander(desk, { x: 5 + (s % 3) - 1, y: 1.2 }, 26, s % 13), z: 0, pose: 'stand' };
+    case 'watching':    return intern ? { ...wander(desk, { x: ROOM.x + 0.4, y: ROOM.y + 0.3 }, 26, s % 13), z: 0, pose: 'stand' }
+                        : { ...wander(desk, { x: 5 + (s % 3) - 1, y: 1.2 }, 26, s % 13), z: 0, pose: 'stand' };
     case 'trading':
     default:            return { ...desk, z: Math.abs(Math.sin(T * 2.2 + s)) * 2, pose: 'type' };
   }
@@ -204,9 +248,9 @@ const LINES = {
   anxious: [a => `Missed the target ${a.misses > 1 ? a.misses + ' days running' : 'again'}. Rent is still due.`,
             a => `${sym(a)} stopped me out. ${a.stop_losses > 1 ? a.stop_losses + ' stops this week.' : 'First one hurts.'}`,
             a => `Is this a dip or a crash? Someone tell me it's a dip.`],
-  panicking: [a => `${Math.round((a.equity / a.budget) * 100)}% of my budget left. One bad day and I'm a tombstone.`,
-              a => `Cutting everything. I'd rather starve slowly than die today.`,
-              a => `They're already digging in the corner. I can hear it.`],
+  panicking: [a => `${Math.round((a.equity / a.budget) * 100)}% of my budget left. One bad day and HR calls me in.`,
+              a => `Cutting everything. I'd rather miss the target than be shown the door.`,
+              a => `Saw someone from HR looking at my desk. Not a good sign.`],
   exhausted: [a => `${a.trades_today} trades today. I need the couch.`,
               a => `Drawdown ate my energy. Waking me up only for ${sym(a)} breakouts.`],
   dead: [],
@@ -219,14 +263,22 @@ const REPLIES = {
 };
 const REGIME_LINES = { crash: `Regime flipped to crash. Who's still long?`, mania: `Mania. This is where clones are made — and buried.`,
   bull: `Bull tape. Even meanrev is smiling.`, bear: `Bear tape. Targets are going to be brutal.`, chop: `Chop again. Fees win in chop.` };
-const EVENT_LINES = e => e.event === 'born' ? `Welcome, ${e.agent_id}. Same target, smaller budget. Good luck.`
-  : e.event === 'died' ? `${e.agent_id} didn't make it. Pour one out.` : `${e.agent_id} cloned. Someone actually made money.`;
+const EVENT_LINES = e => e.event === 'born' ? `Welcome to the intern room, ${e.agent_id}. Same target, smaller budget.`
+  : e.event === 'died' ? `Heads up: ${e.agent_id} was let go for missing the target. Desk's empty.`
+  : `${e.agent_id} hired an intern. Someone actually made money.`;
+const ASK = [(a, m) => `${m.agent_id}, got a minute? Missed the target ${a.misses > 1 ? a.misses + ' days running' : 'yesterday'}.`,
+             (a, m) => `Any tips on ${sym(a)}, ${m.agent_id}? My book says buy and my gut says run.`,
+             (a, m) => `How do you survive ${R}, ${m.agent_id}?`];
+const tipText = a => a.tip ? 'Tip: ' + (a.tip.split('—').pop() || a.tip).trim().replace(/\.$/, '') + '.'
+  : 'Tip: trade less. Fees win in chop, patience wins the rest.';
 
 function scheduleAt(slot) {          // deterministic conversation for a 6s slot
   if (!alive.length) return null;
   const s = slot * 7919;
   const kind = rand(s) ;
   const a = alive[Math.floor(rand(s + 1) * alive.length)];
+  const v = currentVisit(slot * SLOT_MS);
+  if (v && (a === v.intern || a === v.mentor)) return null;   // busy with the visit
   if (kind < 0.18 && STATE.events && STATE.events.length) { const e = STATE.events[STATE.events.length - 1 - Math.floor(rand(s + 2) * Math.min(3, STATE.events.length))]; return [{ who: a, text: EVENT_LINES(e), at: 0 }]; }
   if (kind < 0.30) return [{ who: a, text: REGIME_LINES[R] || REGIME_LINES.chop, at: 0 }];
   const lines = LINES[a.mood] || LINES.calm; if (!lines.length) return null;
@@ -246,6 +298,12 @@ function activeBubbles(t) {
     const talk = scheduleAt(slot); if (!talk) continue;
     const start = slot * SLOT_MS;
     for (const u of talk) { const age = t - start - u.at; if (age >= 0 && age < 4200) out.push({ ...u, age }); }
+  }
+  const v = currentVisit(t);
+  if (v && v.phase === 'talking') {   // the intern asks, the mentor answers
+    const a0 = v.age - VISIT.walk, s = v.slot * 31;
+    if (a0 < 4200) out.push({ who: v.intern, text: pick(ASK, s)(v.intern, v.mentor), age: a0 });
+    const a1 = a0 - 2600; if (a1 >= 0 && a1 < 4200) out.push({ who: v.mentor, text: tipText(v.intern), age: a1, lift: 46 });
   }
   return out;
 }
@@ -270,7 +328,9 @@ const hud = document.getElementById('hud'), tick = document.getElementById('tick
       panel = document.getElementById('panel'), feed = document.getElementById('feed');
 function renderHud() {
   const c = STATE.colony || { alive: 0, total: 0, equity: 0 };
-  hud.innerHTML = `<span>day <b>${STATE.day}</b></span><span>alive <b>${c.alive}</b>/${c.total}</span>` +
+  hud.innerHTML = `<span>day <b>${STATE.day}</b></span><span>on the floor <b>${c.alive}</b>/${c.total}</span>` +
+    (interns.length ? `<span>interns <b>${interns.length}</b></span>` : '') +
+    (gone.length ? `<span>let go <b>${gone.length}</b></span>` : '') +
     `<span>colony <b>${fmt(c.equity)}</b></span>` + (STATE.running ? '<span style="color:#22c55e">● live</span>' : '');
   tick.innerHTML = ((STATE.market && STATE.market.symbols) || []).map(s =>
     `<span>${s.symbol.replace('USDT', '')} ${fmt(s.close)} <span class="${s.change >= 0 ? 'up' : 'down'}">${pct(s.change)}</span></span>`).join('') +
@@ -280,7 +340,7 @@ function showPanel(a) {
   if (!a) { panel.style.display = 'none'; return; }
   const bar = (c, v) => `<div class="bar"><i style="width:${Math.round(v * 100)}%;background:${c}"></i></div>`;
   panel.style.display = 'block';
-  panel.innerHTML = `<h3 style="color:${strategyColor(a.strategy)}">${a.agent_id} <small style="color:#94a3b8">gen ${a.generation}${a.parent_id ? ' · child of ' + a.parent_id : ''}</small></h3>` +
+  panel.innerHTML = `<h3 style="color:${strategyColor(a.strategy)}">${a.agent_id} <small style="color:#94a3b8">${a.role === 'intern' ? 'intern' : 'specialist'} · gen ${a.generation}${a.parent_id ? ' · hired by ' + a.parent_id : ''}${a.mentor ? ' · mentor ' + a.mentor : ''}</small></h3>` +
     `<div>${a.mood} · ${a.activity} · equity ${fmt(a.equity)} (${pct(a.day_return)} today)</div>` +
     `<div style="margin-top:6px;color:#94a3b8">energy</div>${bar('#22c55e', a.energy)}` +
     `<div style="color:#94a3b8">stress</div>${bar('#ef4444', a.stress)}` +
@@ -309,15 +369,14 @@ cv.addEventListener('click', () => { pinned = hovered === pinned ? null : hovere
 function frame() {
   const t = Date.now();
   ctx.clearRect(0, 0, W, H);
-  drawFloor(); drawTickerBoard(t); drawBoard(); drawPlant(GRID_W - 0.8, GRID_H - 2.4); drawPlant(1.6, 0.2);
-  drawCouch(); drawCoffee();
-  dead.forEach(drawGrave);
+  drawFloor(); drawTickerBoard(t); drawExit(); drawBoard(); drawPlant(1.6, 0.2); drawPlant(ROOM.x - 1.0, GRID_H - 0.8);
+  drawCouch(); drawCoffee(); drawRoom();
   const items = [];
   alive.forEach(a => { items.push({ depth: a.desk.x + a.desk.y + 0.4, draw: () => drawDesk(a, t) }); });
   alive.forEach(a => { const p = position(a, t); positions.set(a, p); items.push({ depth: p.x + p.y + 0.5, draw: () => drawAgent(a, p, t, a === hovered || a === pinned) }); });
   items.sort((u, v) => u.depth - v.depth).forEach(i => i.draw());
-  for (const u of activeBubbles(t)) { const p = positions.get(u.who); if (p) { drawBubble(u.text, p, u.age, p.z + 18); if (u.age < 60) pushFeed(u); } }
-  if (!alive.length) { ctx.fillStyle = '#94a3b8'; ctx.font = '16px ui-sans-serif'; ctx.textAlign = 'center'; ctx.fillText(agents.length ? 'The colony is gone. Reset the journal and try again.' : 'No agents yet — start a run from the sidebar.', W / 2, H / 2); }
+  for (const u of activeBubbles(t)) { const p = positions.get(u.who); if (p) { drawBubble(u.text, p, u.age, p.z + 18 + (u.lift || 0)); if (u.age < 60) pushFeed(u); } }
+  if (!alive.length) { ctx.fillStyle = '#94a3b8'; ctx.font = '16px ui-sans-serif'; ctx.textAlign = 'center'; ctx.fillText(agents.length ? 'Everyone has been let go. Reset the journal and hire again.' : 'No agents yet — start a run from the sidebar.', W / 2, H / 2); }
   requestAnimationFrame(frame);
 }
 if (STATE) { renderHud(); frame(); }

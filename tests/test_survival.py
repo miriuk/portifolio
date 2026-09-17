@@ -104,6 +104,26 @@ def test_clone_refused_without_surplus_or_room(tmp_path):
     journal.close()
 
 
+def test_intern_who_missed_target_learns_mentor_tip(tmp_path):
+    from cryptoarena.arena.survival import _consult_mentor
+    journal = TradeJournal(tmp_path / "s.db")
+    senior = Individual(MomentumAgent("momentum-1", 1_000.0), "momentum", 1_000.0, None, 0, 0)
+    other = Individual(MeanReversionAgent("meanrev-1", 1_000.0), "meanreversion", 1_000.0,
+                       None, 0, 0, streak=5)
+    intern = Individual(MomentumAgent("momentum-2", 200.0), "momentum", 200.0, "momentum-1", 1, 3)
+    journal.add_lesson("momentum-1", 2, "day 2: barely traded — too passive; loosen entries.")
+    journal.add_lesson("meanrev-1", 2, "day 2: hit 3 stop-losses — entries are too aggressive.")
+
+    assert _consult_mentor(senior, 4, [senior, other, intern], journal) is None  # founders don't ask
+    mentor = _consult_mentor(intern, 4, [senior, other, intern], journal)
+    assert mentor == "momentum-1"                      # parent wins over the streaky stranger
+    got = journal.lessons_for("momentum-2")
+    assert got and got[-1].startswith("tip from momentum-1:") and "too passive" in got[-1]
+    events = [(r[1], r[2], r[4]) for r in _events(journal, "consulted")]
+    assert events == [("momentum-2", "consulted", "momentum-1")]
+    journal.close()
+
+
 def test_daily_cost_is_charged_and_can_kill(tmp_path):
     journal = TradeJournal(tmp_path / "s.db")
     res = run_survival([MomentumAgent("momentum-1", 10_000.0)], journal,

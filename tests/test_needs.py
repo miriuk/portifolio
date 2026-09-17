@@ -59,6 +59,17 @@ def test_dead_agents_stay_dead_and_children_know_their_parent():
     assert by_id["breakout-2"].alive is False and by_id["breakout-2"].mood == "dead"
     assert by_id["breakout-2"].parent_id == "breakout-1" and by_id["breakout-2"].generation == 1
     assert by_id["breakout-1"].alive and by_id["breakout-1"].parent_id is None
+    assert (by_id["breakout-1"].role, by_id["breakout-2"].role) == ("specialist", "intern")
+
+
+def test_intern_remembers_its_mentor_and_tip():
+    summary = _summary([("momentum-2", d, 200, 199, 1, 0, 1, 0, 0.1, 0.01, 0) for d in (41, 42, 43)])
+    surv = _survival([(40, "momentum-2", "born", 200, "momentum-1", 1, "momentum", ""),
+                      (43, "momentum-2", "consulted", 0.0, "momentum-1", 1, "momentum",
+                       "day 2: barely traded — too passive; loosen entries.")])
+    (v,) = compute_vitals(summary, EMPTY, EMPTY, surv)
+    assert v.role == "intern" and v.mentor == "momentum-1" and "too passive" in v.tip
+    assert v.misses == 3   # counted from the day it was hired, not from day 1
 
 
 def test_last_trade_feeds_chatter_fields():

@@ -163,6 +163,7 @@ def run_survival(
             else:
                 ind.streak = 0
                 ind.misses += 1
+                _consult_mentor(ind, day, alive, journal)
             journal.record_survival_event(day, ind.agent_id, "survived", end,
                                           ind.parent_id, ind.generation, ind.strategy,
                                           f"cost {cost:.2f}")
@@ -181,6 +182,35 @@ def run_survival(
                   + (f"  +{', '.join(b.agent_id for b in births)}" if births else "")
                   + (f"  -{', '.join(deaths)}" if deaths else ""))
     return result
+
+
+def _consult_mentor(intern: Individual, day: int, alive: list[Individual],
+                    journal: TradeJournal) -> str | None:
+    """An intern (any clone) who missed the target asks a senior for a tip
+    and actually learns it: the mentor's most important lesson is copied
+    into the intern's memory. Founders never ask; they are the mentors.
+    Returns the mentor's id, or None if nobody was consulted."""
+    if intern.generation == 0:
+        return None
+    seniors = [i for i in alive if i.generation < intern.generation and i.alive
+               and i.agent_id != intern.agent_id]
+    if not seniors:
+        return None
+    parent = next((s for s in seniors if s.agent_id == intern.parent_id), None)
+    same = [s for s in seniors if s.strategy == intern.strategy]
+    mentor = parent or (same or seniors)[0]
+    for candidate in (same or seniors):   # prefer the one on the longest streak
+        if candidate.streak > mentor.streak:
+            mentor = candidate
+    tips = journal.lessons_for(mentor.agent_id, limit=1)
+    if not tips:
+        return None
+    tip = tips[-1]
+    intern.agent.learn([tip])
+    journal.add_lesson(intern.agent_id, day, f"tip from {mentor.agent_id}: {tip}")
+    journal.record_survival_event(day, intern.agent_id, "consulted", 0.0,
+                                  mentor.agent_id, intern.generation, intern.strategy, tip)
+    return mentor.agent_id
 
 
 def _try_clone(parent: Individual, day: int, equity: float, cfg: SurvivalConfig, rng,

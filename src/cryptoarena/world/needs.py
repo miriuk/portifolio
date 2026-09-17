@@ -39,6 +39,9 @@ class AgentVitals:
     last_side: str
     last_symbol: str
     regime: str                # regime at its last trade
+    role: str                  # "specialist" (founder) or "intern" (clone under test)
+    mentor: str | None         # who it last asked for a tip
+    tip: str                   # the tip it received
     energy: float
     stress: float
     focus: float
@@ -98,11 +101,17 @@ def compute_vitals(summary: pd.DataFrame, trades: pd.DataFrame, lessons: pd.Data
         quiet_days = int((recent["n_trades"] == 0).sum()) if len(recent) else 0
 
         streak = misses = 0
+        mentor, tip = None, ""
         if not survival.empty:
             mine = survival[survival["agent_id"] == aid]
+            consulted = mine[mine["event"] == "consulted"]
+            if not consulted.empty:
+                mentor = str(consulted.iloc[-1]["parent_id"])
+                tip = str(consulted.iloc[-1]["detail"] or "")
             hits = mine[mine["event"] == "target_hit"]
             days_with_hit = set(hits["day"])
-            for d in range(last_day, 0, -1):
+            born_day = int(born.loc[aid, "day"]) if aid in born.index else 0
+            for d in range(last_day, born_day, -1):   # only days it was actually here
                 if d in days_with_hit:
                     break
                 misses += 1
@@ -151,6 +160,9 @@ def compute_vitals(summary: pd.DataFrame, trades: pd.DataFrame, lessons: pd.Data
             last_side=str(last_trade["side"]) if last_trade is not None else "",
             last_symbol=str(last_trade["symbol"]) if last_trade is not None else "",
             regime=str(last_trade["regime"] or "") if last_trade is not None else "",
+            role="intern" if (aid in born.index and int(born.loc[aid, "generation"]) > 0)
+            else "specialist",
+            mentor=mentor, tip=tip,
             energy=round(energy, 2), stress=round(stress, 2), focus=round(focus, 2),
             mood=mood, activity=activity,
         ))

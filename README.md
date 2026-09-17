@@ -209,11 +209,23 @@ Delas saem o humor (calmo, confiante, eufórico, ansioso, em pânico,
 exausto) e o comportamento (operar na mesa, descansar no sofá, andar de um
 lado para o outro, estudar no quadro, comemorar). Os agentes **conversam
 entre si sobre o mercado** em balões de fala — comentam o regime, o último
-trade, a meta perdida, quem nasceu e quem morreu, e respondem uns aos
-outros de acordo com a estratégia (momentum provoca meanrev e vice-versa).
-As falas são compostas ao vivo a partir do estado real e **não são
-gravadas em lugar nenhum**. Passe o mouse (ou clique) num agente para ver
-suas vitals.
+trade, a meta perdida, quem chegou e quem saiu, e respondem uns aos outros
+de acordo com a estratégia (momentum provoca meanrev e vice-versa). As
+falas são compostas ao vivo a partir do estado real e **não são gravadas
+em lugar nenhum**. Passe o mouse (ou clique) num agente para ver suas
+vitals.
+
+**Estagiários.** Os clones (geração ≥ 1) são os estagiários: ficam numa
+sala própria, com mesas menores, e conhecem os especialistas do andar.
+Quem perde a meta **pede uma dica** a um mentor — o pai, se ainda estiver
+lá, senão o especialista da mesma estratégia com a melhor sequência — e a
+dica é real: a lição mais importante do mentor entra na memória do
+estagiário (evento `consulted` no diário). No andar isso aparece
+literalmente: o estagiário levanta, atravessa a sala, para ao lado da mesa
+do mentor, pergunta, ouve a dica e volta — **um de cada vez**, para não
+virar bagunça. Ninguém "morre": quem fica abaixo da linha é **dispensado
+por não bater a meta**, os outros ficam sabendo pelo aviso ao lado da
+porta de saída, e é assim que aparece no dashboard e nas conversas.
 
 ## Debate bull vs. bear
 

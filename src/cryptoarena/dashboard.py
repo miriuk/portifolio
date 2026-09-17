@@ -77,7 +77,7 @@ def lineage_dot(events: pd.DataFrame) -> str:
         aid = r["agent_id"]
         color = palette.get(r["strategy"], "#94a3b8")
         if aid in died.index:
-            label = f"{aid}\\n✝ day {int(died[aid])}"
+            label = f"{aid}\\nlet go · day {int(died[aid])}"
             lines.append(f'  "{aid}" [label="{label}", fillcolor="#3f3f46", fontcolor="#a1a1aa"];')
         else:
             label = f"{aid}\\ngen {int(r['generation'])} · {latest_equity[aid]:,.0f}"
@@ -102,7 +102,8 @@ def colony_view(events: pd.DataFrame) -> None:
     c1.metric("Day", last_day)
     c2.metric("Alive", len(alive_ids))
     c3.metric("Born", int((events["event"] == "born").sum()))
-    c4.metric("Died", int((events["event"] == "died").sum()))
+    c4.metric("Let go", int((events["event"] == "died").sum()),
+              help="dismissed for missing the target (below the death line or kill switch)")
     c5.metric("Colony equity", f"{latest['equity'].sum():,.0f}")
 
     left, right = st.columns([1, 2])
@@ -114,10 +115,12 @@ def colony_view(events: pd.DataFrame) -> None:
             st.line_chart(by_day["alive"], height=150)
             st.line_chart(by_day["equity"], height=150)
     with right:
-        st.caption("lineage — who cloned whom, who died")
+        st.caption("lineage — who cloned whom, who was let go")
         st.graphviz_chart(lineage_dot(events), width="stretch")
 
-    notable = events[events["event"].isin(["born", "cloned", "died", "target_hit"])]
+    notable = events[events["event"].isin(["born", "cloned", "died", "target_hit",
+                                           "consulted"])].copy()
+    notable["event"] = notable["event"].replace({"died": "let go", "consulted": "asked a tip"})
     with st.expander(f"event log ({len(notable)} events)"):
         st.dataframe(notable[["day", "agent_id", "event", "equity", "detail"]]
                      .sort_values("day", ascending=False),
@@ -249,8 +252,9 @@ def main() -> None:
                        "state and never stored")
             if state["agents"]:
                 vitals = pd.DataFrame(state["agents"])[
-                    ["agent_id", "alive", "generation", "mood", "activity", "energy",
-                     "stress", "focus", "equity", "day_return", "streak", "misses", "lessons"]]
+                    ["agent_id", "role", "alive", "generation", "mood", "activity", "energy",
+                     "stress", "focus", "equity", "day_return", "streak", "misses", "lessons",
+                     "mentor"]].replace({"mood": {"dead": "let go"}, "activity": {"dead": "—"}})
                 with st.expander("vitals table"):
                     st.dataframe(vitals, width="stretch", hide_index=True)
         with data_tab:
