@@ -72,6 +72,39 @@ def test_intern_remembers_its_mentor_and_tip():
     assert v.misses == 3   # counted from the day it was hired, not from day 1
 
 
+def test_dismissal_worries_and_motivates_the_ones_who_stay():
+    summary = _summary([("momentum-2", d, 200, 200, 1, 0, 0, 0, 0.1, 0.0, 0) for d in (8, 9, 10)]
+                       + [("momentum-1", d, 1000, 1000, 1, 0, 0, 0, 0.1, 0.0, 0) for d in (8, 9, 10)])
+    quiet = _survival([(0, "momentum-1", "born", 1000, None, 0, "momentum", ""),
+                       (5, "momentum-2", "born", 200, "momentum-1", 1, "momentum", "")])
+    shaken = pd.concat([quiet, _survival([
+        (5, "meanrev-3", "born", 200, "meanrev-1", 1, "meanreversion", ""),
+        (9, "meanrev-3", "died", 100, "meanrev-1", 1, "meanreversion", "below 60% of budget")])])
+    before = {v.agent_id: v for v in compute_vitals(summary, EMPTY, EMPTY, quiet)}
+    after = {v.agent_id: v for v in compute_vitals(summary, EMPTY, EMPTY, shaken)}
+    intern_b, intern_a = before["momentum-2"], after["momentum-2"]
+    assert intern_a.stress > intern_b.stress and intern_a.motivation > intern_b.motivation
+    # the specialist is safe, so the news barely rattles it — but it still spurs it on
+    assert after["momentum-1"].stress - before["momentum-1"].stress < intern_a.stress - intern_b.stress
+    assert after["momentum-1"].motivation > before["momentum-1"].motivation
+
+
+def test_party_and_frame_lift_ego_and_change_mood():
+    summary = _summary([("breakout-1", d, 1000 + 8 * (d - 1), 1000 + 8 * d, 2, 2, 0, 0, 0.2,
+                         0.01, 0) for d in (5, 6, 7)])
+    surv = _survival([(0, "breakout-1", "born", 1000, None, 0, "breakout", "")]
+                     + [(d, "breakout-1", "target_hit", 1000 + 8 * d, None, 0, "breakout",
+                         f"streak {d - 4}") for d in (5, 6, 7)]
+                     + [(7, "breakout-1", "party", 0.056, None, 0, "breakout", "week 1: +5.6%"),
+                      (7, "breakout-1", "employee_of_week", 0.056, None, 0, "breakout",
+                       "week 1: +5.6%")])
+    plain = compute_vitals(summary, EMPTY, EMPTY, surv.iloc[:1])[0]
+    star = compute_vitals(summary, EMPTY, EMPTY, surv)[0]
+    assert star.parties == 1 and star.awards == 1
+    assert star.ego > plain.ego + 0.3 and star.motivation > plain.motivation
+    assert star.mood == "proud" and star.activity == "celebrating"
+
+
 def test_last_trade_feeds_chatter_fields():
     summary = _summary([("momentum-1", 1, 1000, 1000, 1, 0, 0, 0, 0.1, 0.0, 0)])
     trades = pd.DataFrame([dict(id=2, agent_id="momentum-1", episode=1, symbol="ETHUSDT",

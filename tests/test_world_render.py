@@ -39,6 +39,23 @@ def test_build_state_and_render_inject_json():
     assert json.loads(html[start:end]) == state
 
 
+def test_party_state_marks_the_evening_of_the_party():
+    from cryptoarena.world.render import party_state
+    surv = pd.DataFrame([
+        dict(day=7, agent_id="momentum-1", event="party", equity=0.05, parent_id=None,
+             generation=0, strategy="momentum", detail="week 1: +5.0%"),
+        dict(day=7, agent_id="meanrev-1", event="party", equity=0.04, parent_id=None,
+             generation=0, strategy="meanreversion", detail="week 1: +4.0%"),
+        dict(day=7, agent_id="momentum-1", event="employee_of_week", equity=0.05,
+             parent_id=None, generation=0, strategy="momentum", detail="week 1: +5.0%"),
+    ])
+    tonight = party_state(surv, day=7)
+    assert tonight["active"] and tonight["week"] == 1 and tonight["employee"] == "momentum-1"
+    assert [w["agent_id"] for w in tonight["winners"]] == ["momentum-1", "meanrev-1"]
+    later = party_state(surv, day=9)
+    assert later["active"] is False and later["employee"] == "momentum-1"   # frame stays up
+
+
 def test_render_escapes_script_terminators():
     state = build_state({})
     state["events"] = [{"day": 1, "agent_id": "x", "event": "died", "detail": "</script>"}]

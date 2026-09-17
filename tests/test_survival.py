@@ -44,16 +44,26 @@ def test_wallets_persist_across_days(tmp_path):
     journal.close()
 
 
-def test_death_below_threshold_removes_agent(tmp_path):
+def test_specialists_are_never_let_go(tmp_path):
     journal = TradeJournal(tmp_path / "s.db")
-    # death line above the budget: any day that isn't a big gain kills instantly
+    # death line above the budget would dismiss anyone on day 1 — but founders stay
     res = run_survival([MomentumAgent("momentum-1", 10_000.0)], journal,
                        SurvivalConfig(days=5, budget=1_000.0, death_below=1.5, seed=2),
                        verbose=False)
-    died = _events(journal, "died")
-    assert len(died) == 1 and died[0][1] == "momentum-1" and died[0][0] == 1
-    assert res.alive == [] and res.alive_per_day == [0]
+    assert _events(journal, "died") == []
+    assert len(res.alive) == 1 and res.alive_per_day == [1] * 5
     journal.close()
+
+
+def test_only_interns_below_the_line_are_let_go():
+    from cryptoarena.arena.survival import _let_go
+    cfg = SurvivalConfig(death_below=0.6)
+    founder = Individual(MomentumAgent("momentum-1", 1000.0), "momentum", 1000.0, None, 0, 0)
+    intern = Individual(MomentumAgent("momentum-2", 100.0), "momentum", 100.0, "momentum-1", 1, 3)
+    assert _let_go(founder, 10.0, True, cfg) is False        # never, not even kill-switched
+    assert _let_go(intern, 59.0, False, cfg) is True         # below 60% of its own budget
+    assert _let_go(intern, 80.0, True, cfg) is True          # kill switch
+    assert _let_go(intern, 61.0, False, cfg) is False
 
 
 def _parent(journal, cash: float) -> Individual:
@@ -124,14 +134,36 @@ def test_intern_who_missed_target_learns_mentor_tip(tmp_path):
     journal.close()
 
 
-def test_daily_cost_is_charged_and_can_kill(tmp_path):
+def test_daily_cost_is_charged(tmp_path):
     journal = TradeJournal(tmp_path / "s.db")
-    res = run_survival([MomentumAgent("momentum-1", 10_000.0)], journal,
-                       SurvivalConfig(days=10, budget=1_000.0, daily_cost=0.10,
-                                      death_below=0.5, seed=4), verbose=False)
+    run_survival([MomentumAgent("momentum-1", 10_000.0)], journal,
+                 SurvivalConfig(days=3, budget=1_000.0, daily_cost=0.10, seed=4),
+                 verbose=False)
     survived = _events(journal, "survived")
     assert survived and survived[0][3] < 1_000.0 * 0.95   # first day already paid rent
-    assert res.alive == [] and _events(journal, "died")   # 10%/day starves it
+    assert survived[-1][3] < survived[0][3]               # and it keeps bleeding
+    journal.close()
+
+
+def test_happy_hour_rewards_weekly_winners(tmp_path):
+    from cryptoarena.arena.survival import _happy_hour
+    journal = TradeJournal(tmp_path / "s.db")
+    cfg = SurvivalConfig(daily_target=0.005, week_days=7)   # weekly target ≈ +3.55%
+    people = []
+    for aid, start, end in [("momentum-1", 1000.0, 1050.0), ("meanrev-1", 1000.0, 1040.0),
+                            ("breakout-1", 1000.0, 1010.0)]:
+        ind = Individual(MomentumAgent(aid, 1000.0), aid.split("-")[0], 1000.0, None, 0, 0)
+        ind.week_start_equity = start
+        journal.record_episode_summary(type("S", (), dict(
+            agent_id=aid, episode=7, start_equity=start, end_equity=end, n_trades=1, n_wins=1,
+            n_losses=0, n_stop_losses=0, fees=0.0, max_drawdown=0.0))())
+        people.append(ind)
+    winners = _happy_hour(7, 1, people, cfg, journal)
+    assert winners == ["momentum-1", "meanrev-1"]            # breakout missed the week
+    assert [r[1] for r in _events(journal, "party")] == ["momentum-1", "meanrev-1"]
+    assert [r[1] for r in _events(journal, "employee_of_week")] == ["momentum-1"]
+    assert any("employee of the week" in l for l in journal.lessons_for("momentum-1"))
+    assert all(i.week_start_equity is None for i in people)   # a new week starts
     journal.close()
 
 

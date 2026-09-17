@@ -118,9 +118,15 @@ def colony_view(events: pd.DataFrame) -> None:
         st.caption("lineage — who cloned whom, who was let go")
         st.graphviz_chart(lineage_dot(events), width="stretch")
 
+    frames = events[events["event"] == "employee_of_week"]
+    if not frames.empty:
+        f = frames.iloc[-1]
+        st.caption(f"🏆 employee of the week: **{f['agent_id']}** ({f['detail']})")
     notable = events[events["event"].isin(["born", "cloned", "died", "target_hit",
-                                           "consulted"])].copy()
-    notable["event"] = notable["event"].replace({"died": "let go", "consulted": "asked a tip"})
+                                           "consulted", "party", "employee_of_week"])].copy()
+    notable["event"] = notable["event"].replace({
+        "died": "let go", "consulted": "asked a tip", "party": "happy hour",
+        "employee_of_week": "employee of the week"})
     with st.expander(f"event log ({len(notable)} events)"):
         st.dataframe(notable[["day", "agent_id", "event", "equity", "detail"]]
                      .sort_values("day", ascending=False),
@@ -253,8 +259,9 @@ def main() -> None:
             if state["agents"]:
                 vitals = pd.DataFrame(state["agents"])[
                     ["agent_id", "role", "alive", "generation", "mood", "activity", "energy",
-                     "stress", "focus", "equity", "day_return", "streak", "misses", "lessons",
-                     "mentor"]].replace({"mood": {"dead": "let go"}, "activity": {"dead": "—"}})
+                     "stress", "focus", "motivation", "ego", "equity", "day_return", "streak",
+                     "misses", "parties", "awards", "lessons", "mentor"]].replace(
+                    {"mood": {"dead": "let go"}, "activity": {"dead": "—"}})
                 with st.expander("vitals table"):
                     st.dataframe(vitals, width="stretch", hide_index=True)
         with data_tab:

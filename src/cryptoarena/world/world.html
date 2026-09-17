@@ -10,7 +10,7 @@
   #hud { position: absolute; left: 12px; top: 10px; display: flex; gap: 14px;
     background: rgba(15,18,26,.85); padding: 6px 10px; border-radius: 8px; font-size: 12px; }
   #hud b { color: #fff; }
-  #ticker { position: absolute; right: 12px; top: 10px; display: flex; gap: 12px;
+  #ticker { position: absolute; right: 12px; top: 44px; display: flex; gap: 12px;
     background: rgba(15,18,26,.85); padding: 6px 10px; border-radius: 8px; font-size: 12px;
     font-variant-numeric: tabular-nums; }
   .up { color: #22c55e; } .down { color: #ef4444; }
@@ -80,6 +80,14 @@ interns.forEach((a, i) => {
 });
 const byId = Object.fromEntries(alive.map(a => [a.agent_id, a]));
 const mentorOf = a => byId[a.mentor] || byId[a.parent_id] || seniors[hash(a.agent_id) % Math.max(1, seniors.length)] || null;
+// happy hour: the evening of a party day everyone gathers at the lounge
+const PARTY = (STATE && STATE.party) || { active: false, winners: [], employee: null, week: 0 };
+const partyOn = PARTY.active && alive.length > 0;
+const winnerIds = new Set(PARTY.winners.map(w => w.agent_id));
+const winnerRet = Object.fromEntries(PARTY.winners.map(w => [w.agent_id, w.ret]));
+const lounge = [...alive].sort((a, b) => (winnerIds.has(b.agent_id) ? 1 : 0) - (winnerIds.has(a.agent_id) ? 1 : 0));
+lounge.forEach((a, i) => { a.loungeSpot = { x: 1.2 + (i % 5) * 0.85, y: 6.6 + Math.floor(i / 5) * 0.75 }; });
+const recentlyGone = ((STATE && STATE.events) || []).filter(e => e.event === 'died' && e.day >= STATE.day - 3).map(e => e.agent_id);
 
 // ---------------------------------------------------------------- drawing primitives
 function tile(x, y, fill, stroke) {
@@ -159,6 +167,23 @@ function drawCouch() { cube(couch.x, couch.y, 2.2, 0.9, 10, '#6b3a3a'); cube(cou
 function drawCoffee() { cube(coffee.x, coffee.y, 0.7, 0.7, 26, '#475569'); const p = iso(coffee.x + .35, coffee.y + .35, 30); ctx.fillStyle = '#fbbf24'; ctx.fillRect(p.x - 2, p.y - 2, 4, 4); }
 function drawBoard() { cube(board.x, board.y, 0.15, 2.2, 40, '#e2e8f0', 20); cube(board.x, board.y, 0.15, 2.2, 20, '#94a3b8'); }
 function drawPlant(x, y) { cube(x, y, 0.5, 0.5, 8, '#7c3f2a'); cube(x - .1, y - .1, 0.7, 0.7, 6, '#16a34a', 8); cube(x + .05, y + .05, 0.4, 0.4, 8, '#22c55e', 14); }
+function drawFrame() {   // employee of the week, on the back wall where everyone sees it
+  const x0 = 0.8, x1 = 2.7, z0 = 58, z1 = 98;
+  const a = iso(x0, 0, z0), b = iso(x1, 0, z0), c = iso(x1, 0, z1), d = iso(x0, 0, z1);
+  ctx.fillStyle = '#b08d57'; ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.lineTo(c.x, c.y); ctx.lineTo(d.x, d.y); ctx.fill();
+  ctx.save(); ctx.transform(1, 0.5, 0, 1, a.x, a.y);
+  const w = (x1 - x0) * TILE, h = z1 - z0;
+  ctx.fillStyle = '#f8fafc'; ctx.fillRect(4, -h + 4, w - 8, h - 8);
+  ctx.textAlign = 'center'; ctx.fillStyle = '#475569'; ctx.font = 'bold 7px ui-sans-serif';
+  ctx.fillText('EMPLOYEE OF THE WEEK', w / 2, -h + 15);
+  if (PARTY.employee) {
+    const e = byId[PARTY.employee] || { strategy: 'other' };
+    ctx.fillStyle = strategyColor(e.strategy); ctx.fillRect(w / 2 - 7, -h + 19, 14, 10); ctx.fillStyle = '#f5d0b0'; ctx.fillRect(w / 2 - 4, -h + 12 + 0, 0, 0);
+    ctx.fillStyle = '#0f172a'; ctx.font = 'bold 8px ui-sans-serif'; ctx.fillText(PARTY.employee, w / 2, -h + 38);
+    ctx.fillStyle = '#64748b'; ctx.font = '7px ui-sans-serif'; ctx.fillText('week ' + PARTY.week, w / 2, -h + 47);
+  } else { ctx.fillStyle = '#94a3b8'; ctx.font = '7px ui-sans-serif'; ctx.fillText('(nobody yet)', w / 2, -h + 30); }
+  ctx.restore();
+}
 function drawRoom() {   // low glass partition around the interns' room
   cube(ROOM.x - 0.1, ROOM.y - 0.1, GRID_W - ROOM.x + 0.1, 0.12, 22, '#334155');
   cube(ROOM.x - 0.1, ROOM.y - 0.1, 0.12, GRID_H - ROOM.y + 0.1, 22, '#334155');
@@ -179,7 +204,7 @@ function drawExit() {    // door on the left wall, and the notice about who was 
 // one intern at a time gets up and walks to a specialist's desk for a tip
 const VISIT_MS = 16000, VISIT = { walk: 4000, talk: 6000 };
 function currentVisit(t) {
-  if (!interns.length || !seniors.length) return null;
+  if (partyOn || !interns.length || !seniors.length) return null;
   const slot = Math.floor(t / VISIT_MS), age = t - slot * VISIT_MS;
   const intern = interns[slot % interns.length], mentor = mentorOf(intern);
   if (!mentor || !mentor.desk || age > VISIT.walk * 2 + VISIT.talk) return null;
@@ -191,6 +216,11 @@ function position(a, t) {
   const desk = { x: a.desk.x + 0.8, y: a.desk.y + 1.25 };
   const lerp = (p, q, k) => ({ x: p.x + (q.x - p.x) * k, y: p.y + (q.y - p.y) * k });
   const ease = k => k < .5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+  if (partyOn && a.loungeSpot) {
+    const win = winnerIds.has(a.agent_id);
+    const sway = { x: a.loungeSpot.x + Math.sin(T * 1.3 + s) * 0.08, y: a.loungeSpot.y + Math.cos(T * 1.1 + s) * 0.06 };
+    return { ...sway, z: win ? Math.abs(Math.sin(T * 5 + s)) * 12 : 0, pose: win ? 'arms' : 'stand' };
+  }
   const v = currentVisit(t);
   if (v && v.intern === a) {
     const spot = { x: v.mentor.desk.x + 1.9, y: v.mentor.desk.y + 1.0 };   // beside the mentor's chair
@@ -225,6 +255,8 @@ function drawAgent(a, p, t, hovered) {
   const eye = iso(p.x + 0.42, p.y + 0.12, p.z + bob + bodyH + 7); ctx.fillStyle = '#111';
   ctx.fillRect(eye.x - 4, eye.y, 2, 2); ctx.fillRect(eye.x + 1, eye.y + 2, 2, 2);
   if (a.generation > 0) { const b = iso(p.x + 0.25, p.y + 0.25, p.z + bob + bodyH + 15); ctx.fillStyle = '#fbbf24'; ctx.font = 'bold 9px ui-sans-serif'; ctx.textAlign = 'center'; ctx.fillText('g' + a.generation, b.x, b.y); }
+  if (partyOn && winnerIds.has(a.agent_id)) { const b = iso(p.x + 0.7, p.y - 0.1, p.z + bodyH + 8); ctx.font = '14px ui-sans-serif'; ctx.textAlign = 'center'; ctx.fillText('🍻', b.x, b.y); }
+  if (PARTY.employee === a.agent_id) { const b = iso(p.x + 0.25, p.y + 0.25, p.z + bob + bodyH + 36); ctx.font = '11px ui-sans-serif'; ctx.textAlign = 'center'; ctx.fillText('🏆', b.x, b.y); }
   // needs meter
   const m = iso(p.x + 0.25, p.y + 0.25, p.z + bob + bodyH + 26);
   const bars = [['#22c55e', a.energy], ['#ef4444', a.stress], ['#38bdf8', a.focus]];
@@ -253,8 +285,21 @@ const LINES = {
               a => `Saw someone from HR looking at my desk. Not a good sign.`],
   exhausted: [a => `${a.trades_today} trades today. I need the couch.`,
               a => `Drawdown ate my energy. Waking me up only for ${sym(a)} breakouts.`],
+  determined: [a => `${recentlyGone[0] ? recentlyGone[0] + ' got let go this week.' : 'Someone got let go.'} Not me. Target today, no excuses.`,
+               a => `Worried? Yes. Stopping? No. ${sym(a)} owes me ${(a.budget * 0.005).toFixed(0)} bucks by close.`,
+               a => `The frame on the wall says ${PARTY.employee || 'nobody'}. Next week it says ${a.agent_id}.`],
+  proud: [a => `${a.awards ? "Frame's got my name on it." : "Two parties in a row."} Ask me anything.`,
+          a => `${a.strategy} pays. I keep telling the interns.`,
+          a => `Ego? No. Track record. ${(a.window_return * 100).toFixed(1)}% this week.`],
   dead: [],
 };
+const SPECIALIST = [a => `Wrote up today's ${R} lesson for the interns. Someone should read it.`,
+                    a => `Can't get let go, can still get embarrassed. Target it is.`,
+                    a => `The interns keep asking about ${sym(a)}. Same answer: size down.`];
+const PRAISE = [(w, r) => `Cheers to ${w}, ${r} this week! Teach me.`, (w, r) => `${w} beat the week at ${r}. Round's on them.`,
+                (w, r) => `Watched ${w} all week. ${r}. That's how it's done.`];
+const BRAG = [a => `Told you ${a.strategy} pays. To the week!`, a => `Party's nice. The frame's nicer.`, a => `Same target next week, and I'll take it again.`];
+const fmtRet = r => (r >= 0 ? '+' : '') + (r * 100).toFixed(1) + '%';
 const REPLIES = {
   momentum:  [b => `Strength gets bought, ${b}. That's the whole strategy.`, b => `You buy dips, I buy trends. One of us is wrong today, ${b}.`],
   meanrev:   [b => `Every spike reverts, ${b}. I'll be there when it does.`, b => `Chasing again, ${b}? I'll buy your panic.`],
@@ -279,6 +324,15 @@ function scheduleAt(slot) {          // deterministic conversation for a 6s slot
   const a = alive[Math.floor(rand(s + 1) * alive.length)];
   const v = currentVisit(slot * SLOT_MS);
   if (v && (a === v.intern || a === v.mentor)) return null;   // busy with the visit
+  if (partyOn && PARTY.winners.length) {                       // toasts and praise all evening
+    const w = PARTY.winners[Math.floor(rand(s + 8) * PARTY.winners.length)];
+    if (winnerIds.has(a.agent_id) && rand(s + 9) < 0.5) return [{ who: a, text: pick(BRAG, s + 10)(a), at: 0 }];
+    const fan = alive.filter(x => !winnerIds.has(x.agent_id))[Math.floor(rand(s + 11) * Math.max(1, alive.length - winnerIds.size))] || a;
+    const talk = [{ who: fan, text: pick(PRAISE, s + 12)(w.agent_id, fmtRet(w.ret)), at: 0 }];
+    if (byId[w.agent_id]) talk.push({ who: byId[w.agent_id], text: pick(BRAG, s + 13)(byId[w.agent_id]), at: 2600 });
+    return talk;
+  }
+  if (a.role !== 'intern' && kind < 0.12) return [{ who: a, text: pick(SPECIALIST, s + 14)(a), at: 0 }];
   if (kind < 0.18 && STATE.events && STATE.events.length) { const e = STATE.events[STATE.events.length - 1 - Math.floor(rand(s + 2) * Math.min(3, STATE.events.length))]; return [{ who: a, text: EVENT_LINES(e), at: 0 }]; }
   if (kind < 0.30) return [{ who: a, text: REGIME_LINES[R] || REGIME_LINES.chop, at: 0 }];
   const lines = LINES[a.mood] || LINES.calm; if (!lines.length) return null;
@@ -331,6 +385,8 @@ function renderHud() {
   hud.innerHTML = `<span>day <b>${STATE.day}</b></span><span>on the floor <b>${c.alive}</b>/${c.total}</span>` +
     (interns.length ? `<span>interns <b>${interns.length}</b></span>` : '') +
     (gone.length ? `<span>let go <b>${gone.length}</b></span>` : '') +
+    (partyOn ? `<span style="color:#fbbf24">🎉 happy hour · week ${PARTY.week}</span>` : '') +
+    (PARTY.employee ? `<span>🏆 <b>${PARTY.employee}</b></span>` : '') +
     `<span>colony <b>${fmt(c.equity)}</b></span>` + (STATE.running ? '<span style="color:#22c55e">● live</span>' : '');
   tick.innerHTML = ((STATE.market && STATE.market.symbols) || []).map(s =>
     `<span>${s.symbol.replace('USDT', '')} ${fmt(s.close)} <span class="${s.change >= 0 ? 'up' : 'down'}">${pct(s.change)}</span></span>`).join('') +
@@ -345,6 +401,8 @@ function showPanel(a) {
     `<div style="margin-top:6px;color:#94a3b8">energy</div>${bar('#22c55e', a.energy)}` +
     `<div style="color:#94a3b8">stress</div>${bar('#ef4444', a.stress)}` +
     `<div style="color:#94a3b8">focus</div>${bar('#38bdf8', a.focus)}` +
+    `<div style="color:#94a3b8">motivation</div>${bar('#fbbf24', a.motivation)}` +
+    `<div style="color:#94a3b8">ego</div>${bar('#a855f7', a.ego)}` +
     `<div style="color:#94a3b8;font-size:11px">${a.trades_today} trades today · ${a.stop_losses} stops · win ${Math.round(a.win_rate * 100)}% · ${a.lessons} lessons` +
     (a.last_reason ? `<br>last: ${a.last_side} ${a.last_symbol} — ${a.last_reason}` : '') + '</div>';
 }
@@ -369,7 +427,7 @@ cv.addEventListener('click', () => { pinned = hovered === pinned ? null : hovere
 function frame() {
   const t = Date.now();
   ctx.clearRect(0, 0, W, H);
-  drawFloor(); drawTickerBoard(t); drawExit(); drawBoard(); drawPlant(1.6, 0.2); drawPlant(ROOM.x - 1.0, GRID_H - 0.8);
+  drawFloor(); drawTickerBoard(t); drawFrame(); drawExit(); drawBoard(); drawPlant(ROOM.x - 1.0, GRID_H - 0.8);
   drawCouch(); drawCoffee(); drawRoom();
   const items = [];
   alive.forEach(a => { items.push({ depth: a.desk.x + a.desk.y + 0.4, draw: () => drawDesk(a, t) }); });

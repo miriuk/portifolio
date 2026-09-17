@@ -35,6 +35,7 @@ class SurvivalConfig:
     max_population: int = 12
     min_clone_budget: float = 0.05  # a child needs at least this * budget to be born
     pressure: float = 0.0           # each missed target scales order size by (1 + pressure)
+    week_days: int = 7              # happy hour every N days for whoever beat the weekly target
     seed: int | None = None
     endogenous: bool = True
     symbols: dict[str, float] | None = None
@@ -52,6 +53,7 @@ class Individual:
     streak: int = 0
     misses: int = 0
     base_order_frac: float | None = None
+    week_start_equity: float | None = None
 
     def apply_pressure(self, pressure: float) -> None:
         """The quota-or-die incentive: after a miss, bet bigger tomorrow."""
@@ -135,13 +137,15 @@ def run_survival(
             cost = ind.budget * cfg.daily_cost
             ind.agent.wallet.cash -= cost           # rent is due whether you traded or not
             start, end = curve[0], curve[-1] - cost
+            if ind.week_start_equity is None:
+                ind.week_start_equity = start
             stats = compute_stats(ind.agent_id, day, journal.trades_for(ind.agent_id, day),
                                   start_equity=start, end_equity=end,
                                   max_drawdown=ep.max_drawdown[ind.agent_id])
             journal.record_episode_summary(stats, halted=ep.halted[ind.agent_id])
             ind.agent.learn(reflect_on_episode(journal, stats))
 
-            if ep.halted[ind.agent_id] or end < ind.budget * cfg.death_below:
+            if _let_go(ind, end, ep.halted[ind.agent_id], cfg):
                 ind.died_day = day
                 deaths.append(ind.agent_id)
                 journal.record_survival_event(
@@ -169,6 +173,8 @@ def run_survival(
                                           f"cost {cost:.2f}")
             journal.decay_lessons(ind.agent_id)
 
+        if day % cfg.week_days == 0:
+            _happy_hour(day, day // cfg.week_days, [i for i in alive if i.alive], cfg, journal)
         result.population.extend(births)
         survivors = result.alive
         result.alive_per_day.append(len(survivors))
@@ -182,6 +188,49 @@ def run_survival(
                   + (f"  +{', '.join(b.agent_id for b in births)}" if births else "")
                   + (f"  -{', '.join(deaths)}" if deaths else ""))
     return result
+
+
+def _let_go(ind: Individual, end_equity: float, halted: bool, cfg: SurvivalConfig) -> bool:
+    """Only interns can be dismissed; specialists stay, whatever their
+    numbers, because their lessons are what the interns learn from."""
+    if ind.generation == 0:
+        return False
+    return halted or end_equity < ind.budget * cfg.death_below
+
+
+def _happy_hour(day: int, week: int, alive: list[Individual], cfg: SurvivalConfig,
+                journal: TradeJournal) -> list[str]:
+    """End of week: whoever beat the weekly target gets a party (praise,
+    motivation); the best of them is employee of the week (ego). Returns
+    the winners' ids, best first."""
+    weekly_target = (1 + cfg.daily_target) ** cfg.week_days - 1
+    scored = []
+    for ind in alive:
+        if not ind.week_start_equity:
+            continue
+        # equity now, net of this day's rent, as the day's own summary saw it
+        end = journal._conn.execute(
+            "SELECT end_equity FROM episode_summary WHERE agent_id = ? AND episode = ?",
+            (ind.agent_id, day)).fetchone()
+        if end is None:
+            continue
+        ret = end[0] / ind.week_start_equity - 1
+        scored.append((ret, ind))
+        ind.week_start_equity = None   # next week starts tomorrow
+    winners = sorted([(r, i) for r, i in scored if r >= weekly_target],
+                     key=lambda ri: ri[0], reverse=True)
+    for ret, ind in winners:
+        journal.record_survival_event(day, ind.agent_id, "party", ret, ind.parent_id,
+                                      ind.generation, ind.strategy, f"week {week}: {ret:+.1%}")
+    if winners:
+        ret, best = winners[0]
+        journal.record_survival_event(day, best.agent_id, "employee_of_week", ret,
+                                      best.parent_id, best.generation, best.strategy,
+                                      f"week {week}: {ret:+.1%}")
+        journal.add_lesson(best.agent_id, day,
+                           f"day {day}: employee of the week {week} with {ret:+.1%} — "
+                           "lean into this setup.")
+    return [i.agent_id for _, i in winners]
 
 
 def _consult_mentor(intern: Individual, day: int, alive: list[Individual],

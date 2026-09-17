@@ -53,6 +53,30 @@ def build_state(data: dict[str, pd.DataFrame], running: bool = False) -> dict:
         "market": market_state(data.get("market", empty)),
         "agents": [v.to_dict() for v in vitals],
         "events": events,
+        "party": party_state(survival, day),
+    }
+
+
+def party_state(survival: pd.DataFrame, day: int) -> dict:
+    """The latest happy hour: who is celebrated, who got the frame, and
+    whether the party is happening right now (it lasts the evening of the
+    day it was thrown)."""
+    if survival.empty:
+        return {"active": False, "winners": [], "employee": None, "week": 0, "day": 0}
+    parties = survival[survival["event"] == "party"]
+    frames = survival[survival["event"] == "employee_of_week"]
+    if parties.empty:
+        return {"active": False, "winners": [], "employee": None, "week": 0, "day": 0}
+    last = int(parties["day"].max())
+    winners = parties[parties["day"] == last]
+    detail = str(winners.iloc[0]["detail"])
+    week = int(detail.split(":")[0].replace("week", "").strip() or 0)
+    return {
+        "active": last == day,
+        "day": last, "week": week,
+        "winners": [{"agent_id": r["agent_id"], "ret": float(r["equity"])}
+                    for _, r in winners.iterrows()],
+        "employee": (str(frames.iloc[-1]["agent_id"]) if not frames.empty else None),
     }
 
 

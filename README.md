@@ -223,9 +223,26 @@ dica é real: a lição mais importante do mentor entra na memória do
 estagiário (evento `consulted` no diário). No andar isso aparece
 literalmente: o estagiário levanta, atravessa a sala, para ao lado da mesa
 do mentor, pergunta, ouve a dica e volta — **um de cada vez**, para não
-virar bagunça. Ninguém "morre": quem fica abaixo da linha é **dispensado
-por não bater a meta**, os outros ficam sabendo pelo aviso ao lado da
-porta de saída, e é assim que aparece no dashboard e nas conversas.
+virar bagunça. Ninguém "morre": o estagiário que fica abaixo da linha é
+**dispensado por não bater a meta**, os outros ficam sabendo pelo aviso ao
+lado da porta de saída, e é assim que aparece no dashboard e nas
+conversas. **Especialistas nunca são dispensados**: o papel deles é
+alimentar a base de lições de onde os estagiários aprendem.
+
+**Sentimentos.** Uma dispensa recente pesa em quem fica: o stress dos
+estagiários sobe (dos especialistas, pouco — eles estão seguros) e, ao
+mesmo tempo, a **motivação** de todos sobe — humor "determined": "worried?
+yes. stopping? no." Além de energia, stress e foco, cada agente tem
+**motivação** (dispensas, festas e elogios sobem; sequências de meta
+perdida desgastam) e **ego** (quadro na parede, elogios, sequências).
+
+**Happy hour.** A cada 7 dias, quem bateu a meta da semana (≈ meta diária
+composta por 7 dias) ganha uma festa: todo mundo vai para o sofá e o café,
+os vencedores erguem o copo e recebem elogios dos colegas ("cheers to
+breakout-1, +7.7% this week — teach me"), a motivação sobe e o stress cai.
+O melhor da semana vira **funcionário da semana**: o quadro na parede do
+meio da sala mostra o nome, ele ganha um 🏆 sobre a cabeça, o ego sobe
+(humor "proud") — e a lição "lean into this setup" entra na memória dele.
 
 ## Debate bull vs. bear
 

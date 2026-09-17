@@ -1,9 +1,13 @@
 """Physical / emotional / mental state of each agent, derived from what
 actually happened to it in the market — nothing here is random.
 
-    energy (physical)  drained by trading activity and drawdown, restored by quiet days
-    stress (emotional) losses, stop-losses, missed targets, closeness to the death line
-    focus  (mental)    lessons learned, win rate, target streaks; eroded by stress
+    energy     (physical)  drained by trading activity and drawdown, restored by quiet days
+    stress     (emotional) losses, stop-losses, missed targets, closeness to the line,
+                           and colleagues being let go
+    focus      (mental)    lessons learned, win rate, target streaks; eroded by stress
+    motivation (drive)     a colleague let go is a warning AND a spur; parties and praise
+                           lift it; long miss streaks wear it down
+    ego        (self)      employee-of-the-week frames, party praise and streaks
 
 The world renderer turns these into behaviour (rest, pace, study, celebrate)
 and into what the agents say to each other. The chatter itself is not
@@ -45,6 +49,10 @@ class AgentVitals:
     energy: float
     stress: float
     focus: float
+    motivation: float
+    ego: float
+    parties: int               # happy hours earned in the last two weeks
+    awards: int                # employee-of-the-week frames (recent)
     mood: str
     activity: str
 
@@ -77,6 +85,11 @@ def compute_vitals(summary: pd.DataFrame, trades: pd.DataFrame, lessons: pd.Data
     born = (survival[survival["event"] == "born"].drop_duplicates("agent_id")
             .set_index("agent_id") if not survival.empty else pd.DataFrame())
     last_day = int(summary["episode"].max()) if not summary.empty else 0
+    # a dismissal in the last few days is felt by everyone who stayed
+    recent_dismissals = 0
+    if not survival.empty:
+        recent_dismissals = int(((survival["event"] == "died")
+                                 & (survival["day"] >= last_day - 3)).sum())
 
     vitals = []
     for aid in agent_ids:
@@ -100,10 +113,13 @@ def compute_vitals(summary: pd.DataFrame, trades: pd.DataFrame, lessons: pd.Data
         max_dd = float(recent["max_drawdown"].max()) if len(recent) else 0.0
         quiet_days = int((recent["n_trades"] == 0).sum()) if len(recent) else 0
 
-        streak = misses = 0
+        streak = misses = parties = awards = 0
         mentor, tip = None, ""
         if not survival.empty:
             mine = survival[survival["agent_id"] == aid]
+            parties = int(((mine["event"] == "party") & (mine["day"] >= last_day - 14)).sum())
+            awards = int(((mine["event"] == "employee_of_week")
+                          & (mine["day"] >= last_day - 21)).sum())
             consulted = mine[mine["event"] == "consulted"]
             if not consulted.empty:
                 mentor = str(consulted.iloc[-1]["parent_id"])
@@ -127,17 +143,27 @@ def compute_vitals(summary: pd.DataFrame, trades: pd.DataFrame, lessons: pd.Data
         ratio = equity / budget if budget > 0 else 1.0
         energy = _clamp(1.0 - 0.06 * int(recent["n_trades"].sum() if len(recent) else 0)
                         - 0.6 * max_dd + 0.12 * quiet_days)
+        is_intern = aid in born.index and int(born.loc[aid, "generation"]) > 0
+        worry = recent_dismissals * (0.12 if is_intern else 0.05)   # specialists are safe
         stress = _clamp(0.15 + 0.12 * stop_losses + 3.0 * max(0.0, -window_return)
                         + 0.3 * max(0.0, 0.85 - ratio) * 4 + 0.06 * min(misses, 6)
-                        - 0.15 * (win_rate - 0.5))
+                        - 0.15 * (win_rate - 0.5) + worry - 0.08 * parties)
+        motivation = _clamp(0.45 + 0.15 * recent_dismissals + 0.2 * parties + 0.1 * streak
+                            - 0.04 * min(misses, 8) + 0.1 * awards)
+        ego = _clamp(0.25 + 0.3 * awards + 0.15 * parties + 0.08 * streak
+                     + (0.15 if window_return > 0.02 else 0.0) - 0.05 * min(misses, 4))
         focus = _clamp(0.35 + 0.05 * n_lessons + 0.04 * importance + 0.25 * (win_rate - 0.5)
-                       + 0.08 * streak - 0.35 * stress)
+                       + 0.08 * streak - 0.35 * stress + 0.1 * (motivation - 0.5))
         if not alive:
             mood, activity = "dead", "dead"
         elif stress > 0.75:
             mood, activity = "panicking", "pacing"
         elif energy < 0.3:
             mood, activity = "exhausted", "resting"
+        elif ego > 0.7 and stress < 0.5:
+            mood, activity = "proud", "celebrating" if parties else "trading"
+        elif stress > 0.5 and motivation > 0.6:
+            mood, activity = "determined", "trading"
         elif stress > 0.5:
             mood, activity = "anxious", "pacing" if trades_today == 0 else "trading"
         elif window_return > 0.02 and stress < 0.4:
@@ -164,6 +190,7 @@ def compute_vitals(summary: pd.DataFrame, trades: pd.DataFrame, lessons: pd.Data
             else "specialist",
             mentor=mentor, tip=tip,
             energy=round(energy, 2), stress=round(stress, 2), focus=round(focus, 2),
+            motivation=round(motivation, 2), ego=round(ego, 2), parties=parties, awards=awards,
             mood=mood, activity=activity,
         ))
     return vitals
