@@ -135,6 +135,33 @@ cumulativo, curvas de patrimônio por agente, trades recentes e as lições
 que cada agente está aprendendo, ordenadas por importância. Funciona com
 qualquer `--db` customizado: `cryptoarena dashboard --db meu_arena.db`.
 
+Também dá para **iniciar o torneio pela própria página**: a barra lateral
+tem episódios, dias por episódio, mercado endógeno e o agente Claude (se
+houver chave), e roda tudo numa thread em background enquanto a página
+acompanha o progresso.
+
+## Publicar na web (Streamlit Community Cloud)
+
+O repositório já vem pronto para deploy: `streamlit_app.py` na raiz,
+`requirements.txt`, `.streamlit/config.toml`.
+
+1. Suba o código para o GitHub e entre em <https://share.streamlit.io>
+   com a conta do GitHub.
+2. **New app** → escolha o repositório e a branch, e em *Main file path*
+   coloque `streamlit_app.py`. Em *Advanced settings*, Python 3.11.
+3. (Opcional, só para o agente Claude) em *Secrets* cole
+   `ANTHROPIC_API_KEY = "sk-ant-..."` — veja
+   `.streamlit/secrets.toml.example`. A chave fica no servidor, nunca no
+   código nem no navegador dos visitantes.
+4. **Deploy**. Em ~2 minutos a URL pública fica no ar; qualquer visitante
+   aperta **Start** na barra lateral e assiste ao torneio.
+
+Vale saber: o plano gratuito hiberna o app após alguns dias sem acesso
+(acorda no próximo clique) e o disco é efêmero — o `arena.db` recomeça a
+cada reinício, o que para uma demo é até desejável. Hugging Face Spaces
+funciona com os mesmos arquivos (SDK *streamlit*, arquivo
+`streamlit_app.py`).
+
 ## Debate bull vs. bear
 
 ```bash

@@ -2,21 +2,28 @@
 
 Run with:
     cryptoarena dashboard              # launches this via streamlit for you
-    streamlit run src/cryptoarena/dashboard.py -- --db arena.db
+    streamlit run streamlit_app.py     # what Streamlit Community Cloud runs
 
-It only *reads* the journal (WAL mode lets it do that safely while a
-`cryptoarena run` in another terminal is writing to the same file), so it
-never interferes with the tournament itself.
+The page only *reads* the journal (WAL mode lets it do that safely while a
+tournament is writing to the same file). The tournament itself can come from
+`cryptoarena run` in another terminal or from the sidebar, which runs it on a
+background thread inside this process — the only option on a hosted deploy.
 """
 from __future__ import annotations
 
 import argparse
+import os
 import sqlite3
 import sys
 import time
+from pathlib import Path
 
 import pandas as pd
 import streamlit as st
+
+from cryptoarena.agents.llm import ClaudeTraderAgent
+from cryptoarena.arena import background
+from cryptoarena.arena.background import RunConfig
 
 
 def _parse_args() -> argparse.Namespace:
@@ -67,23 +74,72 @@ def leaderboard(summary: pd.DataFrame) -> pd.DataFrame:
     return board.reset_index(drop=True)
 
 
+def run_controls(db_path: str) -> background.RunState | None:
+    """Sidebar panel that starts a tournament in-process (what a hosted
+    deploy needs, since there is no second terminal to run the CLI in)."""
+    run = background.current_run()
+    st.sidebar.subheader("Run a tournament")
+    with st.sidebar.form("run_form"):
+        episodes = st.slider("Episodes", 1, 10, 3)
+        days = st.slider("Days per episode (hourly bars)", 1, 30, 7)
+        endogenous = st.checkbox("Endogenous market (order book)", value=True)
+        llm_ok = ClaudeTraderAgent.available()
+        llm = st.checkbox("Include Claude trader", value=False, disabled=not llm_ok,
+                          help=None if llm_ok else
+                          "set ANTHROPIC_API_KEY (Streamlit secrets on the cloud)")
+        seed_text = st.text_input("Seed (optional)", "")
+        submitted = st.form_submit_button(
+            "Start", disabled=run is not None and run.running, use_container_width=True)
+    if submitted:
+        seed = int(seed_text) if seed_text.strip().lstrip("-").isdigit() else None
+        run = background.start_tournament(RunConfig(
+            db_path=db_path, episodes=episodes, steps=24 * days,
+            endogenous=endogenous, llm=llm, seed=seed))
+        st.rerun()
+
+    if run is not None and run.running:
+        st.sidebar.info(f"running… {run.config.episodes} episodes, "
+                        f"{run.config.steps} bars each")
+    elif run is not None and run.error:
+        st.sidebar.error("last run failed")
+        with st.sidebar.expander("traceback"):
+            st.code(run.error)
+    elif run is not None:
+        st.sidebar.success(f"finished in {run.finished_at - run.started_at:.0f}s")
+
+    if st.sidebar.button("Reset journal", disabled=run is not None and run.running,
+                         use_container_width=True):
+        for suffix in ("", "-wal", "-shm"):
+            Path(db_path + suffix).unlink(missing_ok=True)
+        st.rerun()
+    return run
+
+
 def main() -> None:
     args = _parse_args()
     st.set_page_config(page_title="CryptoArena", page_icon="🏟️", layout="wide")
     st.title("🏟️ CryptoArena")
-    st.caption(f"reading `{args.db}` — run `cryptoarena run` in another terminal to feed it")
+    st.caption(f"reading `{args.db}` — start a run from the sidebar, or feed it with "
+               "`cryptoarena run` in another terminal")
 
-    auto_refresh = st.sidebar.checkbox("Auto-refresh every 5s", value=True)
+    run = run_controls(args.db)
+    st.sidebar.divider()
+    auto_refresh = st.sidebar.checkbox("Auto-refresh", value=True)
     st.sidebar.button("Refresh now")
 
-    equity, summary, trades, lessons = load_data(args.db)
+    equity, summary, trades, lessons = load_data(args.db) if os.path.exists(args.db) \
+        else (pd.DataFrame(),) * 4
 
     if summary.empty and equity.empty:
         st.info(
-            "No data yet in this database. Start a run pointed at the same file, e.g.:\n\n"
+            "No data yet. Press **Start** in the sidebar, or point a run at the same file:\n\n"
             f"```\ncryptoarena run --episodes 5 --db {args.db}\n```"
         )
     else:
+        if run is not None and run.running:
+            done = int(summary["episode"].max()) if not summary.empty else 0
+            st.progress(done / run.config.episodes,
+                        text=f"episode {done}/{run.config.episodes} complete")
         st.subheader("Leaderboard (cumulative across episodes)")
         board = leaderboard(summary)
         st.dataframe(
@@ -122,7 +178,7 @@ def main() -> None:
                 st.caption("no lessons yet")
 
     if auto_refresh:
-        time.sleep(5)
+        time.sleep(2 if run is not None and run.running else 5)
         st.rerun()
 
 

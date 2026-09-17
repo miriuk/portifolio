@@ -5,3 +5,4 @@ __pycache__/
 arena.db
 data/*.csv
 .env
+.streamlit/secrets.toml
