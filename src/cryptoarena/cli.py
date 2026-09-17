@@ -54,6 +54,26 @@ def main() -> None:
                      help="agents trade against a shared order book and "
                           "move prices with their own orders")
 
+    surv = sub.add_parser("survive", help="survival colony: daily target, death, cloning")
+    surv.add_argument("--days", type=int, default=30)
+    surv.add_argument("--budget", type=float, default=1_000.0,
+                      help="starting cash per founder (and max per clone)")
+    surv.add_argument("--target", type=float, default=0.005,
+                      help="daily return needed to earn the right to clone")
+    surv.add_argument("--death", type=float, default=0.6,
+                      help="dead when equity falls below this fraction of own budget")
+    surv.add_argument("--cost", type=float, default=0.001,
+                      help="daily cost of living as a fraction of own budget")
+    surv.add_argument("--pressure", type=float, default=0.0,
+                      help="after each missed target, scale order size by (1+pressure)")
+    surv.add_argument("--max-pop", type=int, default=12)
+    surv.add_argument("--db", default="arena.db")
+    surv.add_argument("--seed", type=int, default=None)
+    surv.add_argument("--llm", action="store_true")
+    surv.add_argument("--llm-model", default="claude-opus-5")
+    surv.add_argument("--synthetic", action="store_true",
+                      help="use the synthetic price generator instead of the order book")
+
     lessons = sub.add_parser("lessons", help="show an agent's learned lessons")
     lessons.add_argument("agent_id")
     lessons.add_argument("--db", default="arena.db")
@@ -77,6 +97,21 @@ def main() -> None:
                            steps_per_episode=args.steps, seed=args.seed,
                            evolve=not args.no_evolve,
                            endogenous=args.endogenous)
+        finally:
+            journal.close()
+    elif args.command == "survive":
+        from .arena.survival import SurvivalConfig, run_survival
+        journal = TradeJournal(args.db)
+        founders = build_agents(args.budget, args.llm, args.llm_model, journal=journal)
+        try:
+            res = run_survival(founders, journal, SurvivalConfig(
+                days=args.days, budget=args.budget, daily_target=args.target,
+                death_below=args.death, daily_cost=args.cost,
+                pressure=args.pressure, max_population=args.max_pop,
+                seed=args.seed, endogenous=not args.synthetic))
+            print(f"\n{len(res.alive)} of {len(res.population)} agents alive after "
+                  f"{len(res.alive_per_day)} days; colony equity "
+                  f"{res.equity_per_day[-1] if res.equity_per_day else 0:,.0f}")
         finally:
             journal.close()
     elif args.command == "lessons":

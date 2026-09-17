@@ -53,6 +53,11 @@ class TradingAgent(ABC):
     def reset_wallet(self) -> None:
         self.wallet = Wallet(cash=self.starting_cash)
 
+    def clone(self, agent_id: str, starting_cash: float, rng=None) -> "TradingAgent | None":
+        """A fresh offspring with (mutated) parameters, or None if this
+        agent type cannot reproduce."""
+        return None
+
     # --- indicator helpers ---------------------------------------------------
     def closes(self, symbol: str, n: int) -> list[float]:
         h = self.history.get(symbol)

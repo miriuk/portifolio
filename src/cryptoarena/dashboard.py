@@ -41,17 +41,82 @@ def _read_table(conn: sqlite3.Connection, query: str) -> pd.DataFrame:
         return pd.DataFrame()
 
 
-def load_data(db_path: str) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+def load_data(db_path: str) -> dict[str, pd.DataFrame]:
     conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     try:
-        equity = _read_table(conn, "SELECT * FROM equity_snapshots")
-        summary = _read_table(conn, "SELECT * FROM episode_summary")
-        trades = _read_table(conn, "SELECT * FROM trades ORDER BY id DESC LIMIT 300")
-        lessons = _read_table(
-            conn, "SELECT * FROM lessons ORDER BY importance DESC, id DESC LIMIT 150")
+        return {
+            "equity": _read_table(conn, "SELECT * FROM equity_snapshots"),
+            "summary": _read_table(conn, "SELECT * FROM episode_summary"),
+            "trades": _read_table(conn, "SELECT * FROM trades ORDER BY id DESC LIMIT 300"),
+            "lessons": _read_table(
+                conn, "SELECT * FROM lessons ORDER BY importance DESC, id DESC LIMIT 150"),
+            "survival": _read_table(conn, "SELECT * FROM survival_events ORDER BY id"),
+        }
     finally:
         conn.close()
-    return equity, summary, trades, lessons
+
+
+def lineage_dot(events: pd.DataFrame) -> str:
+    """Graphviz source for the family tree: one node per agent ever born,
+    edges parent -> child, the dead greyed out with their day of death."""
+    palette = {"momentum": "#f7931a", "meanreversion": "#3b82f6", "breakout": "#22c55e",
+               "claudetrader": "#a855f7"}
+    born = events[events["event"] == "born"]
+    died = events[events["event"] == "died"].set_index("agent_id")["day"]
+    latest_equity = events.groupby("agent_id")["equity"].last()
+    lines = ["digraph lineage {", "  rankdir=LR; bgcolor=transparent;",
+             '  node [shape=box, style="rounded,filled", fontname="Helvetica", '
+             'fontsize=11, color="#00000000"];',
+             '  edge [color="#888888"];']
+    for _, r in born.iterrows():
+        aid = r["agent_id"]
+        color = palette.get(r["strategy"], "#94a3b8")
+        if aid in died.index:
+            label = f"{aid}\\n✝ day {int(died[aid])}"
+            lines.append(f'  "{aid}" [label="{label}", fillcolor="#3f3f46", fontcolor="#a1a1aa"];')
+        else:
+            label = f"{aid}\\ngen {int(r['generation'])} · {latest_equity[aid]:,.0f}"
+            lines.append(f'  "{aid}" [label="{label}", fillcolor="{color}", fontcolor="white"];')
+        if isinstance(r["parent_id"], str) and r["parent_id"]:
+            lines.append(f'  "{r["parent_id"]}" -> "{aid}" [label="day {int(r["day"])}", '
+                         'fontsize=9, fontcolor="#888888"];')
+    lines.append("}")
+    return "\n".join(lines)
+
+
+def colony_view(events: pd.DataFrame) -> None:
+    alive_ids = set(events.loc[events["event"] == "born", "agent_id"]) - \
+        set(events.loc[events["event"] == "died", "agent_id"])
+    survived = events[events["event"] == "survived"]
+    last_day = int(events["day"].max())
+    latest = survived[survived["day"] == survived["day"].max()] if not survived.empty \
+        else events[events["event"] == "born"]
+
+    st.subheader("Survival colony")
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Day", last_day)
+    c2.metric("Alive", len(alive_ids))
+    c3.metric("Born", int((events["event"] == "born").sum()))
+    c4.metric("Died", int((events["event"] == "died").sum()))
+    c5.metric("Colony equity", f"{latest['equity'].sum():,.0f}")
+
+    left, right = st.columns([1, 2])
+    with left:
+        st.caption("population and colony equity by day")
+        if not survived.empty:
+            by_day = survived.groupby("day").agg(alive=("agent_id", "count"),
+                                                 equity=("equity", "sum"))
+            st.line_chart(by_day["alive"], height=150)
+            st.line_chart(by_day["equity"], height=150)
+    with right:
+        st.caption("lineage — who cloned whom, who died")
+        st.graphviz_chart(lineage_dot(events), width="stretch")
+
+    notable = events[events["event"].isin(["born", "cloned", "died", "target_hit"])]
+    with st.expander(f"event log ({len(notable)} events)"):
+        st.dataframe(notable[["day", "agent_id", "event", "equity", "detail"]]
+                     .sort_values("day", ascending=False),
+                     width="stretch", hide_index=True, height=260)
 
 
 def leaderboard(summary: pd.DataFrame) -> pd.DataFrame:
@@ -78,10 +143,26 @@ def run_controls(db_path: str) -> background.RunState | None:
     """Sidebar panel that starts a tournament in-process (what a hosted
     deploy needs, since there is no second terminal to run the CLI in)."""
     run = background.current_run()
-    st.sidebar.subheader("Run a tournament")
+    st.sidebar.subheader("Run")
+    mode = st.sidebar.radio("Mode", ["Survival colony", "Tournament"], horizontal=True,
+                            help="Survival: daily target, death below the line, clones paid "
+                                 "from profit. Tournament: episodes with fresh wallets.")
     with st.sidebar.form("run_form"):
-        episodes = st.slider("Episodes", 1, 10, 3)
-        days = st.slider("Days per episode (hourly bars)", 1, 30, 7)
+        if mode == "Survival colony":
+            days = st.slider("Days", 5, 180, 60)
+            budget = st.number_input("Budget per agent", 100.0, 100_000.0, 1_000.0, step=100.0)
+            target = st.slider("Daily target %", 0.0, 3.0, 0.5, 0.1)
+            death = st.slider("Dead below % of budget", 0, 95, 60, 5)
+            cost = st.slider("Cost of living %/day", 0.0, 2.0, 0.1, 0.05)
+            pressure = st.slider("Pressure after a miss", 0.0, 1.0, 0.0, 0.1,
+                                 help="order size × (1+pressure) per consecutive missed "
+                                      "target — the gambler's-ruin incentive, off by default")
+            max_pop = st.slider("Max population", 5, 30, 12)
+            episodes, steps = 0, 24
+        else:
+            episodes = st.slider("Episodes", 1, 10, 3)
+            steps = 24 * st.slider("Days per episode (hourly bars)", 1, 30, 7)
+            days = budget = target = death = cost = pressure = max_pop = 0
         endogenous = st.checkbox("Endogenous market (order book)", value=True)
         llm_ok = ClaudeTraderAgent.available()
         llm = st.checkbox("Include Claude trader", value=False, disabled=not llm_ok,
@@ -89,17 +170,25 @@ def run_controls(db_path: str) -> background.RunState | None:
                           "set ANTHROPIC_API_KEY (Streamlit secrets on the cloud)")
         seed_text = st.text_input("Seed (optional)", "")
         submitted = st.form_submit_button(
-            "Start", disabled=run is not None and run.running, use_container_width=True)
+            "Start", disabled=run is not None and run.running, width="stretch")
     if submitted:
         seed = int(seed_text) if seed_text.strip().lstrip("-").isdigit() else None
-        run = background.start_tournament(RunConfig(
-            db_path=db_path, episodes=episodes, steps=24 * days,
-            endogenous=endogenous, llm=llm, seed=seed))
+        if mode == "Survival colony":
+            config = RunConfig(db_path=db_path, mode="survival", days=days, budget=budget,
+                               daily_target=target / 100, death_below=death / 100,
+                               daily_cost=cost / 100, pressure=pressure,
+                               max_population=max_pop, endogenous=endogenous,
+                               llm=llm, seed=seed)
+        else:
+            config = RunConfig(db_path=db_path, episodes=episodes, steps=steps,
+                               endogenous=endogenous, llm=llm, seed=seed)
+        run = background.start_tournament(config)
         st.rerun()
 
     if run is not None and run.running:
-        st.sidebar.info(f"running… {run.config.episodes} episodes, "
-                        f"{run.config.steps} bars each")
+        what = (f"{run.config.days} days of survival" if run.config.mode == "survival"
+                else f"{run.config.episodes} episodes × {run.config.steps} bars")
+        st.sidebar.info(f"running… {what}")
     elif run is not None and run.error:
         st.sidebar.error("last run failed")
         with st.sidebar.expander("traceback"):
@@ -108,7 +197,7 @@ def run_controls(db_path: str) -> background.RunState | None:
         st.sidebar.success(f"finished in {run.finished_at - run.started_at:.0f}s")
 
     if st.sidebar.button("Reset journal", disabled=run is not None and run.running,
-                         use_container_width=True):
+                         width="stretch"):
         for suffix in ("", "-wal", "-shm"):
             Path(db_path + suffix).unlink(missing_ok=True)
         st.rerun()
@@ -127,26 +216,33 @@ def main() -> None:
     auto_refresh = st.sidebar.checkbox("Auto-refresh", value=True)
     st.sidebar.button("Refresh now")
 
-    equity, summary, trades, lessons = load_data(args.db) if os.path.exists(args.db) \
-        else (pd.DataFrame(),) * 4
+    data = load_data(args.db) if os.path.exists(args.db) else {}
+    equity = data.get("equity", pd.DataFrame())
+    summary = data.get("summary", pd.DataFrame())
+    trades = data.get("trades", pd.DataFrame())
+    lessons = data.get("lessons", pd.DataFrame())
+    survival = data.get("survival", pd.DataFrame())
 
-    if summary.empty and equity.empty:
+    if summary.empty and equity.empty and survival.empty:
         st.info(
             "No data yet. Press **Start** in the sidebar, or point a run at the same file:\n\n"
-            f"```\ncryptoarena run --episodes 5 --db {args.db}\n```"
+            f"```\ncryptoarena survive --days 60 --db {args.db}\n```"
         )
     else:
         if run is not None and run.running:
+            total = run.config.days if run.config.mode == "survival" else run.config.episodes
+            unit = "day" if run.config.mode == "survival" else "episode"
             done = int(summary["episode"].max()) if not summary.empty else 0
-            st.progress(done / run.config.episodes,
-                        text=f"episode {done}/{run.config.episodes} complete")
+            st.progress(min(done / total, 1.0), text=f"{unit} {done}/{total} complete")
+        if not survival.empty:
+            colony_view(survival)
         st.subheader("Leaderboard (cumulative across episodes)")
         board = leaderboard(summary)
         st.dataframe(
             board.style.format({
                 "return": "{:+.1%}", "win_rate": "{:.0%}", "max_drawdown": "{:.0%}",
             }),
-            use_container_width=True, hide_index=True,
+            width="stretch", hide_index=True,
         )
 
         if not equity.empty:
@@ -163,7 +259,7 @@ def main() -> None:
                 st.dataframe(
                     trades[["agent_id", "episode", "symbol", "side", "price",
                             "pnl", "regime", "reason"]],
-                    use_container_width=True, height=380, hide_index=True,
+                    width="stretch", height=380, hide_index=True,
                 )
             else:
                 st.caption("no trades yet")
@@ -172,7 +268,7 @@ def main() -> None:
             if not lessons.empty:
                 st.dataframe(
                     lessons[["agent_id", "episode", "regime", "importance", "lesson"]],
-                    use_container_width=True, height=380, hide_index=True,
+                    width="stretch", height=380, hide_index=True,
                 )
             else:
                 st.caption("no lessons yet")

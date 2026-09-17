@@ -21,6 +21,12 @@ class ParamAgent(TradingAgent):
     def set_params(self, params: dict) -> None:
         self.params.update({k: v for k, v in params.items() if k in self.DEFAULTS})
 
+    def clone(self, agent_id: str, starting_cash: float, rng=None) -> "ParamAgent":
+        from ..learning.evolution import mutate_params
+        import numpy as np
+        params = mutate_params(self.params, rng or np.random.default_rng())
+        return type(self)(agent_id, starting_cash, params=params)
+
     def learn(self, lessons: list[str]) -> None:
         """Map lesson themes onto parameter nudges — errors change behavior.
 

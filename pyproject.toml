@@ -16,7 +16,7 @@ dependencies = [
 
 [project.optional-dependencies]
 live = ["ccxt>=4.0"]
-ui = ["streamlit>=1.30"]
+ui = ["streamlit>=1.45"]
 dev = ["pytest>=7.0"]
 
 [project.scripts]

@@ -55,6 +55,17 @@ CREATE TABLE IF NOT EXISTS episode_summary (
     halted INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (agent_id, episode)
 );
+CREATE TABLE IF NOT EXISTS survival_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    day INTEGER NOT NULL,
+    agent_id TEXT NOT NULL,
+    event TEXT NOT NULL,         -- born | survived | target_hit | cloned | died
+    equity REAL NOT NULL,
+    parent_id TEXT,
+    generation INTEGER DEFAULT 0,
+    strategy TEXT DEFAULT '',
+    detail TEXT DEFAULT ''
+);
 CREATE INDEX IF NOT EXISTS idx_trades_agent ON trades (agent_id, episode);
 CREATE INDEX IF NOT EXISTS idx_equity_agent ON equity_snapshots (agent_id, episode, step);
 """
@@ -204,6 +215,16 @@ class TradeJournal:
         self._conn.execute(
             "INSERT INTO equity_snapshots (agent_id, episode, step, equity) VALUES (?, ?, ?, ?)",
             (agent_id, episode, step, equity),
+        )
+        self._conn.commit()
+
+    def record_survival_event(self, day: int, agent_id: str, event: str, equity: float,
+                              parent_id: str | None = None, generation: int = 0,
+                              strategy: str = "", detail: str = "") -> None:
+        self._conn.execute(
+            """INSERT INTO survival_events (day, agent_id, event, equity, parent_id,
+               generation, strategy, detail) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (day, agent_id, event, equity, parent_id, generation, strategy, detail),
         )
         self._conn.commit()
 
