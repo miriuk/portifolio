@@ -34,6 +34,7 @@ class SurvivalConfig:
     daily_cost: float = 0.001       # cost of living (compute/API), fraction of own budget per day
     max_population: int = 12
     clone_at: float = 1.1           # hire a clone once equity reaches this × own budget (+10%)
+    min_child_budget: float = 0.2   # the surplus must be worth at least this (quote units) to become a child
     pressure: float = 0.0           # each missed target scales order size by (1 + pressure)
     week_days: int = 7              # happy hour every N days for whoever beat the weekly target
     explore_every: int = 3          # every Nth intern is born mutated (exploration); the rest are faithful copies
@@ -396,17 +397,20 @@ def _consult_mentor(intern: Individual, day: int, alive: list[Individual],
 def _try_clone(parent: Individual, day: int, equity: float, cfg: SurvivalConfig, rng,
                journal, next_id, population_size: int, mutate: bool = False) -> Individual | None:
     """A child is hired once the parent has grown its budget `clone_at`-fold
-    (doubled it, by default) and is paid a full budget out of that profit,
-    in cash — so a parent fully invested has to wait. It is a faithful copy
-    of the parent (parameters, lessons, warmed-up indicators) unless this
-    birth is an exploration one, in which case it is mutated."""
+    (+10% by default) and is born with the surplus — the profit above the
+    parent's own budget, paid in cash, so a parent fully invested pays what
+    it has on hand. A child of 0.60 lives by the same rules scaled to 0.60:
+    target, death line, cost of living and its own hiring. It is a faithful
+    copy of the parent (parameters, lessons, warmed-up indicators) unless
+    this birth is an exploration one, in which case it is mutated."""
     if population_size >= cfg.max_population:
         return None
     wallet = parent.agent.wallet
-    if equity < parent.budget * cfg.clone_at:
+    surplus = equity - parent.budget
+    if surplus < max(cfg.min_child_budget, parent.budget * (cfg.clone_at - 1)):
         return None
-    child_budget = parent.budget
-    if wallet.cash < child_budget:
+    child_budget = min(surplus, wallet.cash)
+    if child_budget < cfg.min_child_budget:
         return None
     child_id = next_id(parent.agent_id.rsplit("-", 1)[0])
     child_agent = parent.agent.clone(child_id, child_budget, rng, mutate=mutate)

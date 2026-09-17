@@ -159,7 +159,7 @@ def _parent(journal, cash: float) -> Individual:
     return Individual(agent, "momentum", 1_000.0, None, 0, born_day=0)
 
 
-def test_clone_is_hired_on_doubling_and_paid_a_full_budget(tmp_path):
+def test_child_is_born_with_the_surplus(tmp_path):
     journal = TradeJournal(tmp_path / "s.db")
     parent = _parent(journal, cash=2_100.0)
     cfg = SurvivalConfig(budget=1_000.0, clone_at=2.0)
@@ -169,9 +169,9 @@ def test_clone_is_hired_on_doubling_and_paid_a_full_budget(tmp_path):
 
     assert child is not None
     assert child.agent_id == "momentum-2"
-    assert child.budget == 1_000.0                     # a full budget, same as the parent's
-    assert parent.agent.wallet.cash == 1_100.0         # parent paid for it out of profit
-    assert child.agent.wallet.cash == 1_000.0
+    assert child.budget == 1_100.0                     # the surplus above the parent's budget
+    assert parent.agent.wallet.cash == 1_000.0         # the parent is back to its budget
+    assert child.agent.wallet.cash == 1_100.0
     assert child.generation == 1 and child.parent_id == "momentum-1"
     assert child.agent.get_params() == parent.agent.get_params()   # faithful copy
     assert any("stop-losses" in l for l in journal.lessons_for("momentum-2"))  # inherited
@@ -181,9 +181,9 @@ def test_clone_is_hired_on_doubling_and_paid_a_full_budget(tmp_path):
     journal.close()
 
 
-def test_clone_refused_before_doubling_or_without_cash_or_room(tmp_path):
+def test_clone_refused_below_the_hiring_line_or_without_cash_or_room(tmp_path):
     journal = TradeJournal(tmp_path / "s.db")
-    cfg = SurvivalConfig(budget=1_000.0, max_population=3, clone_at=2.0)
+    cfg = SurvivalConfig(budget=1_000.0, max_population=3, clone_at=2.0, min_child_budget=0.2)
     rng = np.random.default_rng(0)
     ids = lambda prefix: f"{prefix}-9"  # noqa: E731
 
@@ -191,12 +191,35 @@ def test_clone_refused_before_doubling_or_without_cash_or_room(tmp_path):
     assert _try_clone(almost, 1, 1_900.0, cfg, rng, journal, ids, population_size=1) is None
     assert almost.agent.wallet.cash == 1_900.0
 
-    invested = _parent(journal, cash=500.0)   # doubled on paper, but the cash is in positions
-    assert _try_clone(invested, 1, 2_200.0, cfg, rng, journal, ids, population_size=1) is None
+    invested = _parent(journal, cash=500.0)   # doubled on paper; pays what it has on hand
+    child = _try_clone(invested, 1, 2_200.0, cfg, rng, journal, ids, population_size=1)
+    assert child is not None and child.budget == 500.0 and invested.agent.wallet.cash == 0.0
+
+    broke = _parent(journal, cash=0.1)        # doubled on paper, but not even the minimum in cash
+    assert _try_clone(broke, 1, 2_200.0, cfg, rng, journal, ids, population_size=1) is None
 
     rich = _parent(journal, cash=3_000.0)
     assert _try_clone(rich, 1, 3_000.0, cfg, rng, journal, ids, population_size=3) is None
-    assert _events(journal, "born") == []
+    assert len(_events(journal, "born")) == 1   # only the partial hire above
+    journal.close()
+
+
+def test_fiver_children_are_tiny_and_live_by_scaled_rules(tmp_path):
+    journal = TradeJournal(tmp_path / "s.db")
+    parent = Individual(MomentumAgent("momentum-1", 5.0), "momentum", 5.0, None, 0, 0)
+    parent.agent.wallet.cash = 5.6
+    cfg = SurvivalConfig(budget=5.0, clone_at=1.1, min_child_budget=0.2, death_below=0.6)
+    ids = lambda prefix: f"{prefix}-2"  # noqa: E731
+    child = _try_clone(parent, 3, 5.6, cfg, np.random.default_rng(0), journal, ids, population_size=1)
+    assert child is not None and abs(child.budget - 0.6) < 1e-9
+    assert abs(parent.agent.wallet.cash - 5.0) < 1e-9
+    from cryptoarena.arena.survival import _let_go
+    assert _let_go(child, 0.35, False, cfg, day=4) is True      # below 60% of its own 0.60
+    assert _let_go(child, 0.37, False, cfg, day=4) is False
+    # too small a surplus makes no child: at 5.15 the surplus is under the 0.20 minimum
+    parent.agent.wallet.cash = 5.15
+    assert _try_clone(parent, 4, 5.15, cfg, np.random.default_rng(0), journal,
+                      lambda p: f"{p}-3", population_size=2) is None
     journal.close()
 
 

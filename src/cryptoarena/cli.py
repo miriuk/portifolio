@@ -62,7 +62,10 @@ def main() -> None:
     surv.add_argument("--budget", type=float, default=5.0,
                       help="starting cash per founder (and per clone)")
     surv.add_argument("--clone-at", type=float, default=1.1,
-                      help="hire a clone once equity reaches this multiple of the budget")
+                      help="hire a clone once equity reaches this multiple of the budget; "
+                           "the child is born with the surplus")
+    surv.add_argument("--min-child", type=float, default=0.2,
+                      help="smallest surplus (quote units) that becomes a child")
     surv.add_argument("--target", type=float, default=0.005,
                       help="daily return needed to earn the right to clone")
     surv.add_argument("--death", type=float, default=0.6,
@@ -112,6 +115,7 @@ def main() -> None:
             res = run_survival(founders, journal, SurvivalConfig(
                 days=args.days, budget=args.budget, daily_target=args.target,
                 death_below=args.death, daily_cost=args.cost, clone_at=args.clone_at,
+                min_child_budget=args.min_child,
                 pressure=args.pressure, max_population=args.max_pop,
                 seed=args.seed, endogenous=not args.synthetic))
             print(f"\n{len(res.alive)} of {len(res.population)} agents alive after "

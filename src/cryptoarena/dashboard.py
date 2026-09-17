@@ -179,7 +179,10 @@ def run_controls(db_path: str) -> background.RunState | None:
                                      help="a fiver each — clones cost a full budget")
             clone_at = st.slider("Hire a clone at × budget", 1.05, 4.0, 1.1, 0.05,
                                  help="an agent hires a copy of itself once its equity "
-                                      "reaches this multiple of its budget (1.1 = +10%, 2 = doubled)")
+                                      "reaches this multiple of its budget (1.1 = +10%); the "
+                                      "child is born with the surplus")
+            min_child = st.number_input("Smallest child", 0.01, 1_000.0, 0.2, step=0.1,
+                                        help="a surplus below this stays with the parent")
             target = st.slider("Daily target %", 0.0, 3.0, 0.5, 0.1)
             death = st.slider("Dead below % of budget", 0, 95, 60, 5)
             cost = st.slider("Cost of living %/day", 0.0, 2.0, 0.1, 0.05)
@@ -191,7 +194,7 @@ def run_controls(db_path: str) -> background.RunState | None:
         else:
             episodes = st.slider("Episodes", 1, 10, 3)
             steps = 24 * st.slider("Days per episode (hourly bars)", 1, 30, 7)
-            days = budget = target = death = cost = pressure = max_pop = clone_at = 0
+            days = budget = target = death = cost = pressure = max_pop = clone_at = min_child = 0
         endogenous = st.checkbox("Endogenous market (order book)", value=True)
         llm_ok = ClaudeTraderAgent.available()
         llm = st.checkbox("Include Claude trader", value=False, disabled=not llm_ok,
@@ -206,6 +209,7 @@ def run_controls(db_path: str) -> background.RunState | None:
             config = RunConfig(db_path=db_path, mode="survival", days=days, budget=budget,
                                daily_target=target / 100, death_below=death / 100,
                                daily_cost=cost / 100, pressure=pressure, clone_at=clone_at,
+                               min_child_budget=min_child,
                                max_population=max_pop, endogenous=endogenous,
                                llm=llm, seed=seed)
         else:

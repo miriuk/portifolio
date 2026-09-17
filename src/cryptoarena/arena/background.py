@@ -32,6 +32,7 @@ class RunConfig:
     days: int = 30
     budget: float = 5.0
     clone_at: float = 1.1
+    min_child_budget: float = 0.2
     daily_target: float = 0.005
     death_below: float = 0.6
     daily_cost: float = 0.001
@@ -80,7 +81,7 @@ def start_tournament(config: RunConfig) -> RunState:
                         days=config.days, budget=config.budget,
                         daily_target=config.daily_target, death_below=config.death_below,
                         daily_cost=config.daily_cost, pressure=config.pressure,
-                        clone_at=config.clone_at,
+                        clone_at=config.clone_at, min_child_budget=config.min_child_budget,
                         max_population=config.max_population, seed=config.seed,
                         endogenous=config.endogenous), verbose=False)
                 else:

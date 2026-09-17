@@ -181,7 +181,8 @@ viés de sobrevivência.
 | Parâmetro | Default | O que faz |
 |---|---|---|
 | `--budget` | 5 | uma "nota de cinco" por agente (unidades de cotação) |
-| `--clone-at` | 1.1 | contrata um clone quando o patrimônio atinge esse múltiplo do orçamento (1.1 = +10%; 2 = dobrou); o filho recebe um orçamento inteiro, pago pelo pai |
+| `--clone-at` | 1.1 | contrata um clone quando o patrimônio atinge esse múltiplo do orçamento (1.1 = +10%); o filho **nasce com o excedente** (pai a £5,60 → filho com £0,60, pai volta a £5) |
+| `--min-child` | 0.2 | excedente mínimo para virar filho; abaixo disso fica com o pai |
 | `--target` | 0.5%/dia | meta diária: define sequências, festas e imunidade |
 | `--death` | 60% | estagiário é dispensado abaixo dessa fração do próprio orçamento |
 | `--cost` | 0.1%/dia | aluguel: sai do caixa todo dia, operando ou não |
@@ -195,12 +196,18 @@ de fora no chop e zera em pânico de volatilidade) e **vol-target**
 realizada — maior em mercado calmo, menor em mercado selvagem, fora
 quando a vol explode).
 
-O experimento das £5 (90–180 dias, mercado endógeno): momentum e
-vol-target rendem +15% a +68%, breakout fica no zero a zero, reversão à
-média perde −2% a −4% por semana. Ninguém dobrou em seis meses, então com
-`--clone-at 2` as contratações são raras por construção — o que é
-exatamente o ponto: clone só com lucro real. É por isso que a trilha é
-**simulador → dry-run → testnet → real com limites mínimos**, nessa ordem.
+Um filho de £0,60 vive pelas mesmas regras na escala dele: meta diária
+sobre o próprio patrimônio, dispensa abaixo de 60% dos seus £0,60 (£0,36),
+aluguel proporcional, e só contrata o próprio filho quando tiver £0,20 de
+excedente sobre os £0,60 — o pai paga o que tem em caixa, sem vender
+posição.
+
+O experimento das £5 (90–180 dias, mercado endógeno): vol-target rende
++13% a +28% em todas as sementes, momentum é alta variância, breakout
+fica no zero a zero, reversão à média perde −2% a −4% por semana. A
+colônia só cresce com lucro real — que é exatamente o ponto. É por isso
+que a trilha é **simulador → dry-run → testnet → real com limites
+mínimos**, nessa ordem.
 
 ## O andar (mundo isométrico)
 
