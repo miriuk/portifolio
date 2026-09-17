@@ -311,6 +311,60 @@ def test_weekly_training_imitates_the_best_specialist(tmp_path):
     journal.close()
 
 
+def test_senior_is_earned_and_interns_size_like_them(tmp_path):
+    from cryptoarena.agents.rules import VolTargetAgent
+    from cryptoarena.arena.survival import (_effective_order_frac, _pick_senior,
+                                            _weekly_training)
+    from cryptoarena.learning.memory import TradeRecord
+    journal = TradeJournal(tmp_path / "s.db")
+    stats = lambda aid, ep, s, e: type("S", (), dict(   # noqa: E731
+        agent_id=aid, episode=ep, start_equity=s, end_equity=e, n_trades=1, n_wins=1,
+        n_losses=0, n_stop_losses=0, fees=0.0, max_drawdown=0.0))()
+    vol = Individual(VolTargetAgent("voltarget-1", 5.0, params={"cooldown": 4}),
+                     "voltarget", 5.0, None, 0, 0)
+    mom = Individual(MomentumAgent("momentum-1", 5.0, params={"order_frac": 0.15, "cooldown": 8}),
+                     "momentum", 5.0, None, 0, 0)
+    intern = Individual(MomentumAgent("momentum-2", 5.0, params={"order_frac": 0.15, "cooldown": 8}),
+                        "momentum", 5.0, "momentum-1", 1, 3)
+    for ep in range(1, 8):
+        journal.record_episode_summary(stats("voltarget-1", ep, 5 + 0.2 * (ep - 1), 5 + 0.2 * ep))
+        journal.record_episode_summary(stats("momentum-1", ep, 5 - 0.05 * (ep - 1), 5 - 0.05 * ep))
+        journal.record_episode_summary(stats("momentum-2", ep, 5.0, 5.0))
+        # the senior buys small: 5% of the morning's equity each time
+        journal.record_trade(TradeRecord("voltarget-1", ep, "BTCUSDT", "buy",
+                                         quantity=0.05 * (5 + 0.2 * (ep - 1)) / 100.0,
+                                         price=100.0, fee=0.0, timestamp=ep))
+    senior = _pick_senior(7, [vol, mom, intern], journal)
+    assert senior is vol                                   # +28% beats -7%: earned, not appointed
+    ev = journal._conn.execute("SELECT agent_id, detail FROM survival_events WHERE event='senior'").fetchone()
+    assert ev[0] == "voltarget-1" and "+28.0%" in ev[1]
+    assert abs(_effective_order_frac(journal, "voltarget-1", 7, 7) - 0.05) < 1e-9
+
+    cfg = SurvivalConfig(imitation_rate=0.5, senior_rate=0.5, week_days=7)
+    _weekly_training(7, [vol, mom, intern], cfg, journal, senior=senior)
+    p = intern.agent.params
+    assert abs(p["order_frac"] - 0.10) < 1e-9        # halfway from 15% to the senior's 5%
+    assert p["cooldown"] == 6                          # halfway from 8 to the senior's 4
+    detail = journal._conn.execute("SELECT detail FROM survival_events WHERE event='trained'").fetchone()[0]
+    assert "imitated momentum-1" in detail and "sized like senior voltarget-1 (5% of equity per buy)" in detail
+    journal.close()
+
+
+def test_intern_escalates_to_the_senior_after_repeated_misses(tmp_path):
+    from cryptoarena.agents.rules import VolTargetAgent
+    from cryptoarena.arena.survival import _consult_mentor
+    journal = TradeJournal(tmp_path / "s.db")
+    parent = Individual(MomentumAgent("momentum-1", 5.0), "momentum", 5.0, None, 0, 0)
+    senior = Individual(VolTargetAgent("voltarget-1", 5.0), "voltarget", 5.0, None, 0, 0)
+    intern = Individual(MomentumAgent("momentum-2", 5.0), "momentum", 5.0, "momentum-1", 1, 3)
+    journal.add_lesson("momentum-1", 2, "day 2: barely traded — too passive; loosen entries.")
+    journal.add_lesson("voltarget-1", 2, "day 2: drawdown reached 30% — position sizing too large.")
+    assert _consult_mentor(intern, 5, [parent, senior, intern], journal) == "momentum-1"
+    assert _consult_mentor(intern, 6, [parent, senior, intern], journal, senior=senior) == "voltarget-1"
+    assert any("sizing too large" in l for l in journal.lessons_for("momentum-2"))
+    journal.close()
+
+
 def test_tip_also_nudges_parameters(tmp_path):
     from cryptoarena.arena.survival import _consult_mentor
     journal = TradeJournal(tmp_path / "s.db")

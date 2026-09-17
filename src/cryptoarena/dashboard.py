@@ -119,16 +119,25 @@ def colony_view(events: pd.DataFrame) -> None:
         st.graphviz_chart(lineage_dot(events), width="stretch")
 
     frames = events[events["event"] == "employee_of_week"]
+    seniors = events[events["event"] == "senior"]
+    badges = []
+    if not seniors.empty:
+        s = seniors.iloc[-1]
+        badges.append(f"🌟 senior specialist: **{s['agent_id']}** ({s['detail']}) — "
+                      "interns size and pace their orders like them")
     if not frames.empty:
         f = frames.iloc[-1]
-        st.caption(f"🏆 employee of the week: **{f['agent_id']}** ({f['detail']})")
+        badges.append(f"🏆 employee of the week: **{f['agent_id']}** ({f['detail']})")
+    if badges:
+        st.caption(" · ".join(badges))
     notable = events[events["event"].isin(["born", "cloned", "died", "target_hit",
                                            "consulted", "party", "employee_of_week",
-                                           "immune", "spared", "trained"])].copy()
+                                           "immune", "spared", "trained", "senior"])].copy()
     notable["event"] = notable["event"].replace({
         "died": "let go", "consulted": "asked a tip", "party": "happy hour",
         "employee_of_week": "employee of the week", "immune": "immunity earned",
-        "spared": "spared by immunity", "trained": "weekly training"})
+        "spared": "spared by immunity", "trained": "weekly training",
+        "senior": "senior specialist"})
     with st.expander(f"event log ({len(notable)} events)"):
         st.dataframe(notable[["day", "agent_id", "event", "equity", "detail"]]
                      .sort_values("day", ascending=False),

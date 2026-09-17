@@ -39,6 +39,8 @@ class SurvivalConfig:
     explore_every: int = 3          # every Nth intern is born mutated (exploration); the rest are faithful copies
     imitation_rate: float = 0.5     # weekly: interns move this far towards the best specialist's params
     tip_rate: float = 0.1           # a tip also nudges the intern's params towards the mentor's
+    senior_rate: float = 0.5        # weekly: interns also size and pace like the senior specialist
+    escalate_after: int = 3         # misses in a row before an intern takes its question to the senior
     seed: int | None = None
     endogenous: bool = True
     symbols: dict[str, float] | None = None
@@ -83,6 +85,7 @@ class SurvivalResult:
     population: list[Individual] = field(default_factory=list)
     alive_per_day: list[int] = field(default_factory=list)
     equity_per_day: list[float] = field(default_factory=list)
+    senior: Individual | None = None
 
     @property
     def alive(self) -> list[Individual]:
@@ -173,7 +176,8 @@ def run_survival(
             else:
                 ind.streak = 0
                 ind.misses += 1
-                _consult_mentor(ind, day, alive, journal, cfg.tip_rate)
+                _consult_mentor(ind, day, alive, journal, cfg.tip_rate,
+                                senior=result.senior if ind.misses >= cfg.escalate_after else None)
             # hiring is about the money, not the day: double your budget, hire a clone
             n_interns = sum(1 for i in result.population if i.generation > 0) + len(births)
             child = _try_clone(ind, day, end, cfg, rng, journal, next_id,
@@ -189,7 +193,8 @@ def run_survival(
         if day % cfg.week_days == 0:
             still_here = [i for i in alive if i.alive]
             _happy_hour(day, day // cfg.week_days, still_here, cfg, journal)
-            _weekly_training(day, still_here, cfg, journal)
+            result.senior = _pick_senior(day, still_here, journal)
+            _weekly_training(day, still_here, cfg, journal, senior=result.senior)
         result.population.extend(births)
         survivors = result.alive
         for ind in survivors:
@@ -272,53 +277,109 @@ def _week_return(journal: TradeJournal, agent_id: str, day: int, week_days: int)
     return rows[-1][1] / rows[0][0] - 1
 
 
+def _cumulative_return(journal: TradeJournal, ind: Individual, day: int) -> float | None:
+    row = journal._conn.execute(
+        "SELECT end_equity FROM episode_summary WHERE agent_id = ? AND episode = ?",
+        (ind.agent_id, day)).fetchone()
+    return row[0] / ind.budget - 1 if row and ind.budget > 0 else None
+
+
+def _pick_senior(day: int, alive: list[Individual], journal: TradeJournal) -> Individual | None:
+    """The senior specialist is whoever has grown their budget the most
+    since day 0 — earned weekly, never appointed."""
+    scored = [(r, s) for s in alive if s.generation == 0 and s.agent.get_params() is not None
+              and (r := _cumulative_return(journal, s, day)) is not None]
+    if not scored:
+        return None
+    ret, senior = max(scored, key=lambda rs: rs[0])
+    journal.record_survival_event(day, senior.agent_id, "senior", ret, None, 0,
+                                  senior.strategy, f"{ret:+.1%} since day 0")
+    return senior
+
+
+def _effective_order_frac(journal: TradeJournal, agent_id: str, day: int,
+                          week_days: int) -> float | None:
+    """How big the agent's buys really were this week, as a fraction of the
+    equity it had that morning — the transferable part of its discipline."""
+    rows = journal._conn.execute(
+        """SELECT t.quantity * t.price, s.start_equity FROM trades t
+           JOIN episode_summary s ON s.agent_id = t.agent_id AND s.episode = t.episode
+           WHERE t.agent_id = ? AND t.side = 'buy' AND t.episode > ? AND t.episode <= ?
+             AND s.start_equity > 0""",
+        (agent_id, day - week_days, day)).fetchall()
+    if not rows:
+        return None
+    return sum(v / e for v, e in rows) / len(rows)
+
+
 def _weekly_training(day: int, alive: list[Individual], cfg: SurvivalConfig,
-                     journal: TradeJournal) -> list[tuple[str, str]]:
+                     journal: TradeJournal, senior: Individual | None = None
+                     ) -> list[tuple[str, str]]:
     """Imitation learning: every intern moves its parameters part of the
-    way towards the same-strategy specialist who had the best week. The
-    knowledge transfer is numeric, not a sentence. Returns (intern, mentor)."""
-    if not cfg.imitation_rate:
-        return []
+    way towards the same-strategy specialist who had the best week, and
+    sizes and paces its orders like the senior specialist, whatever the
+    senior's strategy. The knowledge transfer is numeric, not a sentence.
+    Returns (intern, mentor)."""
     trained = []
     for intern in alive:
         if intern.generation == 0 or intern.agent.get_params() is None:
             continue
-        peers = [s for s in alive if s.generation == 0 and type(s.agent) is type(intern.agent)]
-        scored = [(r, s) for s in peers
-                  if (r := _week_return(journal, s.agent_id, day, cfg.week_days)) is not None]
-        if not scored:
+        notes, mentor_id, best_ret = [], None, 0.0
+        if cfg.imitation_rate:
+            peers = [s for s in alive if s.generation == 0 and type(s.agent) is type(intern.agent)]
+            scored = [(r, s) for s in peers
+                      if (r := _week_return(journal, s.agent_id, day, cfg.week_days)) is not None]
+            if scored:
+                best_ret, mentor = max(scored, key=lambda rs: rs[0])
+                intern.agent.imitate(mentor.agent.get_params(), cfg.imitation_rate)
+                mentor_id = mentor.agent_id
+                notes.append(f"imitated {mentor.agent_id} ({best_ret:+.1%} this week) "
+                             f"at {cfg.imitation_rate:.0%}")
+        if cfg.senior_rate and senior is not None and senior.agent_id != intern.agent_id:
+            eff = _effective_order_frac(journal, senior.agent_id, day, cfg.week_days)
+            discipline = {k: v for k, v in (senior.agent.get_params() or {}).items()
+                          if k == "cooldown"}
+            if eff is not None:
+                discipline["order_frac"] = eff
+            if discipline:
+                intern.agent.imitate(discipline, cfg.senior_rate)
+                mentor_id = mentor_id or senior.agent_id
+                notes.append(f"sized like senior {senior.agent_id}"
+                             + (f" ({eff:.0%} of equity per buy)" if eff is not None else ""))
+        if not notes:
             continue
-        best_ret, mentor = max(scored, key=lambda rs: rs[0])
-        intern.agent.imitate(mentor.agent.get_params(), cfg.imitation_rate)
         prev = journal.load_params(intern.agent_id)
         journal.save_params(intern.agent_id, intern.agent.get_params(), prev[1] if prev else 0)
-        journal.record_survival_event(day, intern.agent_id, "trained", best_ret,
-                                      mentor.agent_id, intern.generation, intern.strategy,
-                                      f"imitated {mentor.agent_id} ({best_ret:+.1%} this week) "
-                                      f"at {cfg.imitation_rate:.0%}")
-        trained.append((intern.agent_id, mentor.agent_id))
+        journal.record_survival_event(day, intern.agent_id, "trained", best_ret, mentor_id,
+                                      intern.generation, intern.strategy, "; ".join(notes))
+        trained.append((intern.agent_id, mentor_id))
     return trained
 
 
 def _consult_mentor(intern: Individual, day: int, alive: list[Individual],
-                    journal: TradeJournal, tip_rate: float = 0.0) -> str | None:
+                    journal: TradeJournal, tip_rate: float = 0.0,
+                    senior: Individual | None = None) -> str | None:
     """An intern (any clone) who missed the target asks a senior for a tip
     and actually learns it: the mentor's most important lesson is copied
     into the intern's memory, and its parameters nudge towards the mentor's
     when they share a strategy. Founders never ask; they are the mentors.
-    Returns the mentor's id, or None if nobody was consulted."""
+    With `senior` given, the question is escalated to the senior specialist
+    instead. Returns the mentor's id, or None if nobody was consulted."""
     if intern.generation == 0:
         return None
     seniors = [i for i in alive if i.generation < intern.generation and i.alive
                and i.agent_id != intern.agent_id]
     if not seniors:
         return None
-    parent = next((s for s in seniors if s.agent_id == intern.parent_id), None)
-    same = [s for s in seniors if s.strategy == intern.strategy]
-    mentor = parent or (same or seniors)[0]
-    for candidate in (same or seniors):   # prefer the one on the longest streak
-        if candidate.streak > mentor.streak:
-            mentor = candidate
+    if senior is not None and senior.alive and senior.agent_id != intern.agent_id:
+        mentor = senior
+    else:
+        parent = next((s for s in seniors if s.agent_id == intern.parent_id), None)
+        same = [s for s in seniors if s.strategy == intern.strategy]
+        mentor = parent or (same or seniors)[0]
+        for candidate in (same or seniors):   # prefer the one on the longest streak
+            if candidate.streak > mentor.streak:
+                mentor = candidate
     tips = journal.lessons_for(mentor.agent_id, limit=1)
     if not tips:
         return None

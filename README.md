@@ -266,6 +266,16 @@ seus parâmetros metade do caminho (`imitation_rate`) na direção do
 especialista da mesma estratégia com a **melhor semana** (evento
 `trained`), e cada dica de mentor também puxa 10% (`tip_rate`).
 
+**Especialista sênior.** Toda semana, o especialista que mais fez o
+orçamento crescer desde o dia 0 vira o sênior (evento `senior`, 🌟 no
+andar) — conquistado, nunca nomeado. O que ele tem de transferível para
+qualquer estratégia é a **disciplina**: no treino semanal os estagiários
+também movem `order_frac` na direção da **fração efetiva de patrimônio
+que o sênior gastou por compra** naquela semana (medida nos trades, não
+nos parâmetros) e o `cooldown` na direção do dele. Estagiário com
+`escalate_after`=3 metas perdidas seguidas leva a dúvida ao sênior em vez
+de ao próprio mentor.
+
 **Imunidade.** O prêmio que importa: quem venceu a semana **não pode ser
 dispensado na semana seguinte**, mesmo sem bater a meta. Um estagiário
 imune que cai abaixo da linha é "poupado" (evento `spared`) em vez de

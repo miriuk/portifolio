@@ -57,7 +57,19 @@ def build_state(data: dict[str, pd.DataFrame], running: bool = False) -> dict:
         "agents": [v.to_dict() for v in vitals],
         "events": events,
         "party": party_state(survival, day),
+        "senior": senior_state(survival),
     }
+
+
+def senior_state(survival: pd.DataFrame) -> dict | None:
+    if survival.empty:
+        return None
+    picks = survival[survival["event"] == "senior"]
+    if picks.empty:
+        return None
+    last = picks.iloc[-1]
+    return {"agent_id": str(last["agent_id"]), "ret": float(last["equity"]),
+            "day": int(last["day"])}
 
 
 def party_state(survival: pd.DataFrame, day: int) -> dict:

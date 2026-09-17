@@ -56,6 +56,18 @@ def test_party_state_marks_the_evening_of_the_party():
     assert later["active"] is False and later["employee"] == "momentum-1"   # frame stays up
 
 
+def test_senior_state_is_the_latest_pick():
+    from cryptoarena.world.render import senior_state
+    surv = pd.DataFrame([
+        dict(day=7, agent_id="momentum-1", event="senior", equity=0.02, parent_id=None,
+             generation=0, strategy="momentum", detail="+2.0% since day 0"),
+        dict(day=14, agent_id="voltarget-1", event="senior", equity=0.09, parent_id=None,
+             generation=0, strategy="voltarget", detail="+9.0% since day 0"),
+    ])
+    assert senior_state(surv) == {"agent_id": "voltarget-1", "ret": 0.09, "day": 14}
+    assert senior_state(pd.DataFrame()) is None
+
+
 def test_render_escapes_script_terminators():
     state = build_state({})
     state["events"] = [{"day": 1, "agent_id": "x", "event": "died", "detail": "</script>"}]
