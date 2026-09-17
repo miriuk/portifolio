@@ -244,6 +244,13 @@ O melhor da semana vira **funcionário da semana**: o quadro na parede do
 meio da sala mostra o nome, ele ganha um 🏆 sobre a cabeça, o ego sobe
 (humor "proud") — e a lição "lean into this setup" entra na memória dele.
 
+**Imunidade.** O prêmio que importa: quem venceu a semana **não pode ser
+dispensado na semana seguinte**, mesmo sem bater a meta. Um estagiário
+imune que cai abaixo da linha é "poupado" (evento `spared`) em vez de
+dispensado — no andar ele carrega um 🛡️, dorme melhor (menos stress perto
+da linha, um pouco de acomodação) e, se a imunidade de fato o salvou, leva
+o susto e sai mais motivado: *"the shield held; never again this close"*.
+
 ## Debate bull vs. bear
 
 ```bash

@@ -105,6 +105,28 @@ def test_party_and_frame_lift_ego_and_change_mood():
     assert star.mood == "proud" and star.activity == "celebrating"
 
 
+def test_immunity_calms_an_intern_near_the_line_and_being_spared_shakes_it():
+    # flat at 70% of its budget: close to the line, no fresh losses
+    summary = _summary([("meanrev-3", d, 140, 140, 1, 0, 1, 0, 0.1, 0.02, 0) for d in (8, 9, 10)])
+    base = _survival([(5, "meanrev-3", "born", 200, "meanrev-1", 1, "meanreversion", "")])
+    immune = pd.concat([base, _survival([
+        (7, "meanrev-3", "party", 0.04, "meanrev-1", 1, "meanreversion", "week 1: +4.0%"),
+        (7, "meanrev-3", "immune", 0.04, "meanrev-1", 1, "meanreversion", "until day 14")])])
+    spared = pd.concat([immune, _survival([
+        (10, "meanrev-3", "spared", 140, "meanrev-1", 1, "meanreversion", "immunity until day 14")])])
+    exposed = compute_vitals(summary, EMPTY, EMPTY, base)[0]
+    shielded = compute_vitals(summary, EMPTY, EMPTY, immune)[0]
+    saved = compute_vitals(summary, EMPTY, EMPTY, spared)[0]
+    assert exposed.immune_until == 0 and shielded.immune_until == 14
+    assert shielded.stress < exposed.stress            # 65% of budget, but safe this week
+    assert saved.spared == 1
+    assert saved.stress > shielded.stress and saved.motivation > shielded.motivation
+    # immunity that already expired is not immunity
+    stale = pd.concat([base, _survival([(1, "meanrev-3", "immune", 0, "meanrev-1", 1,
+                                         "meanreversion", "until day 8")])])
+    assert compute_vitals(summary, EMPTY, EMPTY, stale)[0].immune_until == 0
+
+
 def test_last_trade_feeds_chatter_fields():
     summary = _summary([("momentum-1", 1, 1000, 1000, 1, 0, 0, 0, 0.1, 0.0, 0)])
     trades = pd.DataFrame([dict(id=2, agent_id="momentum-1", episode=1, symbol="ETHUSDT",

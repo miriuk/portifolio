@@ -54,6 +54,7 @@ class Individual:
     misses: int = 0
     base_order_frac: float | None = None
     week_start_equity: float | None = None
+    immune_until: int = 0          # last week's winners cannot be let go until this day
 
     def apply_pressure(self, pressure: float) -> None:
         """The quota-or-die incentive: after a miss, bet bigger tomorrow."""
@@ -145,7 +146,12 @@ def run_survival(
             journal.record_episode_summary(stats, halted=ep.halted[ind.agent_id])
             ind.agent.learn(reflect_on_episode(journal, stats))
 
-            if _let_go(ind, end, ep.halted[ind.agent_id], cfg):
+            verdict = _let_go(ind, end, ep.halted[ind.agent_id], cfg, day)
+            if verdict == "spared":
+                journal.record_survival_event(
+                    day, ind.agent_id, "spared", end, ind.parent_id, ind.generation,
+                    ind.strategy, f"immunity until day {ind.immune_until}")
+            elif verdict:
                 ind.died_day = day
                 deaths.append(ind.agent_id)
                 journal.record_survival_event(
@@ -190,12 +196,16 @@ def run_survival(
     return result
 
 
-def _let_go(ind: Individual, end_equity: float, halted: bool, cfg: SurvivalConfig) -> bool:
+def _let_go(ind: Individual, end_equity: float, halted: bool, cfg: SurvivalConfig,
+            day: int = 0) -> str | bool:
     """Only interns can be dismissed; specialists stay, whatever their
-    numbers, because their lessons are what the interns learn from."""
+    numbers, because their lessons are what the interns learn from.
+    Last week's winners are immune: returns "spared" instead of True."""
     if ind.generation == 0:
         return False
-    return halted or end_equity < ind.budget * cfg.death_below
+    if not (halted or end_equity < ind.budget * cfg.death_below):
+        return False
+    return "spared" if ind.immune_until and day <= ind.immune_until else True
 
 
 def _happy_hour(day: int, week: int, alive: list[Individual], cfg: SurvivalConfig,
@@ -222,6 +232,11 @@ def _happy_hour(day: int, week: int, alive: list[Individual], cfg: SurvivalConfi
     for ret, ind in winners:
         journal.record_survival_event(day, ind.agent_id, "party", ret, ind.parent_id,
                                       ind.generation, ind.strategy, f"week {week}: {ret:+.1%}")
+        # the prize that matters: a week during which missing the target cannot get you fired
+        ind.immune_until = day + cfg.week_days
+        journal.record_survival_event(day, ind.agent_id, "immune", ret, ind.parent_id,
+                                      ind.generation, ind.strategy,
+                                      f"until day {ind.immune_until}")
     if winners:
         ret, best = winners[0]
         journal.record_survival_event(day, best.agent_id, "employee_of_week", ret,

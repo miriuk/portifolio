@@ -53,6 +53,8 @@ class AgentVitals:
     ego: float
     parties: int               # happy hours earned in the last two weeks
     awards: int                # employee-of-the-week frames (recent)
+    immune_until: int          # cannot be let go until this day (0 = no immunity)
+    spared: int                # times immunity saved it from dismissal (recent)
     mood: str
     activity: str
 
@@ -113,10 +115,15 @@ def compute_vitals(summary: pd.DataFrame, trades: pd.DataFrame, lessons: pd.Data
         max_dd = float(recent["max_drawdown"].max()) if len(recent) else 0.0
         quiet_days = int((recent["n_trades"] == 0).sum()) if len(recent) else 0
 
-        streak = misses = parties = awards = 0
+        streak = misses = parties = awards = immune_until = spared = 0
         mentor, tip = None, ""
         if not survival.empty:
             mine = survival[survival["agent_id"] == aid]
+            immunities = mine[mine["event"] == "immune"]
+            if not immunities.empty:
+                until = int(str(immunities.iloc[-1]["detail"]).rsplit(" ", 1)[-1] or 0)
+                immune_until = until if until >= last_day else 0
+            spared = int(((mine["event"] == "spared") & (mine["day"] >= last_day - 3)).sum())
             parties = int(((mine["event"] == "party") & (mine["day"] >= last_day - 14)).sum())
             awards = int(((mine["event"] == "employee_of_week")
                           & (mine["day"] >= last_day - 21)).sum())
@@ -144,14 +151,17 @@ def compute_vitals(summary: pd.DataFrame, trades: pd.DataFrame, lessons: pd.Data
         energy = _clamp(1.0 - 0.06 * int(recent["n_trades"].sum() if len(recent) else 0)
                         - 0.6 * max_dd + 0.12 * quiet_days)
         is_intern = aid in born.index and int(born.loc[aid, "generation"]) > 0
-        worry = recent_dismissals * (0.12 if is_intern else 0.05)   # specialists are safe
+        safe = (not is_intern) or immune_until > 0
+        worry = recent_dismissals * (0.05 if safe else 0.12)        # the safe ones sleep
         stress = _clamp(0.15 + 0.12 * stop_losses + 3.0 * max(0.0, -window_return)
-                        + 0.3 * max(0.0, 0.85 - ratio) * 4 + 0.06 * min(misses, 6)
-                        - 0.15 * (win_rate - 0.5) + worry - 0.08 * parties)
+                        + (0.0 if safe else 1.2) * max(0.0, 0.85 - ratio) + 0.06 * min(misses, 6)
+                        - 0.15 * (win_rate - 0.5) + worry - 0.08 * parties + 0.15 * spared)
         motivation = _clamp(0.45 + 0.15 * recent_dismissals + 0.2 * parties + 0.1 * streak
-                            - 0.04 * min(misses, 8) + 0.1 * awards)
+                            - 0.04 * min(misses, 8) + 0.1 * awards + 0.2 * spared
+                            - (0.05 if immune_until else 0.0))          # a little complacency
         ego = _clamp(0.25 + 0.3 * awards + 0.15 * parties + 0.08 * streak
-                     + (0.15 if window_return > 0.02 else 0.0) - 0.05 * min(misses, 4))
+                     + (0.15 if window_return > 0.02 else 0.0) - 0.05 * min(misses, 4)
+                     + (0.05 if immune_until else 0.0))
         focus = _clamp(0.35 + 0.05 * n_lessons + 0.04 * importance + 0.25 * (win_rate - 0.5)
                        + 0.08 * streak - 0.35 * stress + 0.1 * (motivation - 0.5))
         if not alive:
@@ -191,6 +201,7 @@ def compute_vitals(summary: pd.DataFrame, trades: pd.DataFrame, lessons: pd.Data
             mentor=mentor, tip=tip,
             energy=round(energy, 2), stress=round(stress, 2), focus=round(focus, 2),
             motivation=round(motivation, 2), ego=round(ego, 2), parties=parties, awards=awards,
+            immune_until=immune_until, spared=spared,
             mood=mood, activity=activity,
         ))
     return vitals

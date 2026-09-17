@@ -123,10 +123,12 @@ def colony_view(events: pd.DataFrame) -> None:
         f = frames.iloc[-1]
         st.caption(f"🏆 employee of the week: **{f['agent_id']}** ({f['detail']})")
     notable = events[events["event"].isin(["born", "cloned", "died", "target_hit",
-                                           "consulted", "party", "employee_of_week"])].copy()
+                                           "consulted", "party", "employee_of_week",
+                                           "immune", "spared"])].copy()
     notable["event"] = notable["event"].replace({
         "died": "let go", "consulted": "asked a tip", "party": "happy hour",
-        "employee_of_week": "employee of the week"})
+        "employee_of_week": "employee of the week", "immune": "immunity earned",
+        "spared": "spared by immunity"})
     with st.expander(f"event log ({len(notable)} events)"):
         st.dataframe(notable[["day", "agent_id", "event", "equity", "detail"]]
                      .sort_values("day", ascending=False),
@@ -260,7 +262,8 @@ def main() -> None:
                 vitals = pd.DataFrame(state["agents"])[
                     ["agent_id", "role", "alive", "generation", "mood", "activity", "energy",
                      "stress", "focus", "motivation", "ego", "equity", "day_return", "streak",
-                     "misses", "parties", "awards", "lessons", "mentor"]].replace(
+                     "misses", "parties", "awards", "immune_until", "spared", "lessons",
+                     "mentor"]].replace(
                     {"mood": {"dead": "let go"}, "activity": {"dead": "—"}})
                 with st.expander("vitals table"):
                     st.dataframe(vitals, width="stretch", hide_index=True)

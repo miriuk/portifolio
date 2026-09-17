@@ -64,6 +64,10 @@ def test_only_interns_below_the_line_are_let_go():
     assert _let_go(intern, 59.0, False, cfg) is True         # below 60% of its own budget
     assert _let_go(intern, 80.0, True, cfg) is True          # kill switch
     assert _let_go(intern, 61.0, False, cfg) is False
+    intern.immune_until = 14                                  # last week's winner
+    assert _let_go(intern, 59.0, False, cfg, day=12) == "spared"
+    assert _let_go(intern, 80.0, True, cfg, day=14) == "spared"
+    assert _let_go(intern, 59.0, False, cfg, day=15) is True  # immunity expired
 
 
 def _parent(journal, cash: float) -> Individual:
@@ -164,6 +168,8 @@ def test_happy_hour_rewards_weekly_winners(tmp_path):
     assert [r[1] for r in _events(journal, "employee_of_week")] == ["momentum-1"]
     assert any("employee of the week" in l for l in journal.lessons_for("momentum-1"))
     assert all(i.week_start_equity is None for i in people)   # a new week starts
+    assert [i.immune_until for i in people] == [14, 14, 0]    # winners are safe next week
+    assert [r[1] for r in _events(journal, "immune")] == ["momentum-1", "meanrev-1"]
     journal.close()
 
 

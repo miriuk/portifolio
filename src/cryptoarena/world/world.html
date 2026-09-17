@@ -257,6 +257,7 @@ function drawAgent(a, p, t, hovered) {
   if (a.generation > 0) { const b = iso(p.x + 0.25, p.y + 0.25, p.z + bob + bodyH + 15); ctx.fillStyle = '#fbbf24'; ctx.font = 'bold 9px ui-sans-serif'; ctx.textAlign = 'center'; ctx.fillText('g' + a.generation, b.x, b.y); }
   if (partyOn && winnerIds.has(a.agent_id)) { const b = iso(p.x + 0.7, p.y - 0.1, p.z + bodyH + 8); ctx.font = '14px ui-sans-serif'; ctx.textAlign = 'center'; ctx.fillText('🍻', b.x, b.y); }
   if (PARTY.employee === a.agent_id) { const b = iso(p.x + 0.25, p.y + 0.25, p.z + bob + bodyH + 36); ctx.font = '11px ui-sans-serif'; ctx.textAlign = 'center'; ctx.fillText('🏆', b.x, b.y); }
+  if (a.immune_until > 0 && a.role === 'intern') { const b = iso(p.x - 0.2, p.y + 0.1, p.z + bob + bodyH + 6); ctx.font = '11px ui-sans-serif'; ctx.textAlign = 'center'; ctx.fillText('🛡️', b.x, b.y); }
   // needs meter
   const m = iso(p.x + 0.25, p.y + 0.25, p.z + bob + bodyH + 26);
   const bars = [['#22c55e', a.energy], ['#ef4444', a.stress], ['#38bdf8', a.focus]];
@@ -293,6 +294,9 @@ const LINES = {
           a => `Ego? No. Track record. ${(a.window_return * 100).toFixed(1)}% this week.`],
   dead: [],
 };
+const IMMUNE = [a => `Missed the target and still here. Last week's party bought me until day ${a.immune_until}.`,
+                a => `Immunity week. I can finally trade without HR breathing on my neck.`,
+                a => a.spared ? `Would've been shown the door today. The shield held. Never again this close.` : `Shield's up till day ${a.immune_until}. Using it to size down, not up.`];
 const SPECIALIST = [a => `Wrote up today's ${R} lesson for the interns. Someone should read it.`,
                     a => `Can't get let go, can still get embarrassed. Target it is.`,
                     a => `The interns keep asking about ${sym(a)}. Same answer: size down.`];
@@ -310,6 +314,7 @@ const REGIME_LINES = { crash: `Regime flipped to crash. Who's still long?`, mani
   bull: `Bull tape. Even meanrev is smiling.`, bear: `Bear tape. Targets are going to be brutal.`, chop: `Chop again. Fees win in chop.` };
 const EVENT_LINES = e => e.event === 'born' ? `Welcome to the intern room, ${e.agent_id}. Same target, smaller budget.`
   : e.event === 'died' ? `Heads up: ${e.agent_id} was let go for missing the target. Desk's empty.`
+  : e.event === 'spared' ? `${e.agent_id} was below the line today — last week's win kept them here.`
   : `${e.agent_id} hired an intern. Someone actually made money.`;
 const ASK = [(a, m) => `${m.agent_id}, got a minute? Missed the target ${a.misses > 1 ? a.misses + ' days running' : 'yesterday'}.`,
              (a, m) => `Any tips on ${sym(a)}, ${m.agent_id}? My book says buy and my gut says run.`,
@@ -333,6 +338,7 @@ function scheduleAt(slot) {          // deterministic conversation for a 6s slot
     return talk;
   }
   if (a.role !== 'intern' && kind < 0.12) return [{ who: a, text: pick(SPECIALIST, s + 14)(a), at: 0 }];
+  if (a.role === 'intern' && a.immune_until > 0 && kind < 0.35) return [{ who: a, text: pick(IMMUNE, s + 15)(a), at: 0 }];
   if (kind < 0.18 && STATE.events && STATE.events.length) { const e = STATE.events[STATE.events.length - 1 - Math.floor(rand(s + 2) * Math.min(3, STATE.events.length))]; return [{ who: a, text: EVENT_LINES(e), at: 0 }]; }
   if (kind < 0.30) return [{ who: a, text: REGIME_LINES[R] || REGIME_LINES.chop, at: 0 }];
   const lines = LINES[a.mood] || LINES.calm; if (!lines.length) return null;
@@ -397,7 +403,8 @@ function showPanel(a) {
   const bar = (c, v) => `<div class="bar"><i style="width:${Math.round(v * 100)}%;background:${c}"></i></div>`;
   panel.style.display = 'block';
   panel.innerHTML = `<h3 style="color:${strategyColor(a.strategy)}">${a.agent_id} <small style="color:#94a3b8">${a.role === 'intern' ? 'intern' : 'specialist'} · gen ${a.generation}${a.parent_id ? ' · hired by ' + a.parent_id : ''}${a.mentor ? ' · mentor ' + a.mentor : ''}</small></h3>` +
-    `<div>${a.mood} · ${a.activity} · equity ${fmt(a.equity)} (${pct(a.day_return)} today)</div>` +
+    `<div>${a.mood} · ${a.activity} · equity ${fmt(a.equity)} (${pct(a.day_return)} today)` +
+    (a.immune_until > 0 ? ` · 🛡️ safe until day ${a.immune_until}` : '') + `</div>` +
     `<div style="margin-top:6px;color:#94a3b8">energy</div>${bar('#22c55e', a.energy)}` +
     `<div style="color:#94a3b8">stress</div>${bar('#ef4444', a.stress)}` +
     `<div style="color:#94a3b8">focus</div>${bar('#38bdf8', a.focus)}` +
