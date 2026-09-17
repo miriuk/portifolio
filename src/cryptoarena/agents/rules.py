@@ -143,6 +143,104 @@ class MeanReversionAgent(ParamAgent):
         return orders
 
 
+class RegimeSwitchAgent(ParamAgent):
+    """Reads the regime from public data and changes playbook: rides
+    trends when the market is trending, sits on its hands when it is
+    ranging (fees win in chop), and goes flat when volatility says panic."""
+
+    DEFAULTS = {"lookback": 72, "trend_threshold": 0.04, "entry_threshold": 0.02,
+                "vol_panic": 0.03, "order_frac": 0.15, "cooldown": 6}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._last_trade_step = -999
+
+    def regime(self, symbol: str) -> str:
+        trend = self.momentum(symbol, int(self.params["lookback"]))
+        vol = self.volatility(symbol, 24)
+        if trend is None or vol is None:
+            return "unknown"
+        if vol > self.params["vol_panic"]:
+            return "panic"
+        if abs(trend) > self.params["trend_threshold"]:
+            return "trending"
+        return "ranging"
+
+    def decide(self, view: MarketView) -> list[Order]:
+        orders = []
+        cooled = view.step - self._last_trade_step >= int(self.params["cooldown"])
+        for symbol, candle in view.candles.items():
+            held = self.wallet.positions.get(symbol, 0.0)
+            regime = self.regime(symbol)
+            if regime == "panic":
+                if held > 0:
+                    orders.append(Order(self.agent_id, symbol, "sell", held,
+                                        reason="regime: panic, going flat"))
+                continue
+            if regime == "unknown" or not cooled:
+                continue
+            short = self.momentum(symbol, 12) or 0.0
+            avg = self.sma(symbol, 48)
+            if regime == "trending":
+                trend = self.momentum(symbol, int(self.params["lookback"])) or 0.0
+                if trend > 0 and short > self.params["entry_threshold"] / 2 and held == 0 \
+                        and self._can_buy():
+                    orders.append(Order(self.agent_id, symbol, "buy", self._order_amount(view),
+                                        reason=f"regime: trending {trend:+.1%}, riding it"))
+                    self._last_trade_step = view.step
+                elif held > 0 and short < -self.params["entry_threshold"]:
+                    orders.append(Order(self.agent_id, symbol, "sell", held,
+                                        reason="regime: trend losing steam"))
+                    self._last_trade_step = view.step
+            elif held > 0 and avg and candle.close > avg:
+                # ranging: no new bets; let a leftover position go at the mean
+                orders.append(Order(self.agent_id, symbol, "sell", held,
+                                    reason="regime: ranging, sitting out"))
+                self._last_trade_step = view.step
+        return orders
+
+
+class VolTargetAgent(ParamAgent):
+    """Trend follower that sizes every position so the expected daily move
+    of the position is a fixed slice of equity: bigger in calm markets,
+    smaller in wild ones, and out when volatility explodes."""
+
+    DEFAULTS = {"lookback": 48, "entry_threshold": 0.015, "target_vol": 0.01,
+                "vol_exit": 0.04, "order_frac": 0.30, "cooldown": 4}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._last_trade_step = -999
+
+    def _sized_amount(self, view: MarketView, vol: float) -> float:
+        equity = self.wallet.equity(view.prices)
+        # risk budget / realized vol, capped at order_frac of equity
+        frac = min(self.params["order_frac"], self.params["target_vol"] / max(vol, 1e-4) * 0.15)
+        return equity * frac
+
+    def decide(self, view: MarketView) -> list[Order]:
+        orders = []
+        if view.step - self._last_trade_step < int(self.params["cooldown"]):
+            return orders
+        for symbol in view.candles:
+            mom = self.momentum(symbol, int(self.params["lookback"]))
+            vol = self.volatility(symbol, 24)
+            if mom is None or vol is None:
+                continue
+            held = self.wallet.positions.get(symbol, 0.0)
+            if held > 0 and (vol > self.params["vol_exit"] or mom < -self.params["entry_threshold"] / 2):
+                orders.append(Order(self.agent_id, symbol, "sell", held,
+                                    reason="vol spike" if vol > self.params["vol_exit"]
+                                    else f"trend flipped {mom:+.1%}"))
+                self._last_trade_step = view.step
+            elif held == 0 and mom > self.params["entry_threshold"] \
+                    and vol < self.params["vol_exit"] and self._can_buy():
+                orders.append(Order(self.agent_id, symbol, "buy", self._sized_amount(view, vol),
+                                    reason=f"trend {mom:+.1%} at vol {vol:.1%}, vol-sized"))
+                self._last_trade_step = view.step
+        return orders
+
+
 class BreakoutAgent(ParamAgent):
     """Buys new N-bar highs, exits on trailing weakness."""
 

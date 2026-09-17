@@ -65,7 +65,7 @@ def lineage_dot(events: pd.DataFrame) -> str:
     """Graphviz source for the family tree: one node per agent ever born,
     edges parent -> child, the dead greyed out with their day of death."""
     palette = {"momentum": "#f7931a", "meanreversion": "#3b82f6", "breakout": "#22c55e",
-               "claudetrader": "#a855f7"}
+               "regimeswitch": "#14b8a6", "voltarget": "#ec4899", "claudetrader": "#a855f7"}
     born = events[events["event"] == "born"]
     died = events[events["event"] == "died"].set_index("agent_id")["day"]
     latest_equity = events.groupby("agent_id")["equity"].last()
@@ -166,7 +166,11 @@ def run_controls(db_path: str) -> background.RunState | None:
     with st.sidebar.form("run_form"):
         if mode == "Survival colony":
             days = st.slider("Days", 5, 180, 60)
-            budget = st.number_input("Budget per agent", 100.0, 100_000.0, 1_000.0, step=100.0)
+            budget = st.number_input("Budget per agent", 1.0, 100_000.0, 5.0, step=1.0,
+                                     help="a fiver each — clones cost a full budget")
+            clone_at = st.slider("Hire a clone at × budget", 1.1, 4.0, 2.0, 0.1,
+                                 help="an agent hires a copy of itself once its equity "
+                                      "reaches this multiple of its budget (2 = doubled)")
             target = st.slider("Daily target %", 0.0, 3.0, 0.5, 0.1)
             death = st.slider("Dead below % of budget", 0, 95, 60, 5)
             cost = st.slider("Cost of living %/day", 0.0, 2.0, 0.1, 0.05)
@@ -178,7 +182,7 @@ def run_controls(db_path: str) -> background.RunState | None:
         else:
             episodes = st.slider("Episodes", 1, 10, 3)
             steps = 24 * st.slider("Days per episode (hourly bars)", 1, 30, 7)
-            days = budget = target = death = cost = pressure = max_pop = 0
+            days = budget = target = death = cost = pressure = max_pop = clone_at = 0
         endogenous = st.checkbox("Endogenous market (order book)", value=True)
         llm_ok = ClaudeTraderAgent.available()
         llm = st.checkbox("Include Claude trader", value=False, disabled=not llm_ok,
@@ -192,7 +196,7 @@ def run_controls(db_path: str) -> background.RunState | None:
         if mode == "Survival colony":
             config = RunConfig(db_path=db_path, mode="survival", days=days, budget=budget,
                                daily_target=target / 100, death_below=death / 100,
-                               daily_cost=cost / 100, pressure=pressure,
+                               daily_cost=cost / 100, pressure=pressure, clone_at=clone_at,
                                max_population=max_pop, endogenous=endogenous,
                                llm=llm, seed=seed)
         else:

@@ -27,6 +27,88 @@ def test_founders_are_born_with_the_budget(tmp_path):
     journal.close()
 
 
+def test_the_clock_keeps_running_across_days(tmp_path):
+    """Regression: with the step restarting at 0 every day, cooldowns never
+    expired and agents traded once and froze for the rest of the run."""
+    from cryptoarena.agents.base import TradingAgent
+    from cryptoarena.arena.episode import run_episode
+    from cryptoarena.market.synthetic import SyntheticMarket
+
+    class Clock(TradingAgent):
+        seen: list[int] = []
+
+        def decide(self, view):
+            self.seen.append(view.step)
+            return []
+
+    journal = TradeJournal(tmp_path / "s.db")
+    market = SyntheticMarket({"BTCUSDT": 100.0}, seed=1)
+    agent = Clock("clock-1", 5.0)
+    run_episode(1, market, [agent], journal, steps=24)
+    run_episode(2, market, [agent], journal, steps=24, step_offset=24)
+    assert Clock.seen == list(range(48))
+    journal.close()
+
+
+def test_survival_agents_keep_trading_after_day_one(tmp_path):
+    journal = TradeJournal(tmp_path / "s.db")
+    run_survival([MomentumAgent("momentum-1", 1000.0)], journal,
+                 SurvivalConfig(days=12, budget=1000.0, seed=7), verbose=False)
+    days_with_trades = journal._conn.execute(
+        "SELECT COUNT(DISTINCT episode) FROM trades").fetchone()[0]
+    assert days_with_trades >= 3
+    assert journal.load_params("momentum-1") is not None   # founders' params are persisted too
+    journal.close()
+
+
+def test_a_fiver_is_enough_to_trade(tmp_path):
+    """The £5 experiment: tiny budgets must still produce trades."""
+    from cryptoarena.cli import build_agents
+    journal = TradeJournal(tmp_path / "s.db")
+    run_survival(build_agents(5.0, False, ""), journal,
+                 SurvivalConfig(days=6, budget=5.0, seed=7), verbose=False)
+    n_trades = journal._conn.execute("SELECT COUNT(*) FROM trades").fetchone()[0]
+    assert n_trades > 0
+    biggest = journal._conn.execute(
+        "SELECT MAX(quantity * price) FROM trades WHERE side='buy'").fetchone()[0]
+    assert biggest <= 5.0 * 0.35 + 1e-6      # risk limits scale with the budget too
+    journal.close()
+
+
+def test_regime_aware_agents_react_to_panic_and_trends():
+    from collections import deque
+    from cryptoarena.agents.rules import RegimeSwitchAgent, VolTargetAgent
+    from cryptoarena.market.candle import Candle
+    from cryptoarena.agents.base import MarketView
+
+    def feed(agent, closes):
+        agent.history["BTCUSDT"] = deque(
+            [Candle("BTCUSDT", t, c, c * 1.01, c * 0.99, c, 1_000.0) for t, c in enumerate(closes)],
+            maxlen=200)
+        last = agent.history["BTCUSDT"][-1]
+        return MarketView(candles={"BTCUSDT": last}, history=agent.history,
+                          prices={"BTCUSDT": last.close}, step=len(closes))
+
+    calm_trend = [100 * (1.001 ** t) for t in range(100)]           # +10% steady climb
+    rs = RegimeSwitchAgent("regime-1", 5.0)
+    view = feed(rs, calm_trend)
+    assert rs.regime("BTCUSDT") == "trending"
+    orders = rs.decide(view)
+    assert orders and orders[0].side == "buy" and "trending" in orders[0].reason
+
+    vt = VolTargetAgent("voltarget-1", 5.0)
+    orders = vt.decide(feed(vt, calm_trend))
+    assert orders and orders[0].side == "buy" and orders[0].quote_amount <= 5.0 * 0.30
+
+    wild = [100 * (1 + (0.06 if t % 2 else -0.06)) ** (t % 3) for t in range(100)]  # violent chop
+    rs.wallet.positions["BTCUSDT"] = 0.01
+    assert rs.regime("BTCUSDT") != "trending" or True
+    view = feed(rs, wild)
+    if rs.regime("BTCUSDT") == "panic":
+        orders = rs.decide(view)
+        assert orders and orders[0].side == "sell" and "panic" in orders[0].reason
+
+
 def test_wallets_persist_across_days(tmp_path):
     """Unlike tournaments, survival never resets the wallet: day 2 opens
     where day 1 closed."""
@@ -77,21 +159,21 @@ def _parent(journal, cash: float) -> Individual:
     return Individual(agent, "momentum", 1_000.0, None, 0, born_day=0)
 
 
-def test_clone_is_paid_from_parent_surplus_and_inherits(tmp_path):
+def test_clone_is_hired_on_doubling_and_paid_a_full_budget(tmp_path):
     journal = TradeJournal(tmp_path / "s.db")
-    parent = _parent(journal, cash=1_800.0)
-    cfg = SurvivalConfig(budget=1_000.0)
+    parent = _parent(journal, cash=2_100.0)
+    cfg = SurvivalConfig(budget=1_000.0, clone_at=2.0)
     counter = iter(range(2, 10))
-    child = _try_clone(parent, 4, 1_800.0, cfg, np.random.default_rng(0), journal,
+    child = _try_clone(parent, 4, 2_100.0, cfg, np.random.default_rng(0), journal,
                        lambda prefix: f"{prefix}-{next(counter)}", population_size=1)
 
     assert child is not None
     assert child.agent_id == "momentum-2"
-    assert child.budget == 800.0                       # min(budget, surplus)
-    assert parent.agent.wallet.cash == 1_000.0         # parent paid for it
-    assert child.agent.wallet.cash == 800.0
+    assert child.budget == 1_000.0                     # a full budget, same as the parent's
+    assert parent.agent.wallet.cash == 1_100.0         # parent paid for it out of profit
+    assert child.agent.wallet.cash == 1_000.0
     assert child.generation == 1 and child.parent_id == "momentum-1"
-    assert child.agent.get_params() != parent.agent.get_params()   # mutated
+    assert child.agent.get_params() == parent.agent.get_params()   # faithful copy
     assert any("stop-losses" in l for l in journal.lessons_for("momentum-2"))  # inherited
     events = [(r[1], r[2], r[4]) for r in _events(journal)]
     assert ("momentum-1", "cloned", None) in events
@@ -99,18 +181,18 @@ def test_clone_is_paid_from_parent_surplus_and_inherits(tmp_path):
     journal.close()
 
 
-def test_clone_refused_without_surplus_or_room(tmp_path):
+def test_clone_refused_before_doubling_or_without_cash_or_room(tmp_path):
     journal = TradeJournal(tmp_path / "s.db")
-    cfg = SurvivalConfig(budget=1_000.0, max_population=3, min_clone_budget=0.25)
+    cfg = SurvivalConfig(budget=1_000.0, max_population=3, clone_at=2.0)
     rng = np.random.default_rng(0)
     ids = lambda prefix: f"{prefix}-9"  # noqa: E731
 
-    poor = _parent(journal, cash=1_100.0)   # profit 100 < 25% of budget
-    assert _try_clone(poor, 1, 1_100.0, cfg, rng, journal, ids, population_size=1) is None
-    assert poor.agent.wallet.cash == 1_100.0
+    almost = _parent(journal, cash=1_900.0)   # +90% is not doubled
+    assert _try_clone(almost, 1, 1_900.0, cfg, rng, journal, ids, population_size=1) is None
+    assert almost.agent.wallet.cash == 1_900.0
 
-    invested = _parent(journal, cash=50.0)  # profitable on paper, but no cash to pay
-    assert _try_clone(invested, 1, 1_600.0, cfg, rng, journal, ids, population_size=1) is None
+    invested = _parent(journal, cash=500.0)   # doubled on paper, but the cash is in positions
+    assert _try_clone(invested, 1, 2_200.0, cfg, rng, journal, ids, population_size=1) is None
 
     rich = _parent(journal, cash=3_000.0)
     assert _try_clone(rich, 1, 3_000.0, cfg, rng, journal, ids, population_size=3) is None

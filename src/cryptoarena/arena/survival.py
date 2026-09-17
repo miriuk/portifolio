@@ -28,12 +28,12 @@ from .episode import run_episode
 class SurvivalConfig:
     days: int = 30
     steps_per_day: int = 24
-    budget: float = 1_000.0
+    budget: float = 5.0             # a fiver per agent (quote units)
     daily_target: float = 0.005     # +0.5% on the day's opening equity
     death_below: float = 0.6        # dead when equity < own budget * this
     daily_cost: float = 0.001       # cost of living (compute/API), fraction of own budget per day
     max_population: int = 12
-    min_clone_budget: float = 0.05  # a child needs at least this * budget to be born
+    clone_at: float = 2.0           # hire a clone only once equity reaches this × own budget
     pressure: float = 0.0           # each missed target scales order size by (1 + pressure)
     week_days: int = 7              # happy hour every N days for whoever beat the weekly target
     explore_every: int = 3          # every Nth intern is born mutated (exploration); the rest are faithful copies
@@ -132,7 +132,8 @@ def run_survival(
             ind.apply_pressure(cfg.pressure)
         # history is NOT cleared: the market is continuous, indicators stay warm
         ep = run_episode(day, market, [i.agent for i in alive], journal,
-                         steps=cfg.steps_per_day, verbose=False)
+                         steps=cfg.steps_per_day, verbose=False,
+                         step_offset=(day - 1) * cfg.steps_per_day)
 
         births: list[Individual] = []
         deaths: list[str] = []
@@ -169,16 +170,17 @@ def run_survival(
                 journal.record_survival_event(
                     day, ind.agent_id, "target_hit", end, ind.parent_id, ind.generation,
                     ind.strategy, f"streak {ind.streak}")
-                n_interns = sum(1 for i in result.population if i.generation > 0) + len(births)
-                child = _try_clone(ind, day, end, cfg, rng, journal, next_id,
-                                   population_size=len(alive) + len(births),
-                                   mutate=(n_interns + 1) % cfg.explore_every == 0)
-                if child is not None:
-                    births.append(child)
             else:
                 ind.streak = 0
                 ind.misses += 1
                 _consult_mentor(ind, day, alive, journal, cfg.tip_rate)
+            # hiring is about the money, not the day: double your budget, hire a clone
+            n_interns = sum(1 for i in result.population if i.generation > 0) + len(births)
+            child = _try_clone(ind, day, end, cfg, rng, journal, next_id,
+                               population_size=len(alive) + len(births),
+                               mutate=(n_interns + 1) % cfg.explore_every == 0)
+            if child is not None:
+                births.append(child)
             journal.record_survival_event(day, ind.agent_id, "survived", end,
                                           ind.parent_id, ind.generation, ind.strategy,
                                           f"cost {cost:.2f}")
@@ -190,6 +192,11 @@ def run_survival(
             _weekly_training(day, still_here, cfg, journal)
         result.population.extend(births)
         survivors = result.alive
+        for ind in survivors:
+            params = ind.agent.get_params()
+            if params is not None:
+                prev = journal.load_params(ind.agent_id)
+                journal.save_params(ind.agent_id, params, prev[1] if prev else ind.generation)
         result.alive_per_day.append(len(survivors))
         total = sum(ep.equity_curves[i.agent_id][-1] - i.budget * cfg.daily_cost
                     for i in survivors if i.agent_id in ep.equity_curves) \
@@ -327,16 +334,18 @@ def _consult_mentor(intern: Individual, day: int, alive: list[Individual],
 
 def _try_clone(parent: Individual, day: int, equity: float, cfg: SurvivalConfig, rng,
                journal, next_id, population_size: int, mutate: bool = False) -> Individual | None:
-    """A child is paid out of the parent's profit (equity above its own
-    budget), in cash — so a parent fully invested has to wait. It is a
-    faithful copy of the parent (parameters, lessons, warmed-up indicators)
-    unless this birth is an exploration one, in which case it is mutated."""
+    """A child is hired once the parent has grown its budget `clone_at`-fold
+    (doubled it, by default) and is paid a full budget out of that profit,
+    in cash — so a parent fully invested has to wait. It is a faithful copy
+    of the parent (parameters, lessons, warmed-up indicators) unless this
+    birth is an exploration one, in which case it is mutated."""
     if population_size >= cfg.max_population:
         return None
     wallet = parent.agent.wallet
-    profit = equity - parent.budget
-    child_budget = min(parent.budget, profit, wallet.cash)
-    if child_budget < parent.budget * cfg.min_clone_budget:
+    if equity < parent.budget * cfg.clone_at:
+        return None
+    child_budget = parent.budget
+    if wallet.cash < child_budget:
         return None
     child_id = next_id(parent.agent_id.rsplit("-", 1)[0])
     child_agent = parent.agent.clone(child_id, child_budget, rng, mutate=mutate)
@@ -346,7 +355,10 @@ def _try_clone(parent: Individual, day: int, equity: float, cfg: SurvivalConfig,
     child = Individual(child_agent, parent.strategy, child_budget, parent.agent_id,
                        parent.generation + 1, born_day=day)
     inherited = journal.lessons_for(parent.agent_id, limit=100)   # the whole book
-    child_agent.learn(inherited)
+    if child_agent.get_params() is None:
+        # parameter agents already carry the lessons' effect in the copied
+        # params; re-applying would double-count. LLM agents need the text.
+        child_agent.learn(inherited)
     for lesson in inherited:
         journal.add_lesson(child_id, day, lesson)
     journal.add_lesson(child_id, day,

@@ -180,15 +180,26 @@ viés de sobrevivência.
 
 | Parâmetro | Default | O que faz |
 |---|---|---|
-| `--target` | 0.5%/dia | retorno do dia que libera a clonagem |
-| `--death` | 60% | morre abaixo dessa fração do próprio orçamento |
+| `--budget` | 5 | uma "nota de cinco" por agente (unidades de cotação) |
+| `--clone-at` | 2.0 | contrata um clone só quando o patrimônio atinge esse múltiplo do orçamento (2 = dobrou); o filho recebe um orçamento inteiro, pago pelo pai |
+| `--target` | 0.5%/dia | meta diária: define sequências, festas e imunidade |
+| `--death` | 60% | estagiário é dispensado abaixo dessa fração do próprio orçamento |
 | `--cost` | 0.1%/dia | aluguel: sai do caixa todo dia, operando ou não |
 | `--pressure` | 0 | após cada meta perdida, ordens × (1+pressão): a ruína do jogador que o esquema induz, desligada por padrão |
 | `--max-pop` | 12 | teto da população |
 
-O que a simulação mostra com parâmetros realistas: nascimentos são raros,
-o patrimônio total da colônia cai lentamente (taxas + custo de vida) e
-ninguém enriquece. É exatamente por isso que a trilha é
+Sete estratégias competem: momentum ×2, reversão à média ×2, breakout,
+**regime-switch** (surfa tendência só quando o regime é de tendência, fica
+de fora no chop e zera em pânico de volatilidade) e **vol-target**
+(seguidor de tendência que dimensiona a posição pela volatilidade
+realizada — maior em mercado calmo, menor em mercado selvagem, fora
+quando a vol explode).
+
+O experimento das £5 (90–180 dias, mercado endógeno): momentum e
+vol-target rendem +15% a +68%, breakout fica no zero a zero, reversão à
+média perde −2% a −4% por semana. Ninguém dobrou em seis meses, então com
+`--clone-at 2` as contratações são raras por construção — o que é
+exatamente o ponto: clone só com lucro real. É por isso que a trilha é
 **simulador → dry-run → testnet → real com limites mínimos**, nessa ordem.
 
 ## O andar (mundo isométrico)

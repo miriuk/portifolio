@@ -5,7 +5,8 @@ import sys
 from pathlib import Path
 
 from .agents.llm import ClaudeTraderAgent
-from .agents.rules import BreakoutAgent, MeanReversionAgent, MomentumAgent
+from .agents.rules import (BreakoutAgent, MeanReversionAgent, MomentumAgent,
+                           RegimeSwitchAgent, VolTargetAgent)
 from .arena.tournament import run_tournament
 from .learning.memory import TradeJournal
 
@@ -18,6 +19,8 @@ def build_agents(cash: float, with_llm: bool, llm_model: str, journal=None,
         MeanReversionAgent("meanrev-1", cash),
         MeanReversionAgent("meanrev-2", cash, params={"lookback": 96, "entry_threshold": 0.06}),
         BreakoutAgent("breakout-1", cash),
+        RegimeSwitchAgent("regime-1", cash),
+        VolTargetAgent("voltarget-1", cash),
     ]
     if with_llm:
         if ClaudeTraderAgent.available():
@@ -56,8 +59,10 @@ def main() -> None:
 
     surv = sub.add_parser("survive", help="survival colony: daily target, death, cloning")
     surv.add_argument("--days", type=int, default=30)
-    surv.add_argument("--budget", type=float, default=1_000.0,
-                      help="starting cash per founder (and max per clone)")
+    surv.add_argument("--budget", type=float, default=5.0,
+                      help="starting cash per founder (and per clone)")
+    surv.add_argument("--clone-at", type=float, default=2.0,
+                      help="hire a clone once equity reaches this multiple of the budget")
     surv.add_argument("--target", type=float, default=0.005,
                       help="daily return needed to earn the right to clone")
     surv.add_argument("--death", type=float, default=0.6,
@@ -106,7 +111,7 @@ def main() -> None:
         try:
             res = run_survival(founders, journal, SurvivalConfig(
                 days=args.days, budget=args.budget, daily_target=args.target,
-                death_below=args.death, daily_cost=args.cost,
+                death_below=args.death, daily_cost=args.cost, clone_at=args.clone_at,
                 pressure=args.pressure, max_population=args.max_pop,
                 seed=args.seed, endogenous=not args.synthetic))
             print(f"\n{len(res.alive)} of {len(res.population)} agents alive after "

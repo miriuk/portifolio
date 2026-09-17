@@ -31,12 +31,18 @@ def run_episode(
     steps: int = 24 * 30,
     exchange: SimulatedExchange | None = None,
     verbose: bool = False,
+    step_offset: int = 0,
 ) -> EpisodeResult:
     """One episode: agents live through `steps` hourly candles.
 
     Each agent has its own risk manager; every fill is recorded to the
     journal with the market regime at the time, so reflection can attribute
     outcomes to conditions.
+
+    `step_offset` makes the clock the agents see continue across episodes
+    that are really consecutive days of one market (survival mode) — their
+    cooldowns compare against it, so a clock that restarted at 0 every day
+    would leave them stuck "cooling down" forever.
     """
     if exchange is None:
         exchange = market if hasattr(market, "execute") else SimulatedExchange()
@@ -57,7 +63,7 @@ def run_episode(
             agent.observe(candles)
             rm = risk[agent.agent_id]
             view = MarketView(candles=latest, history=agent.history,
-                              prices=prices, step=step)
+                              prices=prices, step=step_offset + step)
 
             equity = agent.wallet.equity(prices)
             result.equity_curves[agent.agent_id].append(equity)

@@ -30,7 +30,8 @@ class RunConfig:
     debate: bool = False
     # survival mode
     days: int = 30
-    budget: float = 1_000.0
+    budget: float = 5.0
+    clone_at: float = 2.0
     daily_target: float = 0.005
     death_below: float = 0.6
     daily_cost: float = 0.001
@@ -79,6 +80,7 @@ def start_tournament(config: RunConfig) -> RunState:
                         days=config.days, budget=config.budget,
                         daily_target=config.daily_target, death_below=config.death_below,
                         daily_cost=config.daily_cost, pressure=config.pressure,
+                        clone_at=config.clone_at,
                         max_population=config.max_population, seed=config.seed,
                         endogenous=config.endogenous), verbose=False)
                 else:
