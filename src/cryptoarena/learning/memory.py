@@ -74,6 +74,11 @@ CREATE TABLE IF NOT EXISTS survival_events (
     strategy TEXT DEFAULT '',
     detail TEXT DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS colony_state (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,          -- JSON blob: a live colony's wallets, positions, clock…
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
 CREATE INDEX IF NOT EXISTS idx_trades_agent ON trades (agent_id, episode);
 CREATE INDEX IF NOT EXISTS idx_equity_agent ON equity_snapshots (agent_id, episode, step);
 """
@@ -246,6 +251,23 @@ class TradeJournal:
             (day, agent_id, event, equity, parent_id, generation, strategy, detail),
         )
         self._conn.commit()
+
+    def save_state(self, key: str, value) -> None:
+        """Persist a JSON-serialisable blob under `key` (live colonies keep
+        their whole in-memory state here so an hourly job can resume)."""
+        self._conn.execute(
+            """INSERT INTO colony_state (key, value, updated_at)
+               VALUES (?, ?, CURRENT_TIMESTAMP)
+               ON CONFLICT(key) DO UPDATE SET value = excluded.value,
+               updated_at = CURRENT_TIMESTAMP""",
+            (key, json.dumps(value)),
+        )
+        self._conn.commit()
+
+    def load_state(self, key: str):
+        row = self._conn.execute(
+            "SELECT value FROM colony_state WHERE key = ?", (key,)).fetchone()
+        return json.loads(row[0]) if row else None
 
     def record_episode_summary(self, stats, halted: bool = False) -> None:
         """Persist an EpisodeStats snapshot so the leaderboard survives the

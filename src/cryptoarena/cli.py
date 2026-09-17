@@ -32,6 +32,64 @@ def build_agents(cash: float, with_llm: bool, llm_model: str, journal=None,
     return agents
 
 
+def _live(args) -> None:
+    import json
+
+    from .arena.live_colony import LiveColony
+    from .arena.survival import SurvivalConfig
+    from .market.live import LiveFeed, default_symbols
+
+    Path(args.db).parent.mkdir(parents=True, exist_ok=True)
+    journal = TradeJournal(args.db)
+    try:
+        if args.status:
+            saved = journal.load_state("live_colony")
+            if saved is None:
+                print("no live colony in", args.db)
+                return
+            feed = _StaticFeed(saved.get("timeframe", "1h"), saved.get("exchange", ""),
+                               saved.get("symbols", []))
+            colony = LiveColony.open(journal, [], SurvivalConfig(), feed, verbose=False)
+            print(json.dumps(colony.status(), indent=2))
+            return
+        symbols = None
+        if args.symbols:
+            symbols = dict(pair.split("=", 1) for pair in args.symbols.split(","))
+        feed = LiveFeed(args.exchange, symbols or default_symbols(args.exchange),
+                        timeframe=args.timeframe)
+        cfg = SurvivalConfig(
+            days=args.days, budget=args.budget, daily_target=args.target,
+            death_below=args.death, daily_cost=args.cost, clone_at=args.clone_at,
+            min_child_budget=args.min_child, pressure=args.pressure,
+            max_population=args.max_pop, seed=args.seed, endogenous=False)
+        founders = build_agents(args.budget, False, "")
+        founding = journal.load_state("live_colony") is None
+        colony = LiveColony.open(journal, founders, cfg, feed, warmup=args.warmup)
+        if args.once:
+            n = 1 if founding else colony.run_once()
+            s = colony.status()
+            print(("founded the colony on " if founding else "processed ")
+                  + f"{n} new candle(s); day {s['day']} h{s['hour']}, "
+                  f"{s['alive']} alive ({s['interns']} interns), colony {s['colony_equity']:.2f}")
+        else:
+            colony.run_forever(args.days)
+    finally:
+        journal.close()
+
+
+class _StaticFeed:
+    """Enough of a feed to reopen a saved colony without touching the network."""
+
+    def __init__(self, timeframe: str, exchange_id: str, symbols: list[str]):
+        from .market.live import TIMEFRAME_SECONDS
+        self.timeframe, self.exchange_id = timeframe, exchange_id
+        self.symbols = {s: s for s in symbols}
+        self.seconds = TIMEFRAME_SECONDS.get(timeframe, 3600)
+
+    def aligned(self, limit: int = 0, since=None):
+        return []
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="cryptoarena",
@@ -82,6 +140,31 @@ def main() -> None:
     surv.add_argument("--synthetic", action="store_true",
                       help="use the synthetic price generator instead of the order book")
 
+    live = sub.add_parser("live", help="survival colony on real market data (paper trading)")
+    live.add_argument("--db", default="live/colony.db")
+    live.add_argument("--exchange", default="kraken",
+                      help="CCXT exchange id for public candles (kraken, coinbase, binance…)")
+    live.add_argument("--timeframe", default="1h")
+    live.add_argument("--symbols", default=None,
+                      help="comma list of ARENA=CCXT pairs, e.g. BTCUSD=BTC/USD,ETHUSD=ETH/USD")
+    live.add_argument("--once", action="store_true",
+                      help="process the candles that closed since the last run, save, exit "
+                           "(for cron / GitHub Actions)")
+    live.add_argument("--days", type=int, default=7,
+                      help="without --once: stay up and tick hourly for this many days")
+    live.add_argument("--status", action="store_true", help="print the colony's state as JSON")
+    live.add_argument("--warmup", type=int, default=150,
+                      help="closed candles of history the founders start with")
+    live.add_argument("--budget", type=float, default=5.0)
+    live.add_argument("--clone-at", type=float, default=1.1)
+    live.add_argument("--min-child", type=float, default=0.2)
+    live.add_argument("--target", type=float, default=0.005)
+    live.add_argument("--death", type=float, default=0.6)
+    live.add_argument("--cost", type=float, default=0.001)
+    live.add_argument("--pressure", type=float, default=0.0)
+    live.add_argument("--max-pop", type=int, default=12)
+    live.add_argument("--seed", type=int, default=None)
+
     lessons = sub.add_parser("lessons", help="show an agent's learned lessons")
     lessons.add_argument("agent_id")
     lessons.add_argument("--db", default="arena.db")
@@ -123,6 +206,8 @@ def main() -> None:
                   f"{res.equity_per_day[-1] if res.equity_per_day else 0:,.0f}")
         finally:
             journal.close()
+    elif args.command == "live":
+        _live(args)
     elif args.command == "lessons":
         journal = TradeJournal(args.db)
         try:

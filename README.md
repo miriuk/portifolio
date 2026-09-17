@@ -305,6 +305,65 @@ trader precisa pesar na decisão final. O debate força o modelo a considerar os
 dois lados em vez de ancorar na primeira leitura (custo: 3 chamadas extras por
 decisão; por isso é opt-in).
 
+## A colônia no mundo real (uma semana de dados reais)
+
+`cryptoarena live` é a mesma colônia — meta diária, estagiários, dispensa,
+happy hour, sênior, imitação — só que o "dia" dura um dia de verdade e as
+velas vêm de uma exchange real. As carteiras continuam de papel (preço
+real, execução simulada, nenhuma conta nem chave), então dá para deixar
+rodando uma semana sem risco enquanto se observa quem aprende e quem se
+reproduz.
+
+Como o processo não fica vivo por uma semana, o estado inteiro é salvo
+no próprio journal (`colony_state`): carteiras, posições, histórico de
+velas de cada agente, parâmetros, sequências, imunidade, relógio. Cada
+execução reabre o journal, processa **só as velas que fecharam** desde a
+última visita (o candle em formação nunca é visto) e salva de novo.
+Quando o candle das 23:00 UTC fecha, rodam os rituais de fim de dia; a
+cada 7 dias, os de fim de semana.
+
+```bash
+pip install -e ".[live]"
+
+# uma execução: pega o que fechou desde a última vez, salva, sai (cron)
+cryptoarena live --once --db live/colony.db --exchange kraken
+
+# ou fica de pé e bate o ponto a cada hora, por 7 dias
+cryptoarena live --days 7 --db live/colony.db
+
+cryptoarena live --status --db live/colony.db     # estado em JSON
+cryptoarena dashboard --db live/colony.db         # o andar, ao vivo
+```
+
+Os defaults são os do experimento das £5: `--budget 5 --clone-at 1.1
+--min-child 0.2 --target 0.005 --death 0.6`. A configuração usada na
+fundação fica gravada no journal e vale para as execuções seguintes.
+A exchange padrão é a Kraken (BTC/USD, ETH/USD, SOL/USD), que serve velas
+públicas do mundo todo sem conta — a Binance recusa endereços dos EUA,
+onde rodam os runners do GitHub. `--exchange binance` ou `--symbols
+BTCUSDT=BTC/USDT,...` trocam isso.
+
+### Rodando sozinha no GitHub Actions
+
+`.github/workflows/live-colony.yml` faz o ciclo de hora em hora sem
+servidor nenhum: restaura o journal da branch `colony-live`, roda
+`live --once`, e publica o journal atualizado de volta (um único commit,
+substituído a cada hora). O GitHub só agenda workflows que estão na
+branch padrão — depois do merge na `main` ela começa a bater o ponto; em
+**Actions → Live colony → Run workflow** dá para disparar na hora (e
+`reset` funda uma colônia nova).
+
+O dashboard lê esse journal direto do GitHub: no Streamlit Cloud, em
+*Secrets*, coloque
+
+```toml
+CRYPTOARENA_DB_URL = "https://raw.githubusercontent.com/<usuario>/portifolio/colony-live/colony.db"
+```
+
+e o app público passa a mostrar a colônia real (atualiza a cada 2 min;
+um seletor na barra lateral volta para o journal local). Localmente,
+`cryptoarena dashboard` aceita `--db-url` com a mesma URL.
+
 ## Trilha sim → paper → live
 
 A camada live (`market/live.py`) usa a mesma interface dos agentes — eles não
@@ -321,9 +380,9 @@ sabem se estão no simulador ou numa exchange real. Cinco travas independentes:
 ```python
 from cryptoarena.market import LiveExchange, LiveFeed, LiveLimits
 
-feed = LiveFeed("binance", {"BTCUSDT": "BTC/USDT"})
+feed = LiveFeed("kraken", {"BTCUSD": "BTC/USD"})      # só velas fechadas
 exchange = LiveExchange(
-    "binance", api_key=..., api_secret=...,
+    "kraken", api_key=..., api_secret=...,
     limits=LiveLimits(max_order_quote=25, max_daily_quote=100),
     dry_run=True,          # desligue por último, depois de dias de dry-run limpo
     testnet=True,          # desligue só depois do testnet

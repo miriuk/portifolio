@@ -32,6 +32,8 @@ def run_episode(
     exchange: SimulatedExchange | None = None,
     verbose: bool = False,
     step_offset: int = 0,
+    record_step_offset: int = 0,
+    risk: dict[str, RiskManager] | None = None,
 ) -> EpisodeResult:
     """One episode: agents live through `steps` hourly candles.
 
@@ -43,10 +45,18 @@ def run_episode(
     that are really consecutive days of one market (survival mode) — their
     cooldowns compare against it, so a clock that restarted at 0 every day
     would leave them stuck "cooling down" forever.
+
+    `record_step_offset` shifts only the step written to the journal, for a
+    caller that feeds one candle per call and wants the day's tape to read
+    0..23 all the same. `risk` lets such a caller keep each agent's risk
+    manager (peak equity, kill switch) alive between calls.
     """
     if exchange is None:
         exchange = market if hasattr(market, "execute") else SimulatedExchange()
-    risk = {a.agent_id: RiskManager() for a in agents}
+    if risk is None:
+        risk = {}
+    for a in agents:
+        risk.setdefault(a.agent_id, RiskManager())
     result = EpisodeResult(episode=episode)
     for a in agents:
         result.equity_curves[a.agent_id] = []
@@ -57,7 +67,7 @@ def run_episode(
         prices = {c.symbol: c.close for c in candles}
         latest = {c.symbol: c for c in candles}
         regimes = getattr(market, "_regime", {})
-        journal.record_market(episode, step, prices, regimes)
+        journal.record_market(episode, record_step_offset + step, prices, regimes)
 
         for agent in agents:
             agent.observe(candles)
@@ -67,7 +77,7 @@ def run_episode(
 
             equity = agent.wallet.equity(prices)
             result.equity_curves[agent.agent_id].append(equity)
-            journal.record_equity(agent.agent_id, episode, step, equity)
+            journal.record_equity(agent.agent_id, episode, record_step_offset + step, equity)
             if rm.peak_equity > 0:
                 dd = 1 - equity / rm.peak_equity
                 result.max_drawdown[agent.agent_id] = max(

@@ -140,7 +140,7 @@ function drawTickerBoard(t) {
   ctx.font = 'bold 13px ui-monospace, monospace'; ctx.textAlign = 'left';
   const boardW = (x1 - x0) * TILE, v = -(z1 - z0) / 2 + 5;
   const parts = syms.length ? syms.flatMap(s => [
-      [`${s.symbol.replace('USDT', '')} ${fmt(s.close)} `, '#fbbf24'],
+      [`${s.symbol.replace(/USDT?$/, '')} ${fmt(s.close)} `, '#fbbf24'],
       [pct(s.change) + '      ', s.change >= 0 ? '#22c55e' : '#ef4444']])
     : [['no tape yet — start a run      ', '#64748b']];
   const width = parts.reduce((w, [txt]) => w + ctx.measureText(txt).width, 0);
@@ -270,7 +270,7 @@ function drawAgent(a, p, t, hovered) {
 
 // ---------------------------------------------------------------- chatter (composed live, never stored)
 const R = STATE.market.regime || 'chop';
-const sym = a => (a.last_symbol || (STATE.market.symbols[0] || {}).symbol || 'BTCUSDT').replace('USDT', '');
+const sym = a => (a.last_symbol || (STATE.market.symbols[0] || {}).symbol || 'BTCUSDT').replace(/USDT?$/, '');
 const LINES = {
   euphoric: [a => `${sym(a)} just paid for the month. +${(a.window_return * 100).toFixed(1)}% in three days.`,
              a => `${a.streak > 1 ? a.streak + ' targets in a row' : 'Target hit'}. One more and I clone tonight.`,
@@ -403,7 +403,7 @@ function renderHud() {
     (SENIOR ? `<span>🌟 senior <b>${SENIOR.agent_id}</b> ${pct(SENIOR.ret)}</span>` : '') +
     `<span>colony <b>${fmt(c.equity)}</b></span>` + (STATE.running ? '<span style="color:#22c55e">● live</span>' : '');
   tick.innerHTML = ((STATE.market && STATE.market.symbols) || []).map(s =>
-    `<span>${s.symbol.replace('USDT', '')} ${fmt(s.close)} <span class="${s.change >= 0 ? 'up' : 'down'}">${pct(s.change)}</span></span>`).join('') +
+    `<span>${s.symbol.replace(/USDT?$/, '')} ${fmt(s.close)} <span class="${s.change >= 0 ? 'up' : 'down'}">${pct(s.change)}</span></span>`).join('') +
     (STATE.market.regime ? `<span class="regime">${STATE.market.regime}</span>` : '');
 }
 function showPanel(a) {

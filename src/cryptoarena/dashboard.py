@@ -12,6 +12,7 @@ background thread inside this process — the only option on a hosted deploy.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sqlite3
 import sys
@@ -32,9 +33,38 @@ from cryptoarena.world.render import build_state, render_world
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--db", default="arena.db")
+    parser.add_argument("--db-url", default=os.environ.get("CRYPTOARENA_DB_URL", ""),
+                        help="read a journal published at this URL (the live colony) "
+                             "instead of the local file")
     # Streamlit's CLI consumes its own flags and the "--" separator itself,
     # so by the time the script runs, sys.argv[1:] is already just our args.
     return parser.parse_args(sys.argv[1:])
+
+
+def fetch_journal(url: str, max_age: float = 120.0) -> str:
+    """Download a journal (e.g. the live colony's, published to a branch by
+    the hourly job) into a per-URL cache file, refreshed every `max_age`
+    seconds. Returns the local path; on a failed refresh the stale copy is
+    kept, so the dashboard degrades to 'a little old' rather than 'broken'."""
+    import hashlib
+    import tempfile
+    import urllib.request
+    path = Path(tempfile.gettempdir()) / f"cryptoarena-{hashlib.sha1(url.encode()).hexdigest()[:12]}.db"
+    if not path.exists() or time.time() - path.stat().st_mtime > max_age:
+        try:
+            with urllib.request.urlopen(url, timeout=20) as resp:
+                data = resp.read()
+            if data[:16] == b"SQLite format 3\x00":
+                tmp = path.with_suffix(".part")
+                tmp.write_bytes(data)
+                tmp.replace(path)
+            elif not path.exists():
+                raise ValueError("not a SQLite file")
+        except Exception:
+            if not path.exists():
+                raise
+            path.touch()   # back off before retrying
+    return str(path)
 
 
 def _read_table(conn: sqlite3.Connection, query: str) -> pd.DataFrame:
@@ -56,6 +86,7 @@ def load_data(db_path: str) -> dict[str, pd.DataFrame]:
             "survival": _read_table(conn, "SELECT * FROM survival_events ORDER BY id"),
             "market": _read_table(
                 conn, "SELECT * FROM market_snapshots ORDER BY episode DESC, step DESC LIMIT 600"),
+            "live": _read_table(conn, "SELECT value FROM colony_state WHERE key = 'live_colony'"),
         }
     finally:
         conn.close()
@@ -241,15 +272,32 @@ def main() -> None:
     args = _parse_args()
     st.set_page_config(page_title="CryptoArena", page_icon="🏟️", layout="wide")
     st.title("🏟️ CryptoArena")
-    st.caption(f"reading `{args.db}` — start a run from the sidebar, or feed it with "
-               "`cryptoarena run` in another terminal")
 
-    run = run_controls(args.db)
+    source = "Live colony" if args.db_url else "Local journal"
+    if args.db_url:
+        source = st.sidebar.radio("Source", ["Live colony", "Local journal"], horizontal=True)
+    db_path, run, live_error = args.db, None, None
+    if source == "Live colony":
+        try:
+            db_path = fetch_journal(args.db_url)
+        except Exception as exc:   # noqa: BLE001 — shown to the user
+            live_error = str(exc)
+        st.caption("the live colony: real Kraken prices, paper wallets, a real day per day — "
+                   "state is published by the hourly job and refreshed here every 2 min")
+    else:
+        st.caption(f"reading `{args.db}` — start a run from the sidebar, or feed it with "
+                   "`cryptoarena run` in another terminal")
+        run = run_controls(args.db)
     st.sidebar.divider()
     auto_refresh = st.sidebar.checkbox("Auto-refresh", value=True)
     st.sidebar.button("Refresh now")
 
-    data = load_data(args.db) if os.path.exists(args.db) else {}
+    if live_error:
+        st.error(f"could not fetch the live colony from `{args.db_url}`: {live_error}")
+    data = load_data(db_path) if os.path.exists(db_path) else {}
+    live = data.get("live", pd.DataFrame())
+    if not live.empty:
+        live_view(json.loads(live.iloc[0]["value"]))
     equity = data.get("equity", pd.DataFrame())
     summary = data.get("summary", pd.DataFrame())
     trades = data.get("trades", pd.DataFrame())
@@ -290,6 +338,29 @@ def main() -> None:
     if auto_refresh:
         time.sleep(2 if run is not None and run.running else 5)
         st.rerun()
+
+
+def live_view(state: dict) -> None:
+    """The live colony's clock and wallets, straight from the saved state."""
+    alive = [p for p in state.get("population", []) if p.get("died_day") is None]
+    prices = state.get("last_prices", {})
+    equity = sum(p["agent"]["wallet"]["cash"]
+                 + sum(q * prices.get(s, 0.0) for s, q in p["agent"]["wallet"]["positions"].items())
+                 for p in alive)
+    cash = sum(p["agent"]["wallet"]["cash"] for p in alive)
+    cols = st.columns(5)
+    cols[0].metric("Real day", f"{state.get('day', 0)} · h{state.get('hour', 0)}")
+    cols[1].metric("Alive", len(alive),
+                   help=f"{sum(1 for p in alive if p['generation'] > 0)} interns")
+    cols[2].metric("Colony equity", f"{equity:,.2f}")
+    cols[3].metric("Invested", f"{equity - cash:,.2f}")
+    last = state.get("last_ts")
+    cols[4].metric("Last candle", time.strftime("%H:%M UTC", time.gmtime(last)) if last else "—",
+                   help=(time.strftime("%d %b %Y", time.gmtime(last)) + " · " if last else "")
+                   + f"exchange: {state.get('exchange', '?')} · saved {state.get('saved_at', '?')}")
+    if prices:
+        st.caption(" · ".join(f"{s.replace('USDT', '').replace('USD', '')} {v:,.2f}"
+                              for s, v in prices.items()))
 
 
 def data_view(equity: pd.DataFrame, summary: pd.DataFrame, trades: pd.DataFrame,

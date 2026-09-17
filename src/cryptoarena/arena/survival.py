@@ -110,17 +110,9 @@ def run_survival(
     market = market_cls(symbols, seed=int(rng.integers(1 << 31)))  # one continuous market
 
     result = SurvivalResult()
-    counters: dict[str, int] = {}
-
-    def next_id(prefix: str) -> str:
-        counters[prefix] = counters.get(prefix, 0) + 1
-        return f"{prefix}-{counters[prefix]}"
+    next_id = _next_id_factory(founders)
 
     for agent in founders:
-        prefix = agent.agent_id.rsplit("-", 1)[0]
-        n = agent.agent_id.rsplit("-", 1)[-1]
-        if n.isdigit():
-            counters[prefix] = max(counters.get(prefix, 0), int(n))
         agent.starting_cash = cfg.budget
         agent.reset_wallet()
         ind = Individual(agent, _strategy_name(agent), cfg.budget, None, 0, born_day=0)
@@ -138,82 +130,111 @@ def run_survival(
         ep = run_episode(day, market, [i.agent for i in alive], journal,
                          steps=cfg.steps_per_day, verbose=False,
                          step_offset=(day - 1) * cfg.steps_per_day)
-
-        births: list[Individual] = []
-        deaths: list[str] = []
-        for ind in alive:
-            curve = ep.equity_curves[ind.agent_id]
-            cost = ind.budget * cfg.daily_cost
-            ind.agent.wallet.cash -= cost           # rent is due whether you traded or not
-            start, end = curve[0], curve[-1] - cost
-            if ind.week_start_equity is None:
-                ind.week_start_equity = start
-            stats = compute_stats(ind.agent_id, day, journal.trades_for(ind.agent_id, day),
-                                  start_equity=start, end_equity=end,
-                                  max_drawdown=ep.max_drawdown[ind.agent_id])
-            journal.record_episode_summary(stats, halted=ep.halted[ind.agent_id])
-            ind.agent.learn(reflect_on_episode(journal, stats))
-
-            verdict = _let_go(ind, end, ep.halted[ind.agent_id], cfg, day)
-            if verdict == "spared":
-                journal.record_survival_event(
-                    day, ind.agent_id, "spared", end, ind.parent_id, ind.generation,
-                    ind.strategy, f"immunity until day {ind.immune_until}")
-            elif verdict:
-                ind.died_day = day
-                deaths.append(ind.agent_id)
-                journal.record_survival_event(
-                    day, ind.agent_id, "died", end, ind.parent_id, ind.generation,
-                    ind.strategy, "kill switch" if ep.halted[ind.agent_id]
-                    else f"below {cfg.death_below:.0%} of budget")
-                continue
-
-            if end >= start * (1 + cfg.daily_target):
-                ind.streak += 1
-                ind.misses = 0
-                journal.record_survival_event(
-                    day, ind.agent_id, "target_hit", end, ind.parent_id, ind.generation,
-                    ind.strategy, f"streak {ind.streak}")
-            else:
-                ind.streak = 0
-                ind.misses += 1
-                _consult_mentor(ind, day, alive, journal, cfg.tip_rate,
-                                senior=result.senior if ind.misses >= cfg.escalate_after else None)
-            # hiring is about the money, not the day: double your budget, hire a clone
-            n_interns = sum(1 for i in result.population if i.generation > 0) + len(births)
-            child = _try_clone(ind, day, end, cfg, rng, journal, next_id,
-                               population_size=len(alive) + len(births),
-                               mutate=(n_interns + 1) % cfg.explore_every == 0)
-            if child is not None:
-                births.append(child)
-            journal.record_survival_event(day, ind.agent_id, "survived", end,
-                                          ind.parent_id, ind.generation, ind.strategy,
-                                          f"cost {cost:.2f}")
-            journal.decay_lessons(ind.agent_id)
-
-        if day % cfg.week_days == 0:
-            still_here = [i for i in alive if i.alive]
-            _happy_hour(day, day // cfg.week_days, still_here, cfg, journal)
-            result.senior = _pick_senior(day, still_here, journal)
-            _weekly_training(day, still_here, cfg, journal, senior=result.senior)
-        result.population.extend(births)
-        survivors = result.alive
-        for ind in survivors:
-            params = ind.agent.get_params()
-            if params is not None:
-                prev = journal.load_params(ind.agent_id)
-                journal.save_params(ind.agent_id, params, prev[1] if prev else ind.generation)
-        result.alive_per_day.append(len(survivors))
-        total = sum(ep.equity_curves[i.agent_id][-1] - i.budget * cfg.daily_cost
-                    for i in survivors if i.agent_id in ep.equity_curves) \
-            + sum(i.budget for i in births)
-        result.equity_per_day.append(total)
-        if verbose:
-            print(f"day {day:>3}: alive={len(survivors):<3} born={len(births)} "
-                  f"died={len(deaths)} colony={total:,.0f}"
-                  + (f"  +{', '.join(b.agent_id for b in births)}" if births else "")
-                  + (f"  -{', '.join(deaths)}" if deaths else ""))
+        _end_of_day(day, alive, ep, cfg, rng, journal, next_id, result, verbose)
     return result
+
+
+def _next_id_factory(founders: list[TradingAgent]):
+    """Ids continue the founders' numbering: momentum-1, momentum-2 -> momentum-3."""
+    counters: dict[str, int] = {}
+    for agent in founders:
+        prefix = agent.agent_id.rsplit("-", 1)[0]
+        n = agent.agent_id.rsplit("-", 1)[-1]
+        if n.isdigit():
+            counters[prefix] = max(counters.get(prefix, 0), int(n))
+
+    def next_id(prefix: str) -> str:
+        counters[prefix] = counters.get(prefix, 0) + 1
+        return f"{prefix}-{counters[prefix]}"
+
+    next_id.counters = counters   # type: ignore[attr-defined]
+    return next_id
+
+
+def _end_of_day(day: int, alive: list[Individual], ep, cfg: SurvivalConfig, rng,
+                journal: TradeJournal, next_id, result: SurvivalResult,
+                verbose: bool = False) -> tuple[list[Individual], list[str]]:
+    """Everything that happens when the day's last candle has closed: rent,
+    the day's summary and reflection, the verdict (let go / spared), the
+    target, mentoring, hiring, the weekly rituals, and bookkeeping. `ep`
+    carries the day's equity curves, max drawdown and halted flags per
+    agent — an EpisodeResult, or anything shaped like one. Returns
+    (births, dismissed ids)."""
+    births: list[Individual] = []
+    deaths: list[str] = []
+    for ind in alive:
+        curve = ep.equity_curves[ind.agent_id]
+        cost = ind.budget * cfg.daily_cost
+        ind.agent.wallet.cash -= cost           # rent is due whether you traded or not
+        start, end = curve[0], curve[-1] - cost
+        if ind.week_start_equity is None:
+            ind.week_start_equity = start
+        stats = compute_stats(ind.agent_id, day, journal.trades_for(ind.agent_id, day),
+                              start_equity=start, end_equity=end,
+                              max_drawdown=ep.max_drawdown[ind.agent_id])
+        journal.record_episode_summary(stats, halted=ep.halted[ind.agent_id])
+        ind.agent.learn(reflect_on_episode(journal, stats))
+
+        verdict = _let_go(ind, end, ep.halted[ind.agent_id], cfg, day)
+        if verdict == "spared":
+            journal.record_survival_event(
+                day, ind.agent_id, "spared", end, ind.parent_id, ind.generation,
+                ind.strategy, f"immunity until day {ind.immune_until}")
+        elif verdict:
+            ind.died_day = day
+            deaths.append(ind.agent_id)
+            journal.record_survival_event(
+                day, ind.agent_id, "died", end, ind.parent_id, ind.generation,
+                ind.strategy, "kill switch" if ep.halted[ind.agent_id]
+                else f"below {cfg.death_below:.0%} of budget")
+            continue
+
+        if end >= start * (1 + cfg.daily_target):
+            ind.streak += 1
+            ind.misses = 0
+            journal.record_survival_event(
+                day, ind.agent_id, "target_hit", end, ind.parent_id, ind.generation,
+                ind.strategy, f"streak {ind.streak}")
+        else:
+            ind.streak = 0
+            ind.misses += 1
+            _consult_mentor(ind, day, alive, journal, cfg.tip_rate,
+                            senior=result.senior if ind.misses >= cfg.escalate_after else None)
+        # hiring is about the money, not the day: grow your budget, hire a clone
+        n_interns = sum(1 for i in result.population if i.generation > 0) + len(births)
+        child = _try_clone(ind, day, end, cfg, rng, journal, next_id,
+                           population_size=len(alive) + len(births),
+                           mutate=(n_interns + 1) % cfg.explore_every == 0)
+        if child is not None:
+            births.append(child)
+        journal.record_survival_event(day, ind.agent_id, "survived", end,
+                                      ind.parent_id, ind.generation, ind.strategy,
+                                      f"cost {cost:.2f}")
+        journal.decay_lessons(ind.agent_id)
+
+    if day % cfg.week_days == 0:
+        still_here = [i for i in alive if i.alive]
+        _happy_hour(day, day // cfg.week_days, still_here, cfg, journal)
+        result.senior = _pick_senior(day, still_here, journal)
+        _weekly_training(day, still_here, cfg, journal, senior=result.senior)
+    result.population.extend(births)
+    survivors = result.alive
+    for ind in survivors:
+        params = ind.agent.get_params()
+        if params is not None:
+            prev = journal.load_params(ind.agent_id)
+            journal.save_params(ind.agent_id, params, prev[1] if prev else ind.generation)
+    result.alive_per_day.append(len(survivors))
+    total = sum(ep.equity_curves[i.agent_id][-1] - i.budget * cfg.daily_cost
+                for i in survivors if i.agent_id in ep.equity_curves) \
+        + sum(i.budget for i in births)
+    result.equity_per_day.append(total)
+    if verbose:
+        print(f"day {day:>3}: alive={len(survivors):<3} born={len(births)} "
+              f"died={len(deaths)} colony={total:,.2f}"
+              + (f"  +{', '.join(b.agent_id for b in births)}" if births else "")
+              + (f"  -{', '.join(deaths)}" if deaths else ""))
+    return births, deaths
 
 
 def _let_go(ind: Individual, end_equity: float, halted: bool, cfg: SurvivalConfig,

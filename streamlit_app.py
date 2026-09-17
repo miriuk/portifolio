@@ -17,7 +17,7 @@ try:
     secrets = dict(st.secrets)
 except Exception:
     secrets = {}
-for key in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"):
+for key in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CRYPTOARENA_DB_URL"):
     if key in secrets and key not in os.environ:
         os.environ[key] = str(secrets[key])
 

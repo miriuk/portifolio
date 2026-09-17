@@ -6,3 +6,6 @@ arena.db
 data/*.csv
 .env
 .streamlit/secrets.toml
+live/
+*.db-wal
+*.db-shm

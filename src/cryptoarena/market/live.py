@@ -32,28 +32,85 @@ class LiveLimits:
     approve_above_quote: float = 25.0  # orders above this need human approval
 
 
-class LiveFeed:
-    """Polls real OHLCV candles via CCXT with the next_candles() interface."""
+TIMEFRAME_SECONDS = {"1m": 60, "5m": 300, "15m": 900, "30m": 1800,
+                     "1h": 3600, "4h": 14400, "1d": 86400}
 
-    def __init__(self, exchange_id: str = "binance",
+# Arena symbol -> CCXT symbol, per exchange. Kraken is the default because it
+# serves public OHLCV worldwide without an account (Binance refuses US
+# addresses, which is where GitHub-hosted runners live).
+DEFAULT_SYMBOLS: dict[str, dict[str, str]] = {
+    "kraken": {"BTCUSD": "BTC/USD", "ETHUSD": "ETH/USD", "SOLUSD": "SOL/USD"},
+    "binance": {"BTCUSDT": "BTC/USDT", "ETHUSDT": "ETH/USDT", "SOLUSDT": "SOL/USDT"},
+    "coinbase": {"BTCUSD": "BTC/USD", "ETHUSD": "ETH/USD", "SOLUSD": "SOL/USD"},
+}
+
+
+def default_symbols(exchange_id: str) -> dict[str, str]:
+    return dict(DEFAULT_SYMBOLS.get(exchange_id, DEFAULT_SYMBOLS["kraken"]))
+
+
+class LiveFeed:
+    """Real OHLCV candles via CCXT, with the next_candles() interface.
+
+    `closed_only` (the default) hides the candle still being formed: the
+    agents see a bar only once it has closed, exactly like the simulated
+    market, so nothing they learn depends on the second they were polled.
+    """
+
+    def __init__(self, exchange_id: str = "kraken",
                  symbols: dict[str, str] | None = None,  # arena name -> ccxt name
-                 timeframe: str = "1h", client=None):
-        self.symbols = symbols or {"BTCUSDT": "BTC/USDT", "ETHUSDT": "ETH/USDT"}
+                 timeframe: str = "1h", client=None, closed_only: bool = True,
+                 now: Callable[[], float] | None = None):
+        self.exchange_id = exchange_id
+        self.symbols = symbols or default_symbols(exchange_id)
         self.timeframe = timeframe
+        self.closed_only = closed_only
+        self._now = now or time.time
         if client is None:
             import ccxt
-            client = getattr(ccxt, exchange_id)()
+            client = getattr(ccxt, exchange_id)({"enableRateLimit": True})
         self.client = client
 
-    def next_candles(self) -> list[Candle]:
-        candles = []
+    @property
+    def seconds(self) -> int:
+        return TIMEFRAME_SECONDS[self.timeframe]
+
+    def _fetch(self, ccxt_symbol: str, since: int | None, limit: int) -> list:
+        since_ms = None if since is None else int(since) * 1000
+        rows = self.client.fetch_ohlcv(ccxt_symbol, self.timeframe, since=since_ms,
+                                       limit=limit)
+        if self.closed_only:
+            cutoff = self._now() - self.seconds
+            rows = [r for r in rows if r[0] // 1000 <= cutoff]
+        return rows
+
+    def history(self, limit: int = 200, since: int | None = None) -> dict[str, list[Candle]]:
+        """Closed candles per arena symbol, oldest first — `since` is an
+        exclusive unix-seconds lower bound on the candle's open time."""
+        out: dict[str, list[Candle]] = {}
         for name, ccxt_symbol in self.symbols.items():
-            ts, o, h, l, c, v = self.client.fetch_ohlcv(
-                ccxt_symbol, self.timeframe, limit=1)[-1]
-            candles.append(Candle(symbol=name, timestamp=int(ts // 1000),
-                                  open=float(o), high=float(h), low=float(l),
-                                  close=float(c), volume=float(v)))
-        return candles
+            rows = self._fetch(ccxt_symbol, since, limit)
+            out[name] = [Candle(symbol=name, timestamp=int(r[0] // 1000), open=float(r[1]),
+                                high=float(r[2]), low=float(r[3]), close=float(r[4]),
+                                volume=float(r[5]))
+                         for r in rows if since is None or r[0] // 1000 > since]
+        return out
+
+    def aligned(self, limit: int = 200, since: int | None = None) -> list[list[Candle]]:
+        """History regrouped by timestamp: one list of candles (one per
+        symbol) per bar, only for bars every symbol has, oldest first."""
+        per_symbol = self.history(limit, since)
+        if not per_symbol:
+            return []
+        by_ts = [{c.timestamp: c for c in candles} for candles in per_symbol.values()]
+        common = set(by_ts[0])
+        for d in by_ts[1:]:
+            common &= set(d)
+        return [[d[ts] for d in by_ts] for ts in sorted(common)]
+
+    def next_candles(self) -> list[Candle]:
+        """The latest (closed) bar per symbol."""
+        return [candles[-1] for candles in self.history(limit=2).values() if candles]
 
 
 class LiveExchange:
@@ -64,14 +121,14 @@ class LiveExchange:
     or anything a human answers. No callback = those orders are refused.
     """
 
-    def __init__(self, exchange_id: str = "binance",
+    def __init__(self, exchange_id: str = "kraken",
                  api_key: str = "", api_secret: str = "",
                  symbols: dict[str, str] | None = None,
                  limits: LiveLimits | None = None,
                  dry_run: bool = True, testnet: bool = True,
                  confirm: Callable[[Order, float], bool] | None = None,
                  fee_rate: float = 0.001, client=None):
-        self.symbols = symbols or {"BTCUSDT": "BTC/USDT", "ETHUSDT": "ETH/USDT"}
+        self.symbols = symbols or default_symbols(exchange_id)
         self.limits = limits or LiveLimits()
         self.dry_run = dry_run
         self.testnet = testnet

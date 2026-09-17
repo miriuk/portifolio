@@ -15,8 +15,9 @@ class FakeCCXT:
     def set_sandbox_mode(self, on):
         self.sandbox = on
 
-    def fetch_ohlcv(self, symbol, timeframe, limit=1):
-        return [[1_700_000_000_000, 100.0, 101.0, 99.0, 100.5, 1234.0]]
+    def fetch_ohlcv(self, symbol, timeframe, since=None, limit=1):
+        return [[1_700_000_000_000, 100.0, 101.0, 99.0, 100.5, 1234.0],
+                [1_700_003_600_000, 100.5, 102.0, 100.0, 101.5, 999.0]]   # still forming
 
     def create_market_buy_order(self, symbol, qty):
         self.orders.append(("buy", symbol, qty))
@@ -31,10 +32,13 @@ def candle(price=100.0):
     return Candle("BTCUSDT", 1_700_000_000, price, price, price, price, 1000.0)
 
 
-def test_feed_maps_ccxt_ohlcv():
-    feed = LiveFeed(symbols={"BTCUSDT": "BTC/USDT"}, client=FakeCCXT())
+def test_feed_maps_ccxt_ohlcv_and_skips_the_forming_candle():
+    feed = LiveFeed(symbols={"BTCUSDT": "BTC/USDT"}, client=FakeCCXT(),
+                    now=lambda: 1_700_003_600 + 1800)      # half-way through the second bar
     c = feed.next_candles()[0]
     assert c.symbol == "BTCUSDT" and c.close == 100.5 and c.timestamp == 1_700_000_000
+    raw = LiveFeed(symbols={"BTCUSDT": "BTC/USDT"}, client=FakeCCXT(), closed_only=False)
+    assert raw.next_candles()[0].timestamp == 1_700_003_600
 
 
 def test_dry_run_never_touches_the_exchange():
@@ -86,7 +90,7 @@ def test_approval_required_above_threshold():
 
 def test_real_order_path_uses_client():
     fake = FakeCCXT()
-    ex = LiveExchange(dry_run=False, client=fake,
+    ex = LiveExchange(dry_run=False, client=fake, symbols={"BTCUSDT": "BTC/USDT"},
                       limits=LiveLimits(approve_above_quote=1000.0))
     fill = ex.execute(Order("a", "BTCUSDT", "buy", 20.0), candle())
     assert fake.orders and fake.orders[0][0] == "buy"
