@@ -51,6 +51,7 @@ def run_episode(
         prices = {c.symbol: c.close for c in candles}
         latest = {c.symbol: c for c in candles}
         regimes = getattr(market, "_regime", {})
+        journal.record_market(episode, step, prices, regimes)
 
         for agent in agents:
             agent.observe(candles)

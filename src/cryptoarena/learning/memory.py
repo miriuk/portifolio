@@ -55,6 +55,14 @@ CREATE TABLE IF NOT EXISTS episode_summary (
     halted INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (agent_id, episode)
 );
+CREATE TABLE IF NOT EXISTS market_snapshots (
+    episode INTEGER NOT NULL,
+    step INTEGER NOT NULL,
+    symbol TEXT NOT NULL,
+    close REAL NOT NULL,
+    regime TEXT DEFAULT '',
+    PRIMARY KEY (episode, step, symbol)
+);
 CREATE TABLE IF NOT EXISTS survival_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     day INTEGER NOT NULL,
@@ -215,6 +223,17 @@ class TradeJournal:
         self._conn.execute(
             "INSERT INTO equity_snapshots (agent_id, episode, step, equity) VALUES (?, ?, ?, ?)",
             (agent_id, episode, step, equity),
+        )
+        self._conn.commit()
+
+    def record_market(self, episode: int, step: int, closes: dict[str, float],
+                      regimes: dict[str, str]) -> None:
+        """The tape as the agents saw it, so a viewer can show a price
+        ticker and the regime without re-running the market."""
+        self._conn.executemany(
+            """INSERT OR REPLACE INTO market_snapshots (episode, step, symbol, close, regime)
+               VALUES (?, ?, ?, ?, ?)""",
+            [(episode, step, sym, px, regimes.get(sym, "")) for sym, px in closes.items()],
         )
         self._conn.commit()
 

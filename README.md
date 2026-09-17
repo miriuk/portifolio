@@ -162,6 +162,59 @@ cada reinício, o que para uma demo é até desejável. Hugging Face Spaces
 funciona com os mesmos arquivos (SDK *streamlit*, arquivo
 `streamlit_app.py`).
 
+## Colônia de sobrevivência (meta diária ou morte)
+
+```bash
+cryptoarena survive --days 60 --budget 1000 --target 0.005
+```
+
+O esquema viral dos agentes auto-replicantes, feito de forma honesta: cada
+agente recebe um **orçamento** e uma **meta diária**; a carteira **não
+zera** entre os dias e um **custo de vida** (compute/API) é cobrado todo
+dia. Quem fecha o dia abaixo da linha de morte — ou dispara o kill switch —
+é desligado para sempre. Quem bate a meta ganha o direito de **clonar**: o
+filho é pago com o **lucro do próprio pai, em dinheiro**, nasce com
+parâmetros mutados e herda as lições do pai. Ou seja, a colônia só cresce
+quando alguém de fato ganhou dinheiro, e cada morte fica registrada — sem
+viés de sobrevivência.
+
+| Parâmetro | Default | O que faz |
+|---|---|---|
+| `--target` | 0.5%/dia | retorno do dia que libera a clonagem |
+| `--death` | 60% | morre abaixo dessa fração do próprio orçamento |
+| `--cost` | 0.1%/dia | aluguel: sai do caixa todo dia, operando ou não |
+| `--pressure` | 0 | após cada meta perdida, ordens × (1+pressão): a ruína do jogador que o esquema induz, desligada por padrão |
+| `--max-pop` | 12 | teto da população |
+
+O que a simulação mostra com parâmetros realistas: nascimentos são raros,
+o patrimônio total da colônia cai lentamente (taxas + custo de vida) e
+ninguém enriquece. É exatamente por isso que a trilha é
+**simulador → dry-run → testnet → real com limites mínimos**, nessa ordem.
+
+## O andar (mundo isométrico)
+
+A aba **The floor** do dashboard mostra os agentes como pessoinhas num
+escritório isométrico: cada um tem mesa (monitor verde/vermelho conforme o
+dia), há sofá, máquina de café, quadro de estudos, o painel do mercado na
+parede e um cemitério no canto para quem morreu.
+
+Cada agente tem três **necessidades derivadas do que aconteceu de verdade
+no mercado** (nada é aleatório):
+
+- **energia** (física): cai com volume de trades e drawdown, volta em dias parados;
+- **stress** (emocional): sobe com perdas, stop-losses, metas perdidas e proximidade da linha de morte;
+- **foco** (mental): sobe com lições aprendidas, taxa de acerto e sequências de meta; o stress corrói.
+
+Delas saem o humor (calmo, confiante, eufórico, ansioso, em pânico,
+exausto) e o comportamento (operar na mesa, descansar no sofá, andar de um
+lado para o outro, estudar no quadro, comemorar). Os agentes **conversam
+entre si sobre o mercado** em balões de fala — comentam o regime, o último
+trade, a meta perdida, quem nasceu e quem morreu, e respondem uns aos
+outros de acordo com a estratégia (momentum provoca meanrev e vice-versa).
+As falas são compostas ao vivo a partir do estado real e **não são
+gravadas em lugar nenhum**. Passe o mouse (ou clique) num agente para ver
+suas vitals.
+
 ## Debate bull vs. bear
 
 ```bash

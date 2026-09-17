@@ -21,9 +21,12 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
+import streamlit.components.v1 as components
+
 from cryptoarena.agents.llm import ClaudeTraderAgent
 from cryptoarena.arena import background
 from cryptoarena.arena.background import RunConfig
+from cryptoarena.world.render import build_state, render_world
 
 
 def _parse_args() -> argparse.Namespace:
@@ -51,6 +54,8 @@ def load_data(db_path: str) -> dict[str, pd.DataFrame]:
             "lessons": _read_table(
                 conn, "SELECT * FROM lessons ORDER BY importance DESC, id DESC LIMIT 150"),
             "survival": _read_table(conn, "SELECT * FROM survival_events ORDER BY id"),
+            "market": _read_table(
+                conn, "SELECT * FROM market_snapshots ORDER BY episode DESC, step DESC LIMIT 600"),
         }
     finally:
         conn.close()
@@ -229,13 +234,38 @@ def main() -> None:
             f"```\ncryptoarena survive --days 60 --db {args.db}\n```"
         )
     else:
-        if run is not None and run.running:
+        running = run is not None and run.running
+        if running:
             total = run.config.days if run.config.mode == "survival" else run.config.episodes
             unit = "day" if run.config.mode == "survival" else "episode"
             done = int(summary["episode"].max()) if not summary.empty else 0
             st.progress(min(done / total, 1.0), text=f"{unit} {done}/{total} complete")
-        if not survival.empty:
-            colony_view(survival)
+        world_tab, data_tab = st.tabs(["🏢 The floor", "📊 Data"])
+        with world_tab:
+            state = build_state(data, running=running)
+            components.html(render_world(state), height=650)
+            st.caption("hover or click an agent for its vitals · green energy, red stress, "
+                       "blue focus · the chatter is composed live from each agent's real "
+                       "state and never stored")
+            if state["agents"]:
+                vitals = pd.DataFrame(state["agents"])[
+                    ["agent_id", "alive", "generation", "mood", "activity", "energy",
+                     "stress", "focus", "equity", "day_return", "streak", "misses", "lessons"]]
+                with st.expander("vitals table"):
+                    st.dataframe(vitals, width="stretch", hide_index=True)
+        with data_tab:
+            data_view(equity, summary, trades, lessons, survival)
+
+    if auto_refresh:
+        time.sleep(2 if run is not None and run.running else 5)
+        st.rerun()
+
+
+def data_view(equity: pd.DataFrame, summary: pd.DataFrame, trades: pd.DataFrame,
+              lessons: pd.DataFrame, survival: pd.DataFrame) -> None:
+    if not survival.empty:
+        colony_view(survival)
+    if not summary.empty:
         st.subheader("Leaderboard (cumulative across episodes)")
         board = leaderboard(summary)
         st.dataframe(
@@ -245,37 +275,33 @@ def main() -> None:
             width="stretch", hide_index=True,
         )
 
-        if not equity.empty:
-            st.subheader("Equity curves")
-            equity = equity.sort_values(["agent_id", "episode", "step"]).copy()
-            equity["t"] = equity.groupby("agent_id").cumcount()
-            pivot = equity.pivot(index="t", columns="agent_id", values="equity")
-            st.line_chart(pivot)
+    if not equity.empty:
+        st.subheader("Equity curves")
+        equity = equity.sort_values(["agent_id", "episode", "step"]).copy()
+        equity["t"] = equity.groupby("agent_id").cumcount()
+        pivot = equity.pivot(index="t", columns="agent_id", values="equity")
+        st.line_chart(pivot)
 
-        col1, col2 = st.columns(2)
-        with col1:
-            st.subheader("Recent trades")
-            if not trades.empty:
-                st.dataframe(
-                    trades[["agent_id", "episode", "symbol", "side", "price",
-                            "pnl", "regime", "reason"]],
-                    width="stretch", height=380, hide_index=True,
-                )
-            else:
-                st.caption("no trades yet")
-        with col2:
-            st.subheader("Lessons learned (by importance)")
-            if not lessons.empty:
-                st.dataframe(
-                    lessons[["agent_id", "episode", "regime", "importance", "lesson"]],
-                    width="stretch", height=380, hide_index=True,
-                )
-            else:
-                st.caption("no lessons yet")
-
-    if auto_refresh:
-        time.sleep(2 if run is not None and run.running else 5)
-        st.rerun()
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("Recent trades")
+        if not trades.empty:
+            st.dataframe(
+                trades[["agent_id", "episode", "symbol", "side", "price",
+                        "pnl", "regime", "reason"]],
+                width="stretch", height=380, hide_index=True,
+            )
+        else:
+            st.caption("no trades yet")
+    with col2:
+        st.subheader("Lessons learned (by importance)")
+        if not lessons.empty:
+            st.dataframe(
+                lessons[["agent_id", "episode", "regime", "importance", "lesson"]],
+                width="stretch", height=380, hide_index=True,
+            )
+        else:
+            st.caption("no lessons yet")
 
 
 if __name__ == "__main__":

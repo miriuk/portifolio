@@ -1,0 +1,326 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; background: #0b0e14; color: #e5e7eb;
+    font: 13px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  #wrap { position: relative; width: 100%; }
+  canvas { display: block; width: 100%; height: auto; }
+  #hud { position: absolute; left: 12px; top: 10px; display: flex; gap: 14px;
+    background: rgba(15,18,26,.85); padding: 6px 10px; border-radius: 8px; font-size: 12px; }
+  #hud b { color: #fff; }
+  #ticker { position: absolute; right: 12px; top: 10px; display: flex; gap: 12px;
+    background: rgba(15,18,26,.85); padding: 6px 10px; border-radius: 8px; font-size: 12px;
+    font-variant-numeric: tabular-nums; }
+  .up { color: #22c55e; } .down { color: #ef4444; }
+  .regime { padding: 0 6px; border-radius: 4px; background: #1f2937; color: #cbd5e1; }
+  #panel { position: absolute; left: 12px; bottom: 12px; min-width: 240px;
+    background: rgba(15,18,26,.92); padding: 10px 12px; border-radius: 8px; display: none; }
+  #panel h3 { margin: 0 0 6px; font-size: 13px; }
+  .bar { height: 6px; background: #1f2937; border-radius: 3px; margin: 3px 0 7px; }
+  .bar i { display: block; height: 100%; border-radius: 3px; }
+  #feed { position: absolute; right: 12px; bottom: 12px; width: 300px; max-height: 150px;
+    overflow: hidden; background: rgba(15,18,26,.85); padding: 8px 10px; border-radius: 8px;
+    font-size: 12px; }
+  #feed div { opacity: .9; margin: 2px 0; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
+  #feed b { color: #fbbf24; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="c" width="1200" height="640"></canvas>
+  <div id="hud"></div>
+  <div id="ticker"></div>
+  <div id="panel"></div>
+  <div id="feed"></div>
+</div>
+<script>
+const STATE = /*__STATE__*/null;
+
+// ---------------------------------------------------------------- setup
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+const W = cv.width, H = cv.height;
+const TILE = 44;                       // half-width of an iso tile
+const GRID_W = 12, GRID_H = 9;
+const ORIGIN = { x: W / 2, y: 150 };
+const COLORS = { momentum: '#f7931a', meanrev: '#3b82f6', breakout: '#22c55e',
+                 claude: '#a855f7', other: '#94a3b8' };
+const strategyColor = s => COLORS[Object.keys(COLORS).find(k => s.startsWith(k)) || 'other'];
+
+function iso(x, y, z = 0) {
+  return { x: ORIGIN.x + (x - y) * TILE, y: ORIGIN.y + (x + y) * TILE / 2 - z };
+}
+function hash(str) { let h = 2166136261; for (const c of str) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); } return (h >>> 0); }
+function rand(seed) { let t = seed + 0x6D2B79F5; t = Math.imul(t ^ t >>> 15, t | 1); t ^= t + Math.imul(t ^ t >>> 7, t | 61); return ((t ^ t >>> 14) >>> 0) / 4294967296; }
+const pick = (arr, seed) => arr[Math.floor(rand(seed) * arr.length)];
+const fmt = v => (v >= 1000 ? v.toLocaleString('en-US', { maximumFractionDigits: 0 }) : v.toFixed(2));
+const pct = v => (v >= 0 ? '+' : '') + (v * 100).toFixed(2) + '%';
+
+// ---------------------------------------------------------------- furniture
+const ticker = { x: 5.5, y: -0.4 };                      // big board on the back wall
+const couch = { x: 0.8, y: GRID_H - 0.9 }, coffee = { x: GRID_W - 1.2, y: GRID_H - 0.9 },
+      board = { x: GRID_W - 0.4, y: 1 };
+const graveyard = { x: 0.5, y: 0.5 };
+const agents = (STATE && STATE.agents) || [];
+const alive = agents.filter(a => a.alive);
+const dead = agents.filter(a => !a.alive);
+// desks in rows of 4, centred
+alive.forEach((a, i) => {
+  const cols = Math.min(4, Math.max(1, alive.length));
+  const row = Math.floor(i / 4), col = i % 4;
+  const rowCount = Math.min(4, alive.length - row * 4);
+  a.desk = { x: 2.4 + col * 2.2 + (4 - rowCount) * 1.1, y: 2.2 + row * 2.3 };
+});
+
+// ---------------------------------------------------------------- drawing primitives
+function tile(x, y, fill, stroke) {
+  const p = [iso(x, y), iso(x + 1, y), iso(x + 1, y + 1), iso(x, y + 1)];
+  ctx.beginPath(); ctx.moveTo(p[0].x, p[0].y); p.slice(1).forEach(q => ctx.lineTo(q.x, q.y)); ctx.closePath();
+  ctx.fillStyle = fill; ctx.fill(); if (stroke) { ctx.strokeStyle = stroke; ctx.stroke(); }
+}
+function cube(x, y, w, d, h, color, z = 0) {   // iso box: base at (x,y), size w×d, height h
+  const shade = (c, k) => { const n = parseInt(c.slice(1), 16); const r = (n >> 16) * k, g = ((n >> 8) & 255) * k, b = (n & 255) * k;
+    return `rgb(${r|0},${g|0},${b|0})`; };
+  const t = [iso(x, y, z + h), iso(x + w, y, z + h), iso(x + w, y + d, z + h), iso(x, y + d, z + h)];
+  const bl = iso(x, y + d, z), br = iso(x + w, y + d, z), bb = iso(x + w, y, z);
+  ctx.fillStyle = shade(color, .62); ctx.beginPath(); ctx.moveTo(t[3].x, t[3].y); ctx.lineTo(t[2].x, t[2].y); ctx.lineTo(br.x, br.y); ctx.lineTo(bl.x, bl.y); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = shade(color, .8); ctx.beginPath(); ctx.moveTo(t[2].x, t[2].y); ctx.lineTo(t[1].x, t[1].y); ctx.lineTo(bb.x, bb.y); ctx.lineTo(br.x, br.y); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = color; ctx.beginPath(); ctx.moveTo(t[0].x, t[0].y); t.slice(1).forEach(q => ctx.lineTo(q.x, q.y)); ctx.closePath(); ctx.fill();
+}
+function shadow(x, y, r) {
+  const p = iso(x, y); ctx.fillStyle = 'rgba(0,0,0,.35)';
+  ctx.beginPath(); ctx.ellipse(p.x, p.y, r, r / 2, 0, 0, Math.PI * 2); ctx.fill();
+}
+function label(text, x, y, z, color = '#e5e7eb', size = 11) {
+  const p = iso(x, y, z); ctx.font = `${size}px ui-sans-serif, system-ui`; ctx.textAlign = 'center';
+  ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.7)'; ctx.strokeText(text, p.x, p.y);
+  ctx.fillStyle = color; ctx.fillText(text, p.x, p.y);
+}
+
+// ---------------------------------------------------------------- scene objects
+function drawFloor() {
+  for (let y = 0; y < GRID_H; y++) for (let x = 0; x < GRID_W; x++)
+    tile(x, y, (x + y) % 2 ? '#161b26' : '#1a2030', '#0f131c');
+  // back walls
+  ctx.fillStyle = '#121724';
+  let a = iso(0, 0, 0), b = iso(GRID_W, 0, 0), c = iso(GRID_W, 0, 120), d = iso(0, 0, 120);
+  ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.lineTo(c.x, c.y); ctx.lineTo(d.x, d.y); ctx.fill();
+  ctx.fillStyle = '#0e1320';
+  a = iso(0, 0, 0); b = iso(0, GRID_H, 0); c = iso(0, GRID_H, 120); d = iso(0, 0, 120);
+  ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.lineTo(c.x, c.y); ctx.lineTo(d.x, d.y); ctx.fill();
+}
+function drawTickerBoard(t) {
+  const x0 = 3, x1 = 9, z0 = 46, z1 = 100;
+  const a = iso(x0, 0, z0), b = iso(x1, 0, z0), c = iso(x1, 0, z1), d = iso(x0, 0, z1);
+  ctx.fillStyle = '#05070c'; ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.lineTo(c.x, c.y); ctx.lineTo(d.x, d.y); ctx.fill();
+  ctx.strokeStyle = '#334155'; ctx.lineWidth = 2; ctx.stroke();
+  const syms = (STATE.market && STATE.market.symbols) || [];
+  ctx.save(); ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.lineTo(c.x, c.y); ctx.lineTo(d.x, d.y); ctx.clip();
+  // text follows the wall: u runs along the wall (slope 1:2 in iso), v is height
+  ctx.transform(1, 0.5, 0, 1, a.x, a.y);
+  ctx.font = 'bold 13px ui-monospace, monospace'; ctx.textAlign = 'left';
+  const boardW = (x1 - x0) * TILE, v = -(z1 - z0) / 2 + 5;
+  const parts = syms.length ? syms.flatMap(s => [
+      [`${s.symbol.replace('USDT', '')} ${fmt(s.close)} `, '#fbbf24'],
+      [pct(s.change) + '      ', s.change >= 0 ? '#22c55e' : '#ef4444']])
+    : [['no tape yet — start a run      ', '#64748b']];
+  const width = parts.reduce((w, [txt]) => w + ctx.measureText(txt).width, 0);
+  const off = (t / 40) % width;
+  for (let k = -1; k * width - off < boardW; k++) {
+    let u = k * width - off;
+    for (const [txt, color] of parts) { ctx.fillStyle = color; ctx.fillText(txt, u, v); u += ctx.measureText(txt).width; }
+  }
+  ctx.restore();
+  ctx.save(); ctx.transform(1, 0.5, 0, 1, a.x, a.y);
+  ctx.font = '10px ui-sans-serif'; ctx.fillStyle = '#64748b'; ctx.textAlign = 'center';
+  ctx.fillText('MARKET TAPE' + (STATE.market.regime ? ' · regime ' + STATE.market.regime : ''), boardW / 2, 12);
+  ctx.restore();
+}
+function drawDesk(a, t) {
+  const { x, y } = a.desk;
+  cube(x, y, 1.6, 0.8, 14, '#3b3f4a');                                  // desk
+  cube(x + 0.55, y + 0.15, 0.5, 0.08, 16, '#111827', 14);                // monitor
+  const glow = a.day_return > 0 ? '#22c55e' : a.day_return < 0 ? '#ef4444' : '#38bdf8';
+  const s = iso(x + 0.8, y + 0.19, 14 + 10); ctx.fillStyle = glow; ctx.globalAlpha = .55 + .25 * Math.sin(t / 300 + hash(a.agent_id));
+  ctx.fillRect(s.x - 9, s.y - 6, 18, 8); ctx.globalAlpha = 1;
+  label(a.agent_id, x + 0.8, y + 0.9, -2, '#cbd5e1', 10);
+}
+function drawCouch() { cube(couch.x, couch.y, 2.2, 0.9, 10, '#6b3a3a'); cube(couch.x, couch.y, 2.2, 0.25, 22, '#7a4444'); }
+function drawCoffee() { cube(coffee.x, coffee.y, 0.7, 0.7, 26, '#475569'); const p = iso(coffee.x + .35, coffee.y + .35, 30); ctx.fillStyle = '#fbbf24'; ctx.fillRect(p.x - 2, p.y - 2, 4, 4); }
+function drawBoard() { cube(board.x, board.y, 0.15, 2.2, 40, '#e2e8f0', 20); cube(board.x, board.y, 0.15, 2.2, 20, '#94a3b8'); }
+function drawPlant(x, y) { cube(x, y, 0.5, 0.5, 8, '#7c3f2a'); cube(x - .1, y - .1, 0.7, 0.7, 6, '#16a34a', 8); cube(x + .05, y + .05, 0.4, 0.4, 8, '#22c55e', 14); }
+function drawGrave(a, i) {
+  const x = graveyard.x + (i % 3) * 0.9, y = graveyard.y + Math.floor(i / 3) * 0.9 + 3.5;
+  cube(x, y, 0.5, 0.2, 18, '#6b7280'); label('✝ ' + a.agent_id, x + .25, y + .5, -2, '#9ca3af', 9);
+}
+
+// ---------------------------------------------------------------- behaviour: where is everyone
+function position(a, t) {
+  const s = hash(a.agent_id), T = t / 1000;
+  const desk = { x: a.desk.x + 0.8, y: a.desk.y + 1.25 };
+  const wander = (from, to, period, phase) => { const k = (Math.sin(T / period * Math.PI * 2 + phase) + 1) / 2; return { x: from.x + (to.x - from.x) * k, y: from.y + (to.y - from.y) * k }; };
+  switch (a.activity) {
+    case 'resting':     return { ...wander(desk, { x: couch.x + 1.1, y: couch.y + 1.3 }, 40, s % 7), z: 0, pose: 'slump' };
+    case 'pacing':      return { ...wander({ x: desk.x - 1.2, y: desk.y }, { x: desk.x + 1.2, y: desk.y }, 3 + (s % 3), s % 5), z: 0, pose: 'walk' };
+    case 'studying':    return { ...wander(desk, { x: board.x - 0.9, y: board.y + 1.1 }, 30, s % 11), z: 0, pose: 'stand' };
+    case 'celebrating': return { ...desk, z: Math.abs(Math.sin(T * 6 + s)) * 14, pose: 'arms' };
+    case 'watching':    return { ...wander(desk, { x: 5 + (s % 3) - 1, y: 1.2 }, 26, s % 13), z: 0, pose: 'stand' };
+    case 'trading':
+    default:            return { ...desk, z: Math.abs(Math.sin(T * 2.2 + s)) * 2, pose: 'type' };
+  }
+}
+function drawAgent(a, p, t, hovered) {
+  const color = strategyColor(a.strategy);
+  shadow(p.x + 0.25, p.y + 0.25, 12);
+  const bob = p.pose === 'walk' ? Math.abs(Math.sin(t / 120 + hash(a.agent_id))) * 3 : 0;
+  const bodyH = p.pose === 'slump' ? 10 : 18;
+  cube(p.x, p.y, 0.5, 0.5, bodyH, color, p.z + bob);                      // body
+  cube(p.x + 0.08, p.y + 0.08, 0.34, 0.34, 12, '#f5d0b0', p.z + bob + bodyH); // head
+  if (p.pose === 'arms') { cube(p.x - 0.15, p.y + 0.15, 0.14, 0.2, 14, color, p.z + bodyH + 2); cube(p.x + 0.52, p.y + 0.15, 0.14, 0.2, 14, color, p.z + bodyH + 2); }
+  const eye = iso(p.x + 0.42, p.y + 0.12, p.z + bob + bodyH + 7); ctx.fillStyle = '#111';
+  ctx.fillRect(eye.x - 4, eye.y, 2, 2); ctx.fillRect(eye.x + 1, eye.y + 2, 2, 2);
+  if (a.generation > 0) { const b = iso(p.x + 0.25, p.y + 0.25, p.z + bob + bodyH + 15); ctx.fillStyle = '#fbbf24'; ctx.font = 'bold 9px ui-sans-serif'; ctx.textAlign = 'center'; ctx.fillText('g' + a.generation, b.x, b.y); }
+  // needs meter
+  const m = iso(p.x + 0.25, p.y + 0.25, p.z + bob + bodyH + 26);
+  const bars = [['#22c55e', a.energy], ['#ef4444', a.stress], ['#38bdf8', a.focus]];
+  bars.forEach(([c, v], i) => { ctx.fillStyle = '#0b0e14'; ctx.fillRect(m.x - 12, m.y - 4 * i, 24, 3); ctx.fillStyle = c; ctx.fillRect(m.x - 12, m.y - 4 * i, 24 * v, 3); });
+  if (hovered) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; const q = iso(p.x + .25, p.y + .25, p.z); ctx.beginPath(); ctx.ellipse(q.x, q.y, 16, 8, 0, 0, Math.PI * 2); ctx.stroke(); }
+}
+
+// ---------------------------------------------------------------- chatter (composed live, never stored)
+const R = STATE.market.regime || 'chop';
+const sym = a => (a.last_symbol || (STATE.market.symbols[0] || {}).symbol || 'BTCUSDT').replace('USDT', '');
+const LINES = {
+  euphoric: [a => `${sym(a)} just paid for the month. +${(a.window_return * 100).toFixed(1)}% in three days.`,
+             a => `${a.streak > 1 ? a.streak + ' targets in a row' : 'Target hit'}. One more and I clone tonight.`,
+             a => `Don't tell the risk manager, but I'm adding to ${sym(a)}.`],
+  confident: [a => `${a.last_side === 'buy' ? 'Long' : 'Flat'} ${sym(a)}. ${a.last_reason || 'Setup looks clean'}.`,
+              a => `Slow and boring. Boring pays the rent.`,
+              a => `${R === 'bull' ? 'Bull regime and I\'m positioned.' : 'Regime is ' + R + ', but my numbers work.'}`],
+  calm: [a => `Chop. Nothing to do but reread the journal.`,
+         a => `Sitting on cash until ${sym(a)} makes up its mind.`,
+         a => `${a.lessons} lessons in the book now. Most of them say "trade less".`],
+  anxious: [a => `Missed the target ${a.misses > 1 ? a.misses + ' days running' : 'again'}. Rent is still due.`,
+            a => `${sym(a)} stopped me out. ${a.stop_losses > 1 ? a.stop_losses + ' stops this week.' : 'First one hurts.'}`,
+            a => `Is this a dip or a crash? Someone tell me it's a dip.`],
+  panicking: [a => `${Math.round((a.equity / a.budget) * 100)}% of my budget left. One bad day and I'm a tombstone.`,
+              a => `Cutting everything. I'd rather starve slowly than die today.`,
+              a => `They're already digging in the corner. I can hear it.`],
+  exhausted: [a => `${a.trades_today} trades today. I need the couch.`,
+              a => `Drawdown ate my energy. Waking me up only for ${sym(a)} breakouts.`],
+  dead: [],
+};
+const REPLIES = {
+  momentum:  [b => `Strength gets bought, ${b}. That's the whole strategy.`, b => `You buy dips, I buy trends. One of us is wrong today, ${b}.`],
+  meanrev:   [b => `Every spike reverts, ${b}. I'll be there when it does.`, b => `Chasing again, ${b}? I'll buy your panic.`],
+  breakout:  [b => `Wake me when it takes out the high, ${b}.`, b => `Trailing stop says patience, ${b}.`],
+  other:     [b => `Fair, ${b}.`, b => `Say that after the close, ${b}.`],
+};
+const REGIME_LINES = { crash: `Regime flipped to crash. Who's still long?`, mania: `Mania. This is where clones are made — and buried.`,
+  bull: `Bull tape. Even meanrev is smiling.`, bear: `Bear tape. Targets are going to be brutal.`, chop: `Chop again. Fees win in chop.` };
+const EVENT_LINES = e => e.event === 'born' ? `Welcome, ${e.agent_id}. Same target, smaller budget. Good luck.`
+  : e.event === 'died' ? `${e.agent_id} didn't make it. Pour one out.` : `${e.agent_id} cloned. Someone actually made money.`;
+
+function scheduleAt(slot) {          // deterministic conversation for a 6s slot
+  if (!alive.length) return null;
+  const s = slot * 7919;
+  const kind = rand(s) ;
+  const a = alive[Math.floor(rand(s + 1) * alive.length)];
+  if (kind < 0.18 && STATE.events && STATE.events.length) { const e = STATE.events[STATE.events.length - 1 - Math.floor(rand(s + 2) * Math.min(3, STATE.events.length))]; return [{ who: a, text: EVENT_LINES(e), at: 0 }]; }
+  if (kind < 0.30) return [{ who: a, text: REGIME_LINES[R] || REGIME_LINES.chop, at: 0 }];
+  const lines = LINES[a.mood] || LINES.calm; if (!lines.length) return null;
+  const text = pick(lines, s + 3)(a);
+  const talk = [{ who: a, text, at: 0 }];
+  if (alive.length > 1 && rand(s + 4) < 0.6) {
+    let b = alive[Math.floor(rand(s + 5) * alive.length)]; if (b === a) b = alive[(alive.indexOf(a) + 1) % alive.length];
+    const key = Object.keys(REPLIES).find(k => b.strategy.startsWith(k)) || 'other';
+    talk.push({ who: b, text: pick(REPLIES[key], s + 6)(a.agent_id.split('-')[0]), at: 2600 });
+  }
+  return talk;
+}
+const SLOT_MS = 6000;
+function activeBubbles(t) {
+  const out = [];
+  for (const slot of [Math.floor(t / SLOT_MS) - 1, Math.floor(t / SLOT_MS)]) {
+    const talk = scheduleAt(slot); if (!talk) continue;
+    const start = slot * SLOT_MS;
+    for (const u of talk) { const age = t - start - u.at; if (age >= 0 && age < 4200) out.push({ ...u, age }); }
+  }
+  return out;
+}
+function drawBubble(text, p, age, zTop) {
+  const q = iso(p.x + 0.25, p.y + 0.25, zTop + 34);
+  const alpha = age < 300 ? age / 300 : age > 3600 ? (4200 - age) / 600 : 1;
+  ctx.globalAlpha = Math.max(0, alpha); ctx.font = '12px ui-sans-serif, system-ui';
+  const words = text.split(' '), lines = []; let cur = '';
+  for (const w of words) { if (ctx.measureText(cur + ' ' + w).width > 190) { lines.push(cur.trim()); cur = w; } else cur += ' ' + w; } lines.push(cur.trim());
+  const w = Math.max(...lines.map(l => ctx.measureText(l).width)) + 16, h = lines.length * 15 + 10;
+  let x = Math.min(Math.max(q.x - w / 2, 4), W - w - 4), y = q.y - h - 8;
+  ctx.fillStyle = '#f8fafc'; ctx.strokeStyle = '#0b0e14'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.roundRect(x, y, w, h, 8); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(q.x - 5, y + h); ctx.lineTo(q.x, y + h + 7); ctx.lineTo(q.x + 5, y + h); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#0b0e14'; ctx.textAlign = 'left';
+  lines.forEach((l, i) => ctx.fillText(l, x + 8, y + 17 + i * 15));
+  ctx.globalAlpha = 1;
+}
+
+// ---------------------------------------------------------------- hud, panel, feed
+const hud = document.getElementById('hud'), tick = document.getElementById('ticker'),
+      panel = document.getElementById('panel'), feed = document.getElementById('feed');
+function renderHud() {
+  const c = STATE.colony || { alive: 0, total: 0, equity: 0 };
+  hud.innerHTML = `<span>day <b>${STATE.day}</b></span><span>alive <b>${c.alive}</b>/${c.total}</span>` +
+    `<span>colony <b>${fmt(c.equity)}</b></span>` + (STATE.running ? '<span style="color:#22c55e">● live</span>' : '');
+  tick.innerHTML = ((STATE.market && STATE.market.symbols) || []).map(s =>
+    `<span>${s.symbol.replace('USDT', '')} ${fmt(s.close)} <span class="${s.change >= 0 ? 'up' : 'down'}">${pct(s.change)}</span></span>`).join('') +
+    (STATE.market.regime ? `<span class="regime">${STATE.market.regime}</span>` : '');
+}
+function showPanel(a) {
+  if (!a) { panel.style.display = 'none'; return; }
+  const bar = (c, v) => `<div class="bar"><i style="width:${Math.round(v * 100)}%;background:${c}"></i></div>`;
+  panel.style.display = 'block';
+  panel.innerHTML = `<h3 style="color:${strategyColor(a.strategy)}">${a.agent_id} <small style="color:#94a3b8">gen ${a.generation}${a.parent_id ? ' · child of ' + a.parent_id : ''}</small></h3>` +
+    `<div>${a.mood} · ${a.activity} · equity ${fmt(a.equity)} (${pct(a.day_return)} today)</div>` +
+    `<div style="margin-top:6px;color:#94a3b8">energy</div>${bar('#22c55e', a.energy)}` +
+    `<div style="color:#94a3b8">stress</div>${bar('#ef4444', a.stress)}` +
+    `<div style="color:#94a3b8">focus</div>${bar('#38bdf8', a.focus)}` +
+    `<div style="color:#94a3b8;font-size:11px">${a.trades_today} trades today · ${a.stop_losses} stops · win ${Math.round(a.win_rate * 100)}% · ${a.lessons} lessons` +
+    (a.last_reason ? `<br>last: ${a.last_side} ${a.last_symbol} — ${a.last_reason}` : '') + '</div>';
+}
+const spoken = [];
+function pushFeed(u) {
+  const key = u.who.agent_id + '|' + u.text; if (spoken.includes(key)) return; spoken.push(key); if (spoken.length > 40) spoken.shift();
+  const d = document.createElement('div'); d.innerHTML = `<b>${u.who.agent_id}</b> ${u.text}`; feed.prepend(d);
+  while (feed.children.length > 6) feed.removeChild(feed.lastChild);
+}
+
+// ---------------------------------------------------------------- main loop
+let hovered = null, pinned = null;
+const positions = new Map();
+cv.addEventListener('mousemove', e => {
+  const r = cv.getBoundingClientRect(), mx = (e.clientX - r.left) * W / r.width, my = (e.clientY - r.top) * H / r.height;
+  hovered = null;
+  for (const [a, p] of positions) { const q = iso(p.x + .25, p.y + .25, p.z); if (Math.hypot(mx - q.x, (my - q.y + 16) * 1.3) < 22) hovered = a; }
+  cv.style.cursor = hovered ? 'pointer' : 'default'; if (!pinned) showPanel(hovered);
+});
+cv.addEventListener('click', () => { pinned = hovered === pinned ? null : hovered; showPanel(pinned || hovered); });
+
+function frame() {
+  const t = Date.now();
+  ctx.clearRect(0, 0, W, H);
+  drawFloor(); drawTickerBoard(t); drawBoard(); drawPlant(GRID_W - 0.8, GRID_H - 2.4); drawPlant(1.6, 0.2);
+  drawCouch(); drawCoffee();
+  dead.forEach(drawGrave);
+  const items = [];
+  alive.forEach(a => { items.push({ depth: a.desk.x + a.desk.y + 0.4, draw: () => drawDesk(a, t) }); });
+  alive.forEach(a => { const p = position(a, t); positions.set(a, p); items.push({ depth: p.x + p.y + 0.5, draw: () => drawAgent(a, p, t, a === hovered || a === pinned) }); });
+  items.sort((u, v) => u.depth - v.depth).forEach(i => i.draw());
+  for (const u of activeBubbles(t)) { const p = positions.get(u.who); if (p) { drawBubble(u.text, p, u.age, p.z + 18); if (u.age < 60) pushFeed(u); } }
+  if (!alive.length) { ctx.fillStyle = '#94a3b8'; ctx.font = '16px ui-sans-serif'; ctx.textAlign = 'center'; ctx.fillText(agents.length ? 'The colony is gone. Reset the journal and try again.' : 'No agents yet — start a run from the sidebar.', W / 2, H / 2); }
+  requestAnimationFrame(frame);
+}
+if (STATE) { renderHud(); frame(); }
+</script>
+</body>
+</html>
