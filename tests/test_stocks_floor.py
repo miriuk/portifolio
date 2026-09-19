@@ -95,7 +95,7 @@ def test_floor_registry_and_live_urls():
 
 def test_cli_live_stocks_floor(tmp_path, monkeypatch, capsys):
     fake = FakeStooq(days=400)
-    monkeypatch.setattr("cryptoarena.market.stocks.fetch_stooq", fake.rows)
+    monkeypatch.setattr("cryptoarena.market.stocks.fetch_daily", fake.rows)
     monkeypatch.setattr("cryptoarena.market.stocks.time.time", lambda: fake.now)
     db = tmp_path / "stocks.db"
     sys.argv = ["cryptoarena", "live", "--floor", "stocks", "--once", "--db", str(db)]
