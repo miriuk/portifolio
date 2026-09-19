@@ -59,7 +59,7 @@ def crypto_founders(cash: float) -> list:
 
 # Daily bars: a 168-hour lookback becomes 20 trading days, the 28-day
 # trend gate becomes ~6 months (120 bars), cooldowns are days not hours.
-STOCK_SHARED = {"trend_filter": 120, "cooldown": 3}
+STOCK_SHARED = {"trend_filter": 120, "cooldown": 3, "market_gate": 120, "rank_top": 2}
 
 
 def stock_founders(cash: float) -> list:

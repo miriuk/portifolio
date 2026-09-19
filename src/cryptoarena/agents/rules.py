@@ -81,15 +81,37 @@ class ParamAgent(TradingAgent):
     # --- shared discipline: every rule agent gets a trailing stop and a trend filter
     def decide(self, view: MarketView) -> list[Order]:
         """Protective exits first, then the strategy's own orders, minus
-        any buy the trend filter or a just-triggered stop vetoes."""
+        any buy the trend filter or a just-triggered stop vetoes. With a
+        wide universe two more disciplines apply: at most `max_buys` new
+        positions per bar (the strongest trend wins) and no new buys once
+        `max_exposure` of equity is already invested."""
         orders = self._protective_exits(view)
         stopped = {o.symbol for o in orders}
+        buys: list[Order] = []
         for order in self._decide(view):
-            if order.side == "buy" and (order.symbol in stopped
-                                        or not self._trend_ok(order.symbol)):
-                continue
-            orders.append(order)
-        return orders
+            if order.side == "buy":
+                if order.symbol in stopped or not self._trend_ok(order.symbol):
+                    continue
+                buys.append(order)
+            else:
+                orders.append(order)
+        if buys and not self._market_ok():
+            buys = []
+        top = int(self.params.get("rank_top", 0) or 0)
+        if top and buys:
+            bars = int(self.params.get("trend_filter", 0) or 168)
+            ranked = sorted(((self.momentum(sym, bars) or -9.0), sym) for sym in view.candles)
+            leaders = {sym for _, sym in ranked[-top:]}
+            buys = [o for o in buys if o.symbol in leaders]
+        max_buys = int(self.params.get("max_buys", 0) or 0)
+        if max_buys and len(buys) > max_buys:
+            lookback = int(self.params.get("lookback", 168) or 168)
+            buys.sort(key=lambda o: -(self.momentum(o.symbol, lookback) or 0.0))
+            buys = buys[:max_buys]
+        cap = float(self.params.get("max_exposure", 0.0) or 0.0)
+        if cap and buys and self.wallet.exposure(view.prices) >= cap:
+            buys = []
+        return orders + buys
 
     def _decide(self, view: MarketView) -> list[Order]:   # strategies override this
         return []
@@ -113,6 +135,18 @@ class ParamAgent(TradingAgent):
                 hw.pop(symbol, None)
         return orders
 
+    def _market_ok(self) -> bool:
+        """`market_gate` bars (0 = off): no new buys while the market's
+        bellwether (the BTC pair, or the first symbol) is below where it
+        was that many bars ago — the whole floor's weather, not one coin's."""
+        bars = int(self.params.get("market_gate", 0) or 0)
+        if not bars or not self.history:
+            return True
+        bell = next((s for prefix in ("BTC", "SPY") for s in sorted(self.history)
+                     if s.upper().startswith(prefix)), next(iter(sorted(self.history))))
+        mom = self.momentum(bell, bars)
+        return mom is None or mom > 0
+
     def _trend_ok(self, symbol: str) -> bool:
         """`trend_filter` bars (0 = off): only buy an asset trading above
         where it was that many bars ago — no knife-catching in a downtrend.
@@ -130,7 +164,8 @@ class MomentumAgent(ParamAgent):
 
     DEFAULTS = {"lookback": 168, "entry_threshold": 0.05, "exit_threshold": -0.03,
                 "order_frac": 0.30, "cooldown": 24,
-                "stop_trail": 0.0, "trend_filter": 672}
+                "stop_trail": 0.0, "trend_filter": 672,
+                "max_buys": 1, "max_exposure": 0.6, "market_gate": 672, "rank_top": 6}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -162,7 +197,8 @@ class MeanReversionAgent(ParamAgent):
 
     DEFAULTS = {"lookback": 168, "entry_threshold": 0.08, "exit_gain": 0.04,
                 "order_frac": 0.15, "cooldown": 24,
-                "stop_trail": 0.06, "trend_filter": 672}
+                "stop_trail": 0.06, "trend_filter": 672,
+                "max_buys": 1, "max_exposure": 0.6, "market_gate": 672, "rank_top": 6}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -198,7 +234,8 @@ class RegimeSwitchAgent(ParamAgent):
 
     DEFAULTS = {"lookback": 168, "trend_threshold": 0.06, "entry_threshold": 0.03,
                 "vol_panic": 0.03, "order_frac": 0.15, "cooldown": 24,
-                "stop_trail": 0.0, "trend_filter": 672}
+                "stop_trail": 0.0, "trend_filter": 672,
+                "max_buys": 1, "max_exposure": 0.6, "market_gate": 672, "rank_top": 6}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -256,7 +293,8 @@ class VolTargetAgent(ParamAgent):
 
     DEFAULTS = {"lookback": 168, "entry_threshold": 0.04, "target_vol": 0.01,
                 "vol_exit": 0.04, "order_frac": 0.30, "cooldown": 24,
-                "stop_trail": 0.0, "trend_filter": 672}
+                "stop_trail": 0.0, "trend_filter": 672,
+                "max_buys": 1, "max_exposure": 0.6, "market_gate": 672, "rank_top": 6}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -296,7 +334,8 @@ class BreakoutAgent(ParamAgent):
 
     DEFAULTS = {"lookback": 168, "entry_threshold": 0.005, "trail_pct": 0.08,
                 "order_frac": 0.30, "cooldown": 24,
-                "stop_trail": 0.0, "trend_filter": 672}
+                "stop_trail": 0.0, "trend_filter": 672,
+                "max_buys": 1, "max_exposure": 0.6, "market_gate": 672, "rank_top": 6}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -337,7 +376,8 @@ class TrendFollowerAgent(ParamAgent):
     small; it gives up the first leg of every move to skip the crashes."""
 
     DEFAULTS = {"fast": 72, "slow": 240, "order_frac": 0.30, "cooldown": 12,
-                "exit_buffer": 0.02, "stop_trail": 0.0, "trend_filter": 672}
+                "exit_buffer": 0.02, "stop_trail": 0.0, "trend_filter": 672,
+                "max_buys": 1, "max_exposure": 0.6, "market_gate": 672, "rank_top": 6}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
