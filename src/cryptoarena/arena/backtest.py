@@ -1,0 +1,185 @@
+"""Walk-forward backtests of the survival colony on real candles.
+
+A window is a fresh colony (fresh founders, fresh journal in memory) that
+lives `days` real days on a slice of the tape, after `warmup_bars` of
+history for its indicators. Windows start every `stride_days`, so a year
+of data gives a few dozen colonies whose returns can be compared with
+buy-and-hold over the same hours — the honest question is not "did it
+make money" but "did it beat holding the coins, net of fees".
+
+    python -m cryptoarena.cli backtest --data data/ --days 30 --stride 10
+"""
+from __future__ import annotations
+
+import statistics
+from dataclasses import dataclass, field
+from pathlib import Path
+
+import pandas as pd
+
+from ..learning.memory import TradeJournal
+from ..market.candle import Candle
+from .survival import SurvivalConfig, run_survival
+
+
+def load_tape(data_dir: str | Path, symbols: list[str] | None = None) -> dict[str, pd.DataFrame]:
+    """CSVs (timestamp, open, high, low, close, volume) aligned on the
+    timestamps every symbol has, oldest first."""
+    data_dir = Path(data_dir)
+    frames: dict[str, pd.DataFrame] = {}
+    for path in sorted(data_dir.glob("*.csv")):
+        if symbols and path.stem not in symbols:
+            continue
+        df = pd.read_csv(path).sort_values("timestamp").drop_duplicates("timestamp")
+        frames[path.stem] = df.set_index("timestamp")
+    if not frames:
+        raise FileNotFoundError(f"no CSVs in {data_dir}")
+    common = None
+    for df in frames.values():
+        common = df.index if common is None else common.intersection(df.index)
+    return {sym: df.loc[common].reset_index() for sym, df in frames.items()}
+
+
+class TapeSlice:
+    """A market that replays rows [start, start + length) of aligned frames."""
+
+    def __init__(self, tape: dict[str, pd.DataFrame], start: int, length: int):
+        self._rows = {sym: df.iloc[start:start + length].to_numpy() for sym, df in tape.items()}
+        self._cols = {sym: list(df.columns) for sym, df in tape.items()}
+        self._i = 0
+        self._length = length
+        self._regime: dict[str, str] = {}
+
+    def next_candles(self) -> list[Candle]:
+        if self._i >= self._length:
+            raise StopIteration("tape exhausted")
+        out = []
+        for sym, rows in self._rows.items():
+            c = self._cols[sym]
+            r = rows[self._i]
+            out.append(Candle(sym, int(r[c.index("timestamp")]), float(r[c.index("open")]),
+                              float(r[c.index("high")]), float(r[c.index("low")]),
+                              float(r[c.index("close")]), float(r[c.index("volume")])))
+        self._i += 1
+        return out
+
+
+@dataclass
+class WindowResult:
+    start_ts: int
+    end_ts: int
+    colony_return: float                    # final colony equity / total founding budget - 1
+    hold_return: float                      # equal-weight buy-and-hold over the same bars
+    by_strategy: dict[str, float]           # founder lineage value (self + hires) / budget - 1
+    hires: int
+    dismissed: int
+    fees: float
+    target_hits: int
+    target_days: int
+
+
+@dataclass
+class BacktestReport:
+    windows: list[WindowResult] = field(default_factory=list)
+
+    def summary(self) -> dict:
+        if not self.windows:
+            return {}
+        colony = [w.colony_return for w in self.windows]
+        hold = [w.hold_return for w in self.windows]
+        strategies = sorted({s for w in self.windows for s in w.by_strategy})
+        per = {}
+        for s in strategies:
+            rs = [w.by_strategy[s] for w in self.windows if s in w.by_strategy]
+            per[s] = {"mean": statistics.fmean(rs), "median": statistics.median(rs),
+                      "positive": sum(r > 0 for r in rs) / len(rs),
+                      "beats_hold": sum(r > w.hold_return for r, w in zip(rs, self.windows)) / len(rs)}
+        return {
+            "windows": len(self.windows),
+            "colony_mean": statistics.fmean(colony), "colony_median": statistics.median(colony),
+            "colony_positive": sum(r > 0 for r in colony) / len(colony),
+            "hold_mean": statistics.fmean(hold),
+            "beats_hold": sum(c > h for c, h in zip(colony, hold)) / len(colony),
+            "hires": sum(w.hires for w in self.windows),
+            "dismissed": sum(w.dismissed for w in self.windows),
+            "fees": sum(w.fees for w in self.windows),
+            "target_hit_rate": sum(w.target_hits for w in self.windows)
+            / max(1, sum(w.target_days for w in self.windows)),
+            "strategies": per,
+        }
+
+
+def run_backtest(tape: dict[str, pd.DataFrame], make_founders, cfg: SurvivalConfig,
+                 days: int = 30, stride_days: int = 10, warmup_bars: int = 150,
+                 max_windows: int | None = None, verbose: bool = False) -> BacktestReport:
+    """`make_founders()` returns a fresh list of founder agents each call."""
+    bars_per_day = cfg.steps_per_day
+    n = len(next(iter(tape.values())))
+    window_bars = warmup_bars + days * bars_per_day
+    starts = list(range(0, n - window_bars + 1, stride_days * bars_per_day))
+    if max_windows:
+        starts = starts[-max_windows:]
+    report = BacktestReport()
+    for start in starts:
+        market = TapeSlice(tape, start, window_bars)
+        journal = TradeJournal(":memory:")
+        founders = make_founders()
+        wcfg = SurvivalConfig(**{**cfg.__dict__, "days": days, "warmup_bars": warmup_bars})
+        try:
+            res = run_survival(founders, journal, wcfg, verbose=False, market=market)
+            report.windows.append(_summarise(tape, start, warmup_bars, window_bars, res, journal))
+        finally:
+            journal.close()
+        if verbose:
+            w = report.windows[-1]
+            print(f"{pd.Timestamp(w.start_ts, unit='s'):%Y-%m-%d}  colony {w.colony_return:+.1%}  "
+                  f"hold {w.hold_return:+.1%}  hires {w.hires}  let go {w.dismissed}  "
+                  + "  ".join(f"{s} {r:+.1%}" for s, r in w.by_strategy.items()))
+    return report
+
+
+def _summarise(tape, start, warmup, window_bars, res, journal) -> WindowResult:
+    first, last = start + warmup, start + window_bars - 1
+    hold = statistics.fmean(
+        float(df.iloc[last]["close"]) / float(df.iloc[first]["open"]) - 1 for df in tape.values())
+    prices = {sym: float(df.iloc[last]["close"]) for sym, df in tape.items()}
+    founding = sum(i.budget for i in res.population if i.generation == 0)
+    total = sum(i.agent.wallet.equity(prices) for i in res.alive)
+    # a founder's result includes the children it paid for: the lineage's worth
+    parent_of = {i.agent_id: i.parent_id for i in res.population}
+    lineage: dict[str, float] = {}
+    for ind in res.population:
+        root = ind.agent_id
+        while parent_of.get(root):
+            root = parent_of[root]
+        lineage[root] = lineage.get(root, 0.0) + (ind.agent.wallet.equity(prices) if ind.alive else 0.0)
+    by_strategy = {i.agent_id: lineage.get(i.agent_id, 0.0) / i.budget - 1
+                   for i in res.population if i.generation == 0}
+    fees = journal._conn.execute("SELECT COALESCE(SUM(fee), 0) FROM trades").fetchone()[0]
+    hits = journal._conn.execute(
+        "SELECT COUNT(*) FROM survival_events WHERE event = 'target_hit'").fetchone()[0]
+    survived = journal._conn.execute(
+        "SELECT COUNT(*) FROM survival_events WHERE event = 'survived'").fetchone()[0]
+    return WindowResult(
+        start_ts=int(tape[next(iter(tape))].iloc[first]["timestamp"]),
+        end_ts=int(tape[next(iter(tape))].iloc[last]["timestamp"]),
+        colony_return=total / founding - 1, hold_return=hold, by_strategy=by_strategy,
+        hires=sum(1 for i in res.population if i.generation > 0),
+        dismissed=sum(1 for i in res.population if not i.alive),
+        fees=fees, target_hits=hits, target_days=survived)
+
+
+def format_summary(summary: dict) -> str:
+    if not summary:
+        return "no windows"
+    lines = [
+        f"{summary['windows']} windows · colony mean {summary['colony_mean']:+.2%} "
+        f"(median {summary['colony_median']:+.2%}, positive {summary['colony_positive']:.0%}) · "
+        f"buy&hold mean {summary['hold_mean']:+.2%} · beats hold {summary['beats_hold']:.0%}",
+        f"hires {summary['hires']} · let go {summary['dismissed']} · fees {summary['fees']:.2f} · "
+        f"daily target hit {summary['target_hit_rate']:.0%} of agent-days",
+    ]
+    for s, d in summary["strategies"].items():
+        lines.append(f"  {s:<14} mean {d['mean']:+.2%}  median {d['median']:+.2%}  "
+                     f"positive {d['positive']:.0%}  beats hold {d['beats_hold']:.0%}")
+    return "\n".join(lines)

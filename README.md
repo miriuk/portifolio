@@ -61,10 +61,21 @@ cryptoarena reset
 
 | Agente | Estratégia | Como aprende |
 |---|---|---|
-| `momentum-*` | compra força, vende fraqueza | lições → ajuste de parâmetros + evolução |
-| `meanrev-*` | compra quedas abaixo da média | idem |
-| `breakout-1` | compra rompimentos, trailing stop | idem |
+| `momentum-*` | compra força de 7 a 14 dias, vende fraqueza | lições → ajuste de parâmetros + evolução |
+| `meanrev-*` | compra quedas fundas abaixo da média semanal, com stop | idem |
+| `breakout-1` | compra máximas de 7 dias, trailing stop de 8% | idem |
+| `regime-1` | surfa tendência, senta no chop, zera em pânico | idem |
+| `voltarget-1` | tendência com posição dimensionada pela vol | idem |
+| `trend-1` | média de 3 dias acima da de 10 dias: comprado; senão, caixa | idem |
 | `claude-trader` | decide via LLM (saída estruturada) | lições injetadas no prompt + auto-reflexão pós-episódio escrita pelo próprio modelo |
+
+Todos os agentes de regra compartilham duas disciplinas, ajustáveis por
+parâmetro: um **portão de tendência** (`trend_filter`, 28 dias por padrão:
+só compram um ativo que está acima de onde estava 4 semanas atrás) e um
+**trailing stop** opcional (`stop_trail`). Os horizontes são semanais de
+propósito: em backtest com um ano de velas reais, os parâmetros horários
+originais giravam demais e as taxas comiam o resultado (veja
+*Backtests com dados reais*).
 
 Todos passam pelo mesmo funil de risco (posição máx. 35% do capital, ordem máx.
 25%, stop-loss forçado a -12%, kill switch a -50% de drawdown) e pagam taxas e
@@ -185,16 +196,16 @@ viés de sobrevivência.
 | `--min-child` | 0.2 | excedente mínimo para virar filho; abaixo disso fica com o pai |
 | `--target` | 0.5%/dia | meta diária: define sequências, festas e imunidade |
 | `--death` | 60% | estagiário é dispensado abaixo dessa fração do próprio orçamento |
-| `--cost` | 0.1%/dia | aluguel: sai do caixa todo dia, operando ou não |
+| `--cost` | 0.02%/dia | aluguel: sai do caixa todo dia, operando ou não (0,1%/dia custava 3% ao mês, mais que qualquer estratégia rende) |
 | `--pressure` | 0 | após cada meta perdida, ordens × (1+pressão): a ruína do jogador que o esquema induz, desligada por padrão |
 | `--max-pop` | 12 | teto da população |
 
-Sete estratégias competem: momentum ×2, reversão à média ×2, breakout,
+Oito estratégias competem: momentum ×2, reversão à média ×2, breakout,
 **regime-switch** (surfa tendência só quando o regime é de tendência, fica
-de fora no chop e zera em pânico de volatilidade) e **vol-target**
+de fora no chop e zera em pânico de volatilidade), **vol-target**
 (seguidor de tendência que dimensiona a posição pela volatilidade
 realizada — maior em mercado calmo, menor em mercado selvagem, fora
-quando a vol explode).
+quando a vol explode) e **trend** (cruzamento de médias de 3 e 10 dias).
 
 Um filho de £0,60 vive pelas mesmas regras na escala dele: meta diária
 sobre o próprio patrimônio, dispensa abaixo de 60% dos seus £0,60 (£0,36),
@@ -202,12 +213,57 @@ aluguel proporcional, e só contrata o próprio filho quando tiver £0,20 de
 excedente sobre os £0,60 — o pai paga o que tem em caixa, sem vender
 posição.
 
-O experimento das £5 (90–180 dias, mercado endógeno): vol-target rende
-+13% a +28% em todas as sementes, momentum é alta variância, breakout
-fica no zero a zero, reversão à média perde −2% a −4% por semana. A
-colônia só cresce com lucro real — que é exatamente o ponto. É por isso
-que a trilha é **simulador → dry-run → testnet → real com limites
-mínimos**, nessa ordem.
+O experimento das £5 no mercado endógeno (90–180 dias) dava vol-target
++13% a +28%; em velas reais o quadro é bem mais duro — veja *Backtests
+com dados reais*. A colônia só cresce com lucro real — que é exatamente o
+ponto. É por isso que a trilha é **simulador → dry-run → testnet → real
+com limites mínimos**, nessa ordem.
+
+## Backtests com dados reais
+
+O mercado sintético é bom para treinar, mas só velas reais dizem se uma
+regra sobrevive a taxas e a um ano de verdade. O workflow `market-data`
+baixa ~13 meses de velas horárias de BTC, ETH e SOL da Coinbase (API
+pública, sem conta) para a branch `market-data`, e `cryptoarena backtest`
+roda colônias novas em janelas deslizantes sobre elas:
+
+```bash
+git show origin/market-data:BTCUSD.csv > data/BTCUSD.csv   # idem ETHUSD, SOLUSD
+cryptoarena backtest --data data --days 30 --stride 10      # 30 dias, uma colônia a cada 10
+cryptoarena backtest --data data --days 60 --stride 15 --learn 0
+```
+
+Cada janela é uma colônia nova (fundadores novos, journal em memória)
+que aquece os indicadores com 720 velas e vive `--days` dias reais. O
+relatório compara com **comprar e segurar** nas mesmas horas — a
+pergunta honesta não é "deu lucro", é "bateu segurar as moedas, líquido
+de taxas".
+
+Um ano (ago/2025 a set/2026, um período de queda: segurar as três moedas
+deu −4% por janela de 30 dias em média, −10% por janela de 60) com taxa
+de 0,26% por lado e aluguel de 0,02%/dia:
+
+| Fundadores | 30 dias: colônia / segurar / bate segurar | 60 dias: colônia / segurar / bate segurar | taxas (34 janelas de 30 d) |
+|---|---|---|---|
+| horários (antigos) | −3,4% / −4,0% / 47% | −7,2% / −9,8% / 67% | 15,9 |
+| semanais + portão de tendência (atuais) | −1,2% / −4,0% / 53% | −2,6% / −9,8% / 67% | 3,8 |
+
+(Com a configuração antiga — aluguel de 0,1%/dia, taxa de 0,1% — a mesma
+colônia antiga dava −6,9% por janela de 30 dias.)
+
+O que o backtest ensinou, e virou default: horizontes de 7 a 14 dias em
+vez de 1 a 2; um portão de 28 dias que corta as compras em tendência de
+baixa (perda média por janela cai um terço, taxas caem pela metade);
+exposição maior nos seguidores de tendência (30% por ordem), que escapam
+das quedas e por isso podem carregar mais; stop de 6% só na reversão à
+média, que é quem segura faca caindo; a lição "operou pouco, afrouxe as
+entradas" só quando o mercado subiu mais de 3% sem o agente (ficar em
+caixa numa queda é acerto, não passividade); e o custo de vida de
+0,02%/dia (0,1% custava 3% ao mês, mais do que qualquer regra rende).
+Stops apertados em todos os agentes (5–8%) pioraram: chicoteiam no
+horário. Num ano de queda, uma colônia só-comprada que fica perto de
+zero está ganhando de segurar — e é isso que os números mostram, nem
+mais nem menos.
 
 ## O andar (mundo isométrico)
 
@@ -336,8 +392,11 @@ cryptoarena dashboard --db live/colony.db         # o andar, ao vivo
 ```
 
 Os defaults são os do experimento das £5: `--budget 5 --clone-at 1.1
---min-child 0.2 --target 0.005 --death 0.6`. A configuração usada na
-fundação fica gravada no journal e vale para as execuções seguintes.
+--min-child 0.2 --target 0.005 --death 0.6 --cost 0.0002 --fee 0.0026`
+(taxa taker da Kraken, para o papel valer o que vale). A configuração
+usada na fundação fica gravada no journal e vale para as execuções
+seguintes; para aplicar defaults novos a uma colônia que já existe,
+`Run workflow` com `reset` funda outra.
 A exchange padrão é a Kraken (BTC/USD, ETH/USD, SOL/USD), que serve velas
 públicas do mundo todo sem conta — a Binance recusa endereços dos EUA,
 onde rodam os runners do GitHub. `--exchange binance` ou `--symbols

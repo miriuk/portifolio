@@ -26,7 +26,7 @@ def test_live_once_founds_resumes_and_idles(tmp_path, monkeypatch, capsys):
     db = tmp_path / "colony" / "live.db"
 
     out = run_cli(["live", "--once", "--db", str(db), "--warmup", "50"], capsys)
-    assert "founded the colony on 1 new candle" in out and "7 alive" in out
+    assert "founded the colony on 1 new candle" in out and "8 alive" in out
 
     out = run_cli(["live", "--once", "--db", str(db)], capsys)
     assert "processed 0 new candle" in out                     # same hour: nothing to do
@@ -36,6 +36,6 @@ def test_live_once_founds_resumes_and_idles(tmp_path, monkeypatch, capsys):
     assert "processed 3 new candle" in out
 
     status = json.loads(run_cli(["live", "--status", "--db", str(db)], capsys))
-    assert status["alive"] == 7 and status["hour"] == 4 and status["colony_equity"] > 0
+    assert status["alive"] == 8 and status["hour"] == 4 and status["colony_equity"] > 0
     assert set(status["prices"]) == {"BTCUSD", "ETHUSD", "SOLUSD"}
     assert not (db.parent / "live.db-wal").exists()            # closed cleanly for git

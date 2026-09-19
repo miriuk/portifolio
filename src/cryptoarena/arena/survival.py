@@ -20,6 +20,7 @@ from ..agents.base import TradingAgent
 from ..learning.memory import TradeJournal
 from ..learning.reflection import compute_stats, reflect_on_episode
 from ..market.endogenous import EndogenousMarket
+from ..market.exchange import SimulatedExchange
 from ..market.synthetic import SyntheticMarket
 from .episode import run_episode
 
@@ -31,7 +32,7 @@ class SurvivalConfig:
     budget: float = 5.0             # a fiver per agent (quote units)
     daily_target: float = 0.005     # +0.5% on the day's opening equity
     death_below: float = 0.6        # dead when equity < own budget * this
-    daily_cost: float = 0.001       # cost of living (compute/API), fraction of own budget per day
+    daily_cost: float = 0.0002      # cost of living (compute/API), fraction of own budget per day
     max_population: int = 12
     clone_at: float = 1.1           # hire a clone once equity reaches this × own budget (+10%)
     min_child_budget: float = 0.2   # the surplus must be worth at least this (quote units) to become a child
@@ -45,6 +46,9 @@ class SurvivalConfig:
     seed: int | None = None
     endogenous: bool = True
     symbols: dict[str, float] | None = None
+    fee_rate: float = 0.0026        # taker fee per side (Kraken spot taker)
+    learn: bool = True              # nightly reflection nudges parameters (off = fixed rules)
+    warmup_bars: int = 0            # candles the founders see before day 1 (indicators warm)
 
 
 @dataclass
@@ -102,12 +106,18 @@ def run_survival(
     journal: TradeJournal,
     config: SurvivalConfig | None = None,
     verbose: bool = True,
+    market=None,
 ) -> SurvivalResult:
+    """`market` may be given (a replay of real candles, say); otherwise one
+    continuous endogenous or synthetic market is generated."""
     cfg = config or SurvivalConfig()
     rng = np.random.default_rng(cfg.seed)
-    symbols = cfg.symbols or {"BTCUSDT": 60_000.0, "ETHUSDT": 3_000.0, "SOLUSDT": 150.0}
-    market_cls = EndogenousMarket if cfg.endogenous else SyntheticMarket
-    market = market_cls(symbols, seed=int(rng.integers(1 << 31)))  # one continuous market
+    if market is None:
+        symbols = cfg.symbols or {"BTCUSDT": 60_000.0, "ETHUSDT": 3_000.0, "SOLUSDT": 150.0}
+        market_cls = EndogenousMarket if cfg.endogenous else SyntheticMarket
+        market = market_cls(symbols, seed=int(rng.integers(1 << 31)))  # one continuous market
+    exchange = None if hasattr(market, "execute") else \
+        SimulatedExchange(fee_rate=cfg.fee_rate, seed=int(rng.integers(1 << 31)))
 
     result = SurvivalResult()
     next_id = _next_id_factory(founders)
@@ -119,6 +129,10 @@ def run_survival(
         result.population.append(ind)
         journal.record_survival_event(0, ind.agent_id, "born", cfg.budget,
                                       generation=0, strategy=ind.strategy)
+    for _ in range(cfg.warmup_bars):
+        candles = market.next_candles()
+        for ind in result.population:
+            ind.agent.observe(candles)
 
     for day in range(1, cfg.days + 1):
         alive = result.alive
@@ -128,7 +142,7 @@ def run_survival(
             ind.apply_pressure(cfg.pressure)
         # history is NOT cleared: the market is continuous, indicators stay warm
         ep = run_episode(day, market, [i.agent for i in alive], journal,
-                         steps=cfg.steps_per_day, verbose=False,
+                         steps=cfg.steps_per_day, verbose=False, exchange=exchange,
                          step_offset=(day - 1) * cfg.steps_per_day)
         _end_of_day(day, alive, ep, cfg, rng, journal, next_id, result, verbose)
     return result
@@ -162,6 +176,7 @@ def _end_of_day(day: int, alive: list[Individual], ep, cfg: SurvivalConfig, rng,
     (births, dismissed ids)."""
     births: list[Individual] = []
     deaths: list[str] = []
+    market_return = _market_return(journal, day)
     for ind in alive:
         curve = ep.equity_curves[ind.agent_id]
         cost = ind.budget * cfg.daily_cost
@@ -171,9 +186,12 @@ def _end_of_day(day: int, alive: list[Individual], ep, cfg: SurvivalConfig, rng,
             ind.week_start_equity = start
         stats = compute_stats(ind.agent_id, day, journal.trades_for(ind.agent_id, day),
                               start_equity=start, end_equity=end,
-                              max_drawdown=ep.max_drawdown[ind.agent_id])
+                              max_drawdown=ep.max_drawdown[ind.agent_id],
+                              market_return=market_return)
         journal.record_episode_summary(stats, halted=ep.halted[ind.agent_id])
-        ind.agent.learn(reflect_on_episode(journal, stats))
+        lessons = reflect_on_episode(journal, stats)
+        if cfg.learn:
+            ind.agent.learn(lessons)
 
         verdict = _let_go(ind, end, ep.halted[ind.agent_id], cfg, day)
         if verdict == "spared":
@@ -235,6 +253,26 @@ def _end_of_day(day: int, alive: list[Individual], ep, cfg: SurvivalConfig, rng,
               + (f"  +{', '.join(b.agent_id for b in births)}" if births else "")
               + (f"  -{', '.join(deaths)}" if deaths else ""))
     return births, deaths
+
+
+def _market_return(journal: TradeJournal, day: int) -> float | None:
+    """Equal-weight move of the tape over the day, from the journal's snapshots."""
+    rows = journal._conn.execute(
+        """SELECT symbol, MIN(step), MAX(step) FROM market_snapshots
+           WHERE episode = ? GROUP BY symbol""", (day,)).fetchall()
+    rets = []
+    for symbol, lo, hi in rows:
+        if lo == hi:
+            continue
+        first = journal._conn.execute(
+            "SELECT close FROM market_snapshots WHERE episode = ? AND step = ? AND symbol = ?",
+            (day, lo, symbol)).fetchone()[0]
+        last = journal._conn.execute(
+            "SELECT close FROM market_snapshots WHERE episode = ? AND step = ? AND symbol = ?",
+            (day, hi, symbol)).fetchone()[0]
+        if first > 0:
+            rets.append(last / first - 1)
+    return sum(rets) / len(rets) if rets else None
 
 
 def _let_go(ind: Individual, end_equity: float, halted: bool, cfg: SurvivalConfig,

@@ -26,6 +26,7 @@ from ..agents import rules
 from ..agents.base import HISTORY_LEN, TradingAgent
 from ..learning.memory import TradeJournal
 from ..market.candle import Candle
+from ..market.exchange import SimulatedExchange
 from ..portfolio.risk import RiskManager
 from ..portfolio.wallet import Wallet
 from .episode import EpisodeResult, run_episode
@@ -57,7 +58,7 @@ def _utc(ts: int) -> datetime:
 class LiveColony:
     def __init__(self, journal: TradeJournal, cfg: SurvivalConfig, feed,
                  founders: list[TradingAgent] | None = None,
-                 warmup: int = 150, verbose: bool = True):
+                 warmup: int = 700, verbose: bool = True):
         self.journal = journal
         self.cfg = cfg
         self.feed = feed
@@ -74,6 +75,8 @@ class LiveColony:
         self.day_curves: dict[str, list[float]] = {}
         self.risk: dict[str, RiskManager] = {}
         self.last_prices: dict[str, float] = {}
+        self.exchange = SimulatedExchange(fee_rate=getattr(cfg, "fee_rate", 0.001),
+                                          seed=int(self.rng.integers(1 << 31)))
         if founders:
             for agent in founders:
                 agent.starting_cash = cfg.budget
@@ -84,12 +87,14 @@ class LiveColony:
     # ------------------------------------------------------------ lifecycle
     @classmethod
     def open(cls, journal: TradeJournal, founders: list[TradingAgent],
-             cfg: SurvivalConfig, feed, warmup: int = 150,
+             cfg: SurvivalConfig, feed, warmup: int = 700,
              verbose: bool = True) -> "LiveColony":
         """Resume the colony saved in `journal`, or found a new one."""
         saved = journal.load_state(STATE_KEY)
         if saved is not None:
-            colony = cls(journal, SurvivalConfig(**saved["config"]), feed, warmup=warmup,
+            known = {f.name for f in fields(SurvivalConfig)}
+            colony = cls(journal, SurvivalConfig(**{k: v for k, v in saved["config"].items()
+                                                    if k in known}), feed, warmup=warmup,
                          verbose=verbose)
             colony._restore(saved)
             return colony
@@ -159,7 +164,7 @@ class LiveColony:
                 ind.apply_pressure(self.cfg.pressure)
         ep = run_episode(self.day, _OneBar(candles), [i.agent for i in alive], self.journal,
                          steps=1, step_offset=self.clock, record_step_offset=self.hour,
-                         risk=self.risk)
+                         risk=self.risk, exchange=self.exchange)
         for agent_id, curve in ep.equity_curves.items():
             self.day_curves.setdefault(agent_id, []).extend(curve)
         self.last_prices = {c.symbol: c.close for c in candles}
@@ -271,6 +276,7 @@ def _dump_individual(ind: Individual) -> dict:
             "history": {sym: [[c.timestamp, c.open, c.high, c.low, c.close, c.volume]
                               for c in h] for sym, h in agent.history.items()},
             "last_trade_step": getattr(agent, "_last_trade_step", None),
+            "stop_high": dict(getattr(agent, "_stop_high", {}) or {}),
         },
     }
 
@@ -292,4 +298,6 @@ def _load_individual(d: dict) -> Individual:
         for sym, rows in a.get("history", {}).items()}
     if a.get("last_trade_step") is not None and hasattr(agent, "_last_trade_step"):
         agent._last_trade_step = a["last_trade_step"]
+    if a.get("stop_high"):
+        agent._stop_high = dict(a["stop_high"])
     return Individual(agent=agent, **{name: d[name] for name in _IND_FIELDS})

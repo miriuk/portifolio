@@ -45,7 +45,7 @@ const TILE = 44;                       // half-width of an iso tile
 const GRID_W = 12, GRID_H = 9;
 const ORIGIN = { x: W / 2, y: 150 };
 const COLORS = { momentum: '#f7931a', meanrev: '#3b82f6', breakout: '#22c55e',
-                 regime: '#14b8a6', voltarget: '#ec4899', claude: '#a855f7', other: '#94a3b8' };
+                 regime: '#14b8a6', voltarget: '#ec4899', trend: '#84cc16', claude: '#a855f7', other: '#94a3b8' };
 const strategyColor = s => COLORS[Object.keys(COLORS).find(k => s.startsWith(k)) || 'other'];
 
 function iso(x, y, z = 0) {
@@ -313,6 +313,7 @@ const REPLIES = {
   breakout:  [b => `Wake me when it takes out the high, ${b}.`, b => `Trailing stop says patience, ${b}.`],
   regime:    [b => `Depends on the regime, ${b}. Right now it's ${R}, so no.`, b => `I'd trade that in a trend. This isn't one, ${b}.`],
   voltarget: [b => `Size it to the vol, ${b}, and you'll stop losing sleep.`, b => `Half the position, twice the survival, ${b}.`],
+  trend: [b => `Fast above slow or I don't touch it, ${b}.`, b => `I miss the first leg on purpose, ${b}. I also miss the cliff.`],
   other:     [b => `Fair, ${b}.`, b => `Say that after the close, ${b}.`],
 };
 const REGIME_LINES = { crash: `Regime flipped to crash. Who's still long?`, mania: `Mania. This is where clones are made — and buried.`,

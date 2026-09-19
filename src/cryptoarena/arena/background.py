@@ -35,7 +35,7 @@ class RunConfig:
     min_child_budget: float = 0.2
     daily_target: float = 0.005
     death_below: float = 0.6
-    daily_cost: float = 0.001
+    daily_cost: float = 0.0002
     pressure: float = 0.0
     max_population: int = 12
 

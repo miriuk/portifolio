@@ -8,7 +8,7 @@ from ..market.candle import Candle
 from ..market.exchange import Order
 from ..portfolio.wallet import Wallet
 
-HISTORY_LEN = 200
+HISTORY_LEN = 720   # 30 days of hourly bars: room for weekly-scale indicators
 
 
 @dataclass

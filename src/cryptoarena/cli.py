@@ -6,7 +6,7 @@ from pathlib import Path
 
 from .agents.llm import ClaudeTraderAgent
 from .agents.rules import (BreakoutAgent, MeanReversionAgent, MomentumAgent,
-                           RegimeSwitchAgent, VolTargetAgent)
+                           RegimeSwitchAgent, TrendFollowerAgent, VolTargetAgent)
 from .arena.tournament import run_tournament
 from .learning.memory import TradeJournal
 
@@ -15,12 +15,14 @@ def build_agents(cash: float, with_llm: bool, llm_model: str, journal=None,
                  debate: bool = False) -> list:
     agents = [
         MomentumAgent("momentum-1", cash),
-        MomentumAgent("momentum-2", cash, params={"lookback": 48, "entry_threshold": 0.035}),
+        MomentumAgent("momentum-2", cash, params={"lookback": 336, "entry_threshold": 0.08,
+                                                  "exit_threshold": -0.04}),
         MeanReversionAgent("meanrev-1", cash),
-        MeanReversionAgent("meanrev-2", cash, params={"lookback": 96, "entry_threshold": 0.06}),
+        MeanReversionAgent("meanrev-2", cash, params={"lookback": 240, "entry_threshold": 0.10}),
         BreakoutAgent("breakout-1", cash),
         RegimeSwitchAgent("regime-1", cash),
         VolTargetAgent("voltarget-1", cash),
+        TrendFollowerAgent("trend-1", cash),
     ]
     if with_llm:
         if ClaudeTraderAgent.available():
@@ -61,7 +63,8 @@ def _live(args) -> None:
             days=args.days, budget=args.budget, daily_target=args.target,
             death_below=args.death, daily_cost=args.cost, clone_at=args.clone_at,
             min_child_budget=args.min_child, pressure=args.pressure,
-            max_population=args.max_pop, seed=args.seed, endogenous=False)
+            max_population=args.max_pop, seed=args.seed, endogenous=False,
+            fee_rate=args.fee, learn=bool(args.learn))
         founders = build_agents(args.budget, False, "")
         founding = journal.load_state("live_colony") is None
         colony = LiveColony.open(journal, founders, cfg, feed, warmup=args.warmup)
@@ -128,7 +131,7 @@ def main() -> None:
                       help="daily return needed to earn the right to clone")
     surv.add_argument("--death", type=float, default=0.6,
                       help="dead when equity falls below this fraction of own budget")
-    surv.add_argument("--cost", type=float, default=0.001,
+    surv.add_argument("--cost", type=float, default=0.0002,
                       help="daily cost of living as a fraction of own budget")
     surv.add_argument("--pressure", type=float, default=0.0,
                       help="after each missed target, scale order size by (1+pressure)")
@@ -153,17 +156,37 @@ def main() -> None:
     live.add_argument("--days", type=int, default=7,
                       help="without --once: stay up and tick hourly for this many days")
     live.add_argument("--status", action="store_true", help="print the colony's state as JSON")
-    live.add_argument("--warmup", type=int, default=150,
+    live.add_argument("--warmup", type=int, default=700,
                       help="closed candles of history the founders start with")
     live.add_argument("--budget", type=float, default=5.0)
     live.add_argument("--clone-at", type=float, default=1.1)
     live.add_argument("--min-child", type=float, default=0.2)
     live.add_argument("--target", type=float, default=0.005)
     live.add_argument("--death", type=float, default=0.6)
-    live.add_argument("--cost", type=float, default=0.001)
+    live.add_argument("--cost", type=float, default=0.0002)
+    live.add_argument("--fee", type=float, default=0.0026, help="taker fee per side")
+    live.add_argument("--learn", type=int, default=1, help="1 = nightly reflection nudges params")
     live.add_argument("--pressure", type=float, default=0.0)
     live.add_argument("--max-pop", type=int, default=12)
     live.add_argument("--seed", type=int, default=None)
+
+    bt = sub.add_parser("backtest", help="walk-forward survival colonies on real candles")
+    bt.add_argument("--data", default="data", help="directory of ReplayMarket CSVs")
+    bt.add_argument("--days", type=int, default=30, help="colony days per window")
+    bt.add_argument("--stride", type=int, default=10, help="days between window starts")
+    bt.add_argument("--windows", type=int, default=None, help="only the last N windows")
+    bt.add_argument("--warmup", type=int, default=720)
+    bt.add_argument("--fee", type=float, default=0.0026, help="taker fee per side (Kraken)")
+    bt.add_argument("--budget", type=float, default=5.0)
+    bt.add_argument("--clone-at", type=float, default=1.1)
+    bt.add_argument("--min-child", type=float, default=0.2)
+    bt.add_argument("--target", type=float, default=0.005)
+    bt.add_argument("--death", type=float, default=0.6)
+    bt.add_argument("--cost", type=float, default=0.0002)
+    bt.add_argument("--learn", type=int, default=1)
+    bt.add_argument("--max-pop", type=int, default=12)
+    bt.add_argument("--seed", type=int, default=1)
+    bt.add_argument("--quiet", action="store_true")
 
     lessons = sub.add_parser("lessons", help="show an agent's learned lessons")
     lessons.add_argument("agent_id")
@@ -208,6 +231,20 @@ def main() -> None:
             journal.close()
     elif args.command == "live":
         _live(args)
+    elif args.command == "backtest":
+        from .arena.backtest import format_summary, load_tape, run_backtest
+        from .arena.survival import SurvivalConfig
+        tape = load_tape(args.data)
+        cfg = SurvivalConfig(budget=args.budget, daily_target=args.target,
+                             death_below=args.death, daily_cost=args.cost,
+                             clone_at=args.clone_at, min_child_budget=args.min_child,
+                             max_population=args.max_pop, seed=args.seed,
+                             fee_rate=args.fee, endogenous=False, learn=bool(args.learn))
+        report = run_backtest(tape, lambda: build_agents(args.budget, False, ""), cfg,
+                              days=args.days, stride_days=args.stride, warmup_bars=args.warmup,
+                              max_windows=args.windows, verbose=not args.quiet)
+        print()
+        print(format_summary(report.summary()))
     elif args.command == "lessons":
         journal = TradeJournal(args.db)
         try:

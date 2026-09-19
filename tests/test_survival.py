@@ -52,7 +52,8 @@ def test_the_clock_keeps_running_across_days(tmp_path):
 
 def test_survival_agents_keep_trading_after_day_one(tmp_path):
     journal = TradeJournal(tmp_path / "s.db")
-    run_survival([MomentumAgent("momentum-1", 1000.0)], journal,
+    fast = {"lookback": 24, "entry_threshold": 0.02, "cooldown": 4, "trend_filter": 0}
+    run_survival([MomentumAgent("momentum-1", 1000.0, params=fast)], journal,
                  SurvivalConfig(days=12, budget=1000.0, seed=7), verbose=False)
     days_with_trades = journal._conn.execute(
         "SELECT COUNT(DISTINCT episode) FROM trades").fetchone()[0]
@@ -66,7 +67,7 @@ def test_a_fiver_is_enough_to_trade(tmp_path):
     from cryptoarena.cli import build_agents
     journal = TradeJournal(tmp_path / "s.db")
     run_survival(build_agents(5.0, False, ""), journal,
-                 SurvivalConfig(days=6, budget=5.0, seed=7), verbose=False)
+                 SurvivalConfig(days=6, budget=5.0, seed=7, warmup_bars=700), verbose=False)
     n_trades = journal._conn.execute("SELECT COUNT(*) FROM trades").fetchone()[0]
     assert n_trades > 0
     biggest = journal._conn.execute(
@@ -84,23 +85,23 @@ def test_regime_aware_agents_react_to_panic_and_trends():
     def feed(agent, closes):
         agent.history["BTCUSDT"] = deque(
             [Candle("BTCUSDT", t, c, c * 1.01, c * 0.99, c, 1_000.0) for t, c in enumerate(closes)],
-            maxlen=200)
+            maxlen=720)
         last = agent.history["BTCUSDT"][-1]
         return MarketView(candles={"BTCUSDT": last}, history=agent.history,
                           prices={"BTCUSDT": last.close}, step=len(closes))
 
-    calm_trend = [100 * (1.001 ** t) for t in range(100)]           # +10% steady climb
-    rs = RegimeSwitchAgent("regime-1", 5.0)
+    calm_trend = [100 * (1.002 ** t) for t in range(200)]           # +49% steady climb
+    rs = RegimeSwitchAgent("regime-1", 5.0, params={"trend_filter": 0})
     view = feed(rs, calm_trend)
     assert rs.regime("BTCUSDT") == "trending"
     orders = rs.decide(view)
     assert orders and orders[0].side == "buy" and "trending" in orders[0].reason
 
-    vt = VolTargetAgent("voltarget-1", 5.0)
+    vt = VolTargetAgent("voltarget-1", 5.0, params={"trend_filter": 0})
     orders = vt.decide(feed(vt, calm_trend))
     assert orders and orders[0].side == "buy" and orders[0].quote_amount <= 5.0 * 0.30
 
-    wild = [100 * (1 + (0.06 if t % 2 else -0.06)) ** (t % 3) for t in range(100)]  # violent chop
+    wild = [100 * (1 + (0.06 if t % 2 else -0.06)) ** (t % 3) for t in range(200)]  # violent chop
     rs.wallet.positions["BTCUSDT"] = 0.01
     assert rs.regime("BTCUSDT") != "trending" or True
     view = feed(rs, wild)

@@ -19,6 +19,7 @@ class EpisodeStats:
     fees: float = 0.0
     max_drawdown: float = 0.0
     pnl_by_regime: dict[str, float] = field(default_factory=dict)
+    market_return: float | None = None      # equal-weight move of the tape over the episode
 
     @property
     def return_pct(self) -> float:
@@ -34,9 +35,9 @@ class EpisodeStats:
 
 def compute_stats(agent_id: str, episode: int, trades: list[TradeRecord],
                   start_equity: float, end_equity: float,
-                  max_drawdown: float) -> EpisodeStats:
+                  max_drawdown: float, market_return: float | None = None) -> EpisodeStats:
     stats = EpisodeStats(agent_id, episode, start_equity, end_equity,
-                         max_drawdown=max_drawdown)
+                         max_drawdown=max_drawdown, market_return=market_return)
     by_regime: dict[str, float] = defaultdict(float)
     for t in trades:
         stats.n_trades += 1
@@ -72,10 +73,14 @@ def reflect_on_episode(journal: TradeJournal, stats: EpisodeStats) -> list[str]:
             f"episode {s.episode}: fees ({s.fees:.2f}) ate into a losing episode — "
             "overtrading; trade less often or with more conviction."
         )
-    if s.n_trades <= 2:
+    # Sitting out is a decision, not a fault: capital kept in a falling market
+    # is a win. Only a market that ran without us earns the "loosen up" note.
+    if s.n_trades <= 2 and s.market_return is not None and s.market_return > 0.03 \
+            and s.return_pct < s.market_return / 3:
         lessons.append(
-            f"episode {s.episode}: barely traded ({s.n_trades} trades) — "
-            "too passive; entry conditions are too strict, loosen them slightly."
+            f"episode {s.episode}: the market moved {s.market_return:+.1%} and we made "
+            f"{s.return_pct:+.1%} with {s.n_trades} trades — missed the move; "
+            "loosen entry conditions slightly."
         )
     if s.max_drawdown > 0.30:
         lessons.append(
