@@ -108,3 +108,15 @@ def test_cli_live_stocks_floor(tmp_path, monkeypatch, capsys):
     assert status["alive"] == 8 and set(status["prices"]) == set(DEFAULT_STOCKS)
     saved = TradeJournal(db).load_state("live_colony")
     assert saved["timeframe"] == "1d" and saved["config"]["week_days"] == 5
+
+
+def test_cboe_history_parses_us_dates_and_ohlc():
+    from cryptoarena.market.stocks import parse_cboe
+    text = ("DATE,OPEN,HIGH,LOW,CLOSE\n"
+            "01/02/2020,3244.67,3258.14,3235.53,3257.85\n"
+            "01/03/2020,3226.36,3246.15,3222.34,3234.85\n"
+            "bad line\n")
+    rows = parse_cboe(text)
+    assert [r[4] for r in rows] == [3257.85, 3234.85]
+    assert rows[0][0] == int(datetime(2020, 1, 2, tzinfo=timezone.utc).timestamp())
+    assert rows[0][1:5] == [3244.67, 3258.14, 3235.53, 3257.85]

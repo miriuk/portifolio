@@ -22,7 +22,7 @@ jobs:
     timeout-minutes: 20
     env:
       PYTHONUNBUFFERED: "1"
-      CRYPTOARENA_DAILY_SOURCE: fred      # Stooq and Yahoo wall off GitHub's runners
+      CRYPTOARENA_DAILY_SOURCE: index     # Cboe or FRED index history: Stooq and Yahoo wall off GitHub runners
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

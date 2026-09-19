@@ -26,6 +26,8 @@ YAHOO_URL = ("https://query2.finance.yahoo.com/v8/finance/chart/{ticker}"
              "?interval=1d&range={range}&includePrePost=false")
 FRED_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv?id={series}"
 FRED_PROXIES = {"SPY": "SP500", "QQQ": "NASDAQ100", "DIA": "DJIA"}   # index levels, close only
+CBOE_URL = "https://cdn.cboe.com/api/global/us_indices/daily_prices/{index}_History.csv"
+CBOE_PROXIES = {"SPY": "SPX", "QQQ": "NDX", "DIA": "DJX", "IWM": "RUT"}   # OHLC index history
 DEFAULT_STOCKS = {"SPY": "spy.us", "QQQ": "qqq.us", "DIA": "dia.us"}
 EXTRA_STOCKS = {"AAPL": "aapl.us", "MSFT": "msft.us", "NVDA": "nvda.us", "AMZN": "amzn.us"}
 DAY = 86400
@@ -33,9 +35,10 @@ _UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
        "Chrome/124.0 Safari/537.36")
 
 
-def _get(url: str, timeout: int = 30, attempts: int = 4) -> bytes:
-    """GET with a browser user agent; 429/5xx are retried with a growing pause
-    (shared runner IPs get throttled by both sources now and then)."""
+def _get(url: str, timeout: int = 30, attempts: int = 3) -> bytes:
+    """GET with a browser user agent; throttling, server errors and timeouts
+    are retried with a growing pause (shared runner IPs get throttled)."""
+    import socket
     import urllib.error
     delay = 10
     for attempt in range(attempts):
@@ -46,9 +49,44 @@ def _get(url: str, timeout: int = 30, attempts: int = 4) -> bytes:
         except urllib.error.HTTPError as exc:
             if exc.code not in (429, 500, 502, 503, 504) or attempt == attempts - 1:
                 raise
-            time.sleep(delay)
-            delay *= 2
+        except (urllib.error.URLError, socket.timeout, TimeoutError):
+            if attempt == attempts - 1:
+                raise
+        time.sleep(delay)
+        delay *= 2
     raise RuntimeError("unreachable")
+
+
+def parse_cboe(text: str) -> list[list[float]]:
+    """Cboe's index history CSV (DATE,OPEN,HIGH,LOW,CLOSE, US dates) -> rows."""
+    rows = []
+    for line in text.splitlines()[1:]:
+        parts = [x.strip() for x in line.split(",")]
+        if len(parts) < 5:
+            continue
+        day = None
+        for fmt in ("%m/%d/%Y", "%Y-%m-%d"):
+            try:
+                day = datetime.strptime(parts[0], fmt).replace(tzinfo=timezone.utc)
+                break
+            except ValueError:
+                continue
+        if day is None:
+            continue
+        try:
+            o, h, lo, c = (float(x) for x in parts[1:5])
+        except ValueError:
+            continue
+        if c <= 0:
+            continue
+        rows.append([int(day.timestamp()), o or c, h or c, lo or c, c, 0.0])
+    rows.sort()
+    return rows
+
+
+def fetch_cboe(index: str) -> list[list[float]]:
+    """Daily OHLC of an index from Cboe's public CDN (SPX, NDX, DJX, RUT…)."""
+    return parse_cboe(_get(CBOE_URL.format(index=index), timeout=60).decode("utf-8", "replace"))
 
 
 _yahoo_opener = None
@@ -89,7 +127,7 @@ def _yahoo_get(url: str, attempts: int = 2) -> bytes:
 
 def fetch_fred(series: str) -> list[list[float]]:
     """FRED's daily index levels (close only): a bar with o = h = l = c."""
-    text = _get(FRED_URL.format(series=series)).decode("utf-8", "replace")
+    text = _get(FRED_URL.format(series=series), timeout=120).decode("utf-8", "replace")
     rows = []
     for line in text.splitlines()[1:]:
         date, _, value = line.partition(",")
@@ -130,12 +168,8 @@ def fetch_daily(ticker: str, min_rows: int = 100, verbose: bool = True) -> list[
     away when CRYPTOARENA_DAILY_SOURCE=fred."""
     import os
     yahoo = ticker.split(".")[0].upper()
-    if os.environ.get("CRYPTOARENA_DAILY_SOURCE", "").lower() == "fred":
-        if yahoo not in FRED_PROXIES:
-            if verbose:
-                print(f"{yahoo}: no FRED proxy; skipped", flush=True)
-            return []
-        return fetch_fred(FRED_PROXIES[yahoo])
+    if os.environ.get("CRYPTOARENA_DAILY_SOURCE", "").lower() in ("fred", "index"):
+        return _fetch_index_proxy(yahoo, verbose)
     try:
         rows = fetch_stooq(ticker, verbose=verbose)
     except Exception as exc:     # noqa: BLE001 — fall through to the second source
@@ -153,11 +187,33 @@ def fetch_daily(ticker: str, min_rows: int = 100, verbose: bool = True) -> list[
         rows = []
     if len(rows) >= min_rows:
         return rows
-    if yahoo in FRED_PROXIES:
-        if verbose:
-            print(f"{yahoo}: using FRED index levels ({FRED_PROXIES[yahoo]}) as a proxy", flush=True)
-        return fetch_fred(FRED_PROXIES[yahoo])
-    return rows
+    return _fetch_index_proxy(yahoo, verbose) or rows
+
+
+def _fetch_index_proxy(ticker: str, verbose: bool = True) -> list[list[float]]:
+    """The index behind an ETF, from Cboe (OHLC) or FRED (close only)."""
+    if ticker in CBOE_PROXIES:
+        try:
+            rows = fetch_cboe(CBOE_PROXIES[ticker])
+            if rows:
+                if verbose:
+                    print(f"{ticker}: Cboe {CBOE_PROXIES[ticker]} history, {len(rows)} bars", flush=True)
+                return rows
+        except Exception as exc:     # noqa: BLE001 — try FRED next
+            if verbose:
+                print(f"cboe {CBOE_PROXIES[ticker]}: {exc}", flush=True)
+    if ticker in FRED_PROXIES:
+        try:
+            rows = fetch_fred(FRED_PROXIES[ticker])
+            if verbose:
+                print(f"{ticker}: FRED {FRED_PROXIES[ticker]} levels, {len(rows)} bars", flush=True)
+            return rows
+        except Exception as exc:     # noqa: BLE001
+            if verbose:
+                print(f"fred {FRED_PROXIES[ticker]}: {exc}", flush=True)
+    if verbose:
+        print(f"{ticker}: no index proxy available; skipped", flush=True)
+    return []
 
 
 def fetch_stooq(ticker: str, verbose: bool = False) -> list[list[float]]:
