@@ -25,8 +25,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Fetch
+      - name: Fetch crypto (Coinbase, hourly)
         run: python scripts/fetch_history.py --days "${{ inputs.days || '400' }}" --out data
+      - name: Fetch stocks (Stooq, daily, 6 years)
+        run: python scripts/fetch_history.py --source stooq --days 2200 --out data/stocks
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
@@ -34,13 +36,16 @@ jobs:
           set -e
           pub=$(mktemp -d)
           cp data/*.csv "$pub/"
+          mkdir -p "$pub/stocks" && cp data/stocks/*.csv "$pub/stocks/"
           {
             echo "# Market data"
             echo
-            echo "Hourly OHLCV from Coinbase Exchange, refreshed $(date -u +'%Y-%m-%d %H:%M UTC')."
+            echo "Hourly crypto OHLCV from Coinbase Exchange and daily US stock bars from Stooq,"
+            echo "refreshed $(date -u +'%Y-%m-%d %H:%M UTC')."
             echo "Columns: timestamp (unix s), open, high, low, close, volume."
             echo
-            for f in data/*.csv; do echo "- $(basename "$f"): $(($(wc -l < "$f") - 1)) candles"; done
+            for f in data/*.csv; do echo "- $(basename "$f"): $(($(wc -l < "$f") - 1)) hourly candles"; done
+            for f in data/stocks/*.csv; do echo "- stocks/$(basename "$f"): $(($(wc -l < "$f") - 1)) daily bars"; done
           } > "$pub/README.md"
           cd "$pub"
           git init -q -b market-data

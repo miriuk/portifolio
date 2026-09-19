@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
-"""Fetch hourly OHLCV history from Coinbase Exchange's public API (no key,
-no CCXT, reachable from GitHub-hosted runners) into ReplayMarket CSVs.
+"""Fetch OHLCV history from public, key-less APIs that GitHub-hosted
+runners can reach, into ReplayMarket CSVs.
 
     python scripts/fetch_history.py --days 400 --out data/
-    # -> data/BTCUSD.csv, data/ETHUSD.csv, data/SOLUSD.csv
+    # -> data/BTCUSD.csv, data/ETHUSD.csv, data/SOLUSD.csv   (Coinbase, hourly)
+
+    python scripts/fetch_history.py --source stooq --out data/stocks
+    # -> data/stocks/SPY.csv, QQQ.csv, ...                    (Stooq, daily)
 
 Columns: timestamp (unix seconds, candle open), open, high, low, close, volume.
 Coinbase serves at most 300 candles per request, so a year is ~30 pages
 per product; pages are fetched newest-first and written oldest-first.
+Stooq serves a ticker's whole daily history in one CSV; a daily bar's
+timestamp is midnight UTC of its date.
 """
 from __future__ import annotations
 
@@ -21,6 +26,34 @@ from pathlib import Path
 
 API = "https://api.exchange.coinbase.com/products/{product}/candles"
 PRODUCTS = {"BTCUSD": "BTC-USD", "ETHUSD": "ETH-USD", "SOLUSD": "SOL-USD"}
+STOOQ = "https://stooq.com/q/d/l/?s={ticker}&i=d"
+STOCKS = {"SPY": "spy.us", "QQQ": "qqq.us", "AAPL": "aapl.us", "MSFT": "msft.us",
+          "NVDA": "nvda.us", "AMZN": "amzn.us"}
+
+
+def fetch_stooq(ticker: str, days: int | None = None) -> list[list[float]]:
+    """Daily bars, oldest first; `days` keeps only the most recent ones."""
+    req = urllib.request.Request(STOOQ.format(ticker=ticker),
+                                 headers={"User-Agent": "cryptoarena/1.0"})
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        text = resp.read().decode("utf-8", "replace")
+    rows = []
+    for line in text.splitlines()[1:]:
+        parts = line.strip().split(",")
+        if len(parts) < 6 or not parts[0][:4].isdigit():
+            continue
+        try:
+            day = datetime.strptime(parts[0], "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            o, h, lo, c = (float(x) for x in parts[1:5])
+            v = float(parts[5]) if parts[5] else 0.0
+        except ValueError:
+            continue
+        rows.append([int(day.timestamp()), o, h, lo, c, v])
+    rows.sort()
+    if days:
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).timestamp()
+        rows = [r for r in rows if r[0] >= cutoff]
+    return rows
 
 
 def fetch(product: str, days: int, granularity: int = 3600) -> list[list[float]]:
@@ -54,14 +87,18 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--days", type=int, default=400)
     parser.add_argument("--out", default="data")
-    parser.add_argument("--products", default=",".join(f"{k}={v}" for k, v in PRODUCTS.items()),
-                        help="comma list of ARENA=COINBASE pairs")
+    parser.add_argument("--source", choices=["coinbase", "stooq"], default="coinbase")
+    parser.add_argument("--products", default=None,
+                        help="comma list of ARENA=SOURCE pairs (e.g. SPY=spy.us)")
     args = parser.parse_args()
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    for pair in args.products.split(","):
+    defaults = STOCKS if args.source == "stooq" else PRODUCTS
+    products = args.products or ",".join(f"{k}={v}" for k, v in defaults.items())
+    for pair in products.split(","):
         name, product = pair.split("=", 1)
-        rows = fetch(product, args.days)
+        rows = fetch_stooq(product, args.days) if args.source == "stooq" \
+            else fetch(product, args.days)
         path = out / f"{name}.csv"
         with path.open("w", newline="") as fh:
             w = csv.writer(fh)
