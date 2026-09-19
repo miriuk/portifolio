@@ -1,0 +1,51 @@
+# Real hourly candles for backtests. Coinbase's public API is reachable
+# from GitHub-hosted runners (the sandboxed dev sessions can't reach any
+# exchange), so this job fetches ~13 months of BTC/ETH/SOL and publishes
+# the CSVs to the `market-data` branch as a single replaced commit.
+name: Market data
+
+on:
+  schedule:
+    - cron: "30 3 * * 1"         # Mondays, so backtests always have last week
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "Days of history to fetch"
+        default: "400"
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Fetch
+        run: python scripts/fetch_history.py --days "${{ inputs.days || '400' }}" --out data
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          pub=$(mktemp -d)
+          cp data/*.csv "$pub/"
+          {
+            echo "# Market data"
+            echo
+            echo "Hourly OHLCV from Coinbase Exchange, refreshed $(date -u +'%Y-%m-%d %H:%M UTC')."
+            echo "Columns: timestamp (unix s), open, high, low, close, volume."
+            echo
+            for f in data/*.csv; do echo "- $(basename "$f"): $(($(wc -l < "$f") - 1)) candles"; done
+          } > "$pub/README.md"
+          cd "$pub"
+          git init -q -b market-data
+          git config user.name "market-data[bot]"
+          git config user.email "market-data@users.noreply.github.com"
+          git add -A
+          git commit -q -m "market data $(date -u +'%Y-%m-%dT%H:%MZ')"
+          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}" market-data
