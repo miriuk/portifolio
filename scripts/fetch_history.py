@@ -30,8 +30,7 @@ MAJORS = ["BTC", "ETH", "SOL", "XRP", "ADA", "DOGE", "AVAX", "DOT", "LINK", "LTC
           "SUI", "INJ"]          # keep in step with cryptoarena.market.live.MAJORS
 PRODUCTS = {f"{c}USD": f"{c}-USD" for c in MAJORS}
 STOOQ = "https://stooq.com/q/d/l/?s={ticker}&i=d"
-STOCKS = {"SPY": "spy.us", "QQQ": "qqq.us", "AAPL": "aapl.us", "MSFT": "msft.us",
-          "NVDA": "nvda.us", "AMZN": "amzn.us"}
+STOCKS = {"SPY": "spy.us", "QQQ": "qqq.us", "DIA": "dia.us"}   # FRED proxies exist for these
 
 
 def fetch_stooq(ticker: str, days: int | None = None) -> list[list[float]]:
@@ -119,10 +118,10 @@ def main() -> None:
             rows = fetch_stooq(product, args.days) if args.source == "stooq" \
                 else fetch(product, args.days)
         except Exception as exc:          # noqa: BLE001 — one missing product is not fatal
-            print(f"{name}: {exc}; skipped")
+            print(f"{name}: {exc}; skipped", flush=True)
             continue
         if not rows:
-            print(f"{name}: no rows from {args.source} for {product}; skipped")
+            print(f"{name}: no rows from {args.source} for {product}; skipped", flush=True)
             continue
         path = out / f"{name}.csv"
         with path.open("w", newline="") as fh:
@@ -131,7 +130,7 @@ def main() -> None:
             w.writerows(rows)
         first = datetime.fromtimestamp(rows[0][0], tz=timezone.utc) if rows else None
         last = datetime.fromtimestamp(rows[-1][0], tz=timezone.utc) if rows else None
-        print(f"{path}: {len(rows)} candles, {first:%Y-%m-%d} .. {last:%Y-%m-%d %H:%M}")
+        print(f"{path}: {len(rows)} candles, {first:%Y-%m-%d} .. {last:%Y-%m-%d %H:%M}", flush=True)
 
 
 if __name__ == "__main__":

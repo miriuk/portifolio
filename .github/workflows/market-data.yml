@@ -20,6 +20,9 @@ jobs:
   fetch:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      PYTHONUNBUFFERED: "1"
+      CRYPTOARENA_DAILY_SOURCE: fred      # Stooq and Yahoo wall off GitHub's runners
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -29,7 +32,8 @@ jobs:
         run: pip install -e .
       - name: Fetch crypto (Coinbase, hourly)
         run: python scripts/fetch_history.py --days "${{ inputs.days || '400' }}" --out data
-      - name: Fetch stocks (Stooq or Yahoo, daily, 6 years)
+      - name: Fetch stocks (FRED index levels, daily, 6 years)
+        continue-on-error: true           # the crypto tape publishes even if this fails
         run: python scripts/fetch_history.py --source stooq --days 2200 --out data/stocks
       - name: Publish
         env:
@@ -38,7 +42,7 @@ jobs:
           set -e
           pub=$(mktemp -d)
           cp data/*.csv "$pub/"
-          mkdir -p "$pub/stocks" && cp data/stocks/*.csv "$pub/stocks/"
+          mkdir -p "$pub/stocks" && cp data/stocks/*.csv "$pub/stocks/" 2>/dev/null || true
           {
             echo "# Market data"
             echo
@@ -47,7 +51,7 @@ jobs:
             echo "Columns: timestamp (unix s), open, high, low, close, volume."
             echo
             for f in data/*.csv; do echo "- $(basename "$f"): $(($(wc -l < "$f") - 1)) hourly candles"; done
-            for f in data/stocks/*.csv; do echo "- stocks/$(basename "$f"): $(($(wc -l < "$f") - 1)) daily bars"; done
+            for f in data/stocks/*.csv; do [ -f "$f" ] && echo "- stocks/$(basename "$f"): $(($(wc -l < "$f") - 1)) daily bars"; done
           } > "$pub/README.md"
           cd "$pub"
           git init -q -b market-data

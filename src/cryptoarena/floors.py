@@ -2,7 +2,8 @@
 tape, clock and specialists.
 
 - crypto: hourly candles from Kraken, 24 bars a day, seven days a week.
-- stocks: daily bars from Stooq, one bar a trading day, five days a week.
+- stocks: daily bars of US index ETFs (FRED levels on GitHub, Stooq or
+  Yahoo from a home connection), one bar a trading day, five days a week.
 
 A floor bundles the founders (with parameters on the right time scale),
 the survival configuration, the live feed, and where its state lives.
@@ -105,7 +106,8 @@ FLOORS: dict[str, Floor] = {
     ),
     "stocks": Floor(
         name="stocks", label="Stocks",
-        caption="daily US stock bars from Stooq, paper wallets, one day per trading day",
+        caption="daily bars of the S&P 500, Nasdaq 100 and Dow (SPY, QQQ, DIA), paper wallets, "
+                "one day per trading day",
         build_founders=stock_founders,
         config_defaults=dict(endogenous=False, steps_per_day=1, week_days=5,
                              daily_target=0.002, fee_rate=0.0005),

@@ -369,8 +369,8 @@ estagiários, dispensa, happy hour, sênior, imitação) são as mesmas.
 
 | Andar | Fita | Um "dia" da colônia | Semana | Fonte | Estado publicado |
 |---|---|---|---|---|---|
-| `crypto` | velas horárias, BTC/ETH/SOL | 24 velas, 7 dias por semana | 7 dias | Kraken (pública) | branch `colony-live` |
-| `stocks` | barras diárias, SPY/QQQ/AAPL/MSFT/NVDA/AMZN | 1 barra, um pregão | 5 pregões | Stooq, ou Yahoo quando o Stooq limita | branch `colony-live-stocks` |
+| `crypto` | velas horárias, 24 moedas principais (BTC, ETH, SOL, XRP, ADA, DOGE, …) | 24 velas, 7 dias por semana | 7 dias | Kraken (pública) | branch `colony-live` |
+| `stocks` | barras diárias, SPY/QQQ/DIA (S&P 500, Nasdaq 100, Dow) | 1 barra, um pregão | 5 pregões | FRED no GitHub; Stooq ou Yahoo de uma conexão doméstica | branch `colony-live-stocks` |
 
 ```bash
 cryptoarena live --floor stocks --once --db live/stocks.db   # um pregão (cron das 23:45 UTC, dias úteis)
@@ -384,6 +384,19 @@ em escala diária: momentum de 20 e 60 pregões, rompimento da máxima de
 meses), meta de 0,2% por pregão, taxa de 0,05% por lado (corretagem zero
 mais spread). O workflow `live-colony-stocks.yml` bate o ponto de
 segunda a sexta depois do fechamento de Nova York.
+
+Sobre os dados: os runners do GitHub recebem uma parede de JavaScript do
+Stooq e 429 do Yahoo, então lá o andar roda nos níveis diários do FRED
+(S&P 500, Nasdaq 100, Dow), que são só fechamento — abertura, máxima e
+mínima iguais ao fechamento. De um PC comum o Stooq responde, e aí
+`--symbols AAPL=aapl.us,NVDA=nvda.us` põe ações individuais no andar.
+
+Sobre as moedas: a colônia cripto negocia 24 moedas principais cotadas em
+dólar tanto na Kraken (feed real) quanto na Coinbase (fita do backtest),
+para que backtest e colônia vejam os mesmos nomes. A lista inteira do
+CoinMarketCap são milhares de moedas, quase todas sem par líquido em
+dólar em lugar nenhum; `--symbols` troca a lista. A parede do andar mostra
+as oito que mais se moveram nas últimas 24 velas.
 
 ## A colônia no mundo real (uma semana de dados reais)
 
