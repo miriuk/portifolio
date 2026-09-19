@@ -13,7 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable
 
-from .agents.rules import (BreakoutAgent, MeanReversionAgent, MomentumAgent,
+from .agents.rules import (BreakoutAgent, BuyAndHoldAgent, MeanReversionAgent, MomentumAgent,
                            RegimeSwitchAgent, TrendFollowerAgent, VolTargetAgent)
 from .arena.survival import SurvivalConfig
 
@@ -57,9 +57,13 @@ def crypto_founders(cash: float) -> list:
     ]
 
 
-# Daily bars: a 168-hour lookback becomes 20 trading days, the 28-day
-# trend gate becomes ~6 months (120 bars), cooldowns are days not hours.
-STOCK_SHARED = {"trend_filter": 120, "cooldown": 3, "market_gate": 120, "rank_top": 2}
+# Daily bars: a 168-hour lookback becomes 20 trading days and cooldowns
+# are days, not hours. Six years of real bars (2020-2026, a strong bull
+# run for these names) said the crypto floor's gates only cost
+# participation here: a short 3-month trend filter, full exposure allowed,
+# no market gate, no rank filter, bigger orders.
+STOCK_SHARED = {"trend_filter": 60, "cooldown": 3, "market_gate": 0, "rank_top": 0,
+                "max_exposure": 1.0, "order_frac": 0.5}
 
 
 def stock_founders(cash: float) -> list:
@@ -80,6 +84,7 @@ def stock_founders(cash: float) -> list:
                                                     "vol_exit": 0.03}),
         TrendFollowerAgent("trend-1", cash, params={**p, "fast": 10, "slow": 50,
                                                     "exit_buffer": 0.02}),
+        BuyAndHoldAgent("index-1", cash, hold_symbols=["SPY", "QQQ"]),
     ]
 
 

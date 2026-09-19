@@ -17,7 +17,7 @@ from __future__ import annotations
 import inspect
 import time
 from collections import deque
-from dataclasses import asdict, fields
+from dataclasses import MISSING, asdict, fields
 from datetime import datetime, timezone
 
 import numpy as np
@@ -200,7 +200,7 @@ class LiveColony:
 
     def _end_day(self, alive: list[Individual]) -> None:
         # the day closes on the bar's close, after this hour's trades
-        ep = EpisodeResult(episode=self.day)
+        ep = EpisodeResult(episode=self.day, last_prices=dict(self.last_prices))
         for ind in alive:
             curve = list(self.day_curves.get(ind.agent_id, []))
             curve.append(ind.agent.wallet.equity(self.last_prices))
@@ -295,6 +295,11 @@ class LiveColony:
 
 # ---------------------------------------------------------------- (de)serialisation
 _IND_FIELDS = [f.name for f in fields(Individual) if f.name not in ("agent",)]
+# Fields added after a colony was founded are absent from its saved state:
+# restore them at their dataclass default instead of crashing the next tick.
+_IND_DEFAULTS = {f.name: (f.default if f.default is not MISSING else
+                          f.default_factory() if f.default_factory is not MISSING else None)
+                 for f in fields(Individual) if f.name != "agent"}
 
 
 def _dump_individual(ind: Individual) -> dict:
@@ -309,6 +314,7 @@ def _dump_individual(ind: Individual) -> dict:
                        "fees_paid": agent.wallet.fees_paid},
             "last_trade_step": getattr(agent, "_last_trade_step", None),
             "stop_high": dict(getattr(agent, "_stop_high", {}) or {}),
+            "hold_symbols": list(getattr(agent, "hold_symbols", []) or []),
         },
     }
 
@@ -332,4 +338,6 @@ def _load_individual(d: dict) -> Individual:
         agent._last_trade_step = a["last_trade_step"]
     if a.get("stop_high"):
         agent._stop_high = dict(a["stop_high"])
-    return Individual(agent=agent, **{name: d[name] for name in _IND_FIELDS})
+    if a.get("hold_symbols") and hasattr(agent, "hold_symbols"):
+        agent.hold_symbols = list(a["hold_symbols"])
+    return Individual(agent=agent, **{name: d.get(name, _IND_DEFAULTS[name]) for name in _IND_FIELDS})

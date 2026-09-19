@@ -65,6 +65,7 @@ class Individual:
     base_order_frac: float | None = None
     week_start_equity: float | None = None
     immune_until: int = 0          # last week's winners cannot be let go until this day
+    last_end: float | None = None  # yesterday's closing equity: today's return is measured from it
 
     def apply_pressure(self, pressure: float) -> None:
         """The quota-or-die incentive: after a miss, bet bigger tomorrow."""
@@ -181,7 +182,13 @@ def _end_of_day(day: int, alive: list[Individual], ep, cfg: SurvivalConfig, rng,
         curve = ep.equity_curves[ind.agent_id]
         cost = ind.budget * cfg.daily_cost
         ind.agent.wallet.cash -= cost           # rent is due whether you traded or not
-        start, end = curve[0], curve[-1] - cost
+        # the day runs from yesterday's close to today's close, after today's
+        # trades — with one bar a day, measuring both ends on the same close
+        # would make every day a flat day
+        end = (ind.agent.wallet.equity(ep.last_prices) if getattr(ep, "last_prices", None)
+               else curve[-1] - cost)
+        start = ind.last_end if ind.last_end is not None else curve[0]
+        ind.last_end = end
         if ind.week_start_equity is None:
             ind.week_start_equity = start
         stats = compute_stats(ind.agent_id, day, journal.trades_for(ind.agent_id, day),

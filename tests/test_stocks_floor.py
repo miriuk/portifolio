@@ -89,8 +89,9 @@ def test_floor_registry_and_live_urls():
     assert FLOORS["stocks"].live_url.endswith("colony-live-stocks/colony.db")
     assert FLOORS["crypto"].live_url.endswith("colony-live/colony.db")
     ids = {a.agent_id for a in stock_founders(5.0)}
-    assert ids == {a.agent_id for a in FLOORS["crypto"].build_founders(5.0)}
-    assert all(a.params["trend_filter"] == 120 for a in stock_founders(5.0))
+    assert ids == {a.agent_id for a in FLOORS["crypto"].build_founders(5.0)} | {"index-1"}
+    assert all(a.params["trend_filter"] == 60 for a in stock_founders(5.0)
+               if a.agent_id != "index-1")
 
 
 def test_cli_live_stocks_floor(tmp_path, monkeypatch, capsys):
@@ -101,11 +102,11 @@ def test_cli_live_stocks_floor(tmp_path, monkeypatch, capsys):
     sys.argv = ["cryptoarena", "live", "--floor", "stocks", "--once", "--db", str(db)]
     cli.main()
     out = capsys.readouterr().out
-    assert "founded the colony" in out and "8 alive" in out
+    assert "founded the colony" in out and "9 alive" in out
     sys.argv = ["cryptoarena", "live", "--status", "--db", str(db)]
     cli.main()
     status = json.loads(capsys.readouterr().out)
-    assert status["alive"] == 8 and set(status["prices"]) == set(DEFAULT_STOCKS)
+    assert status["alive"] == 9 and set(status["prices"]) == set(DEFAULT_STOCKS)
     saved = TradeJournal(db).load_state("live_colony")
     assert saved["timeframe"] == "1d" and saved["config"]["week_days"] == 5
 
@@ -134,3 +135,20 @@ def test_nasdaq_history_parses_dollar_strings_newest_first():
     assert [r[4] for r in rows] == [667.0, 671.23]                # oldest first
     assert rows[1][1:] == [669.10, 673.50, 668.02, 671.23, 58123456.0]
     assert rows[0][5] == 0.0
+
+
+def test_the_passive_investor_buys_once_and_never_sells(tmp_path):
+    from cryptoarena.agents.rules import BuyAndHoldAgent
+    fake = FakeStooq(days=300)
+    journal = TradeJournal(tmp_path / "hold.db")
+    cfg = get_floor("stocks").config(seed=1, daily_cost=0.0)
+    colony = LiveColony.open(journal, [BuyAndHoldAgent("index-1", 5.0, hold_symbols=["SPY", "QQQ"])],
+                             cfg, make_feed(fake), warmup=250, verbose=False)
+    fake.now += 14 * DAY
+    colony.run_once()
+    trades = journal._conn.execute("SELECT symbol, side FROM trades ORDER BY id").fetchall()
+    assert {t[0] for t in trades} == {"SPY", "QQQ"} and all(t[1] == "buy" for t in trades)
+    assert len(trades) == 2
+    journal.close()
+    again = LiveColony.open(TradeJournal(tmp_path / "hold.db"), [], cfg, make_feed(fake), verbose=False)
+    assert again.alive[0].agent.hold_symbols == ["SPY", "QQQ"]

@@ -405,3 +405,38 @@ class TrendFollowerAgent(ParamAgent):
                                     reason="trend: crossed down, flat"))
                 self._last_trade_step = view.step
         return orders
+
+
+class BuyAndHoldAgent(ParamAgent):
+    """The passive investor: buys `hold_symbols` (or everything) in equal
+    weights on the first bar it can, then sits. No exits, no signals — the
+    yardstick every active specialist on the floor is measured against,
+    and in a long bull market the one the interns end up imitating."""
+
+    DEFAULTS = {"order_frac": 0.45, "cooldown": 1, "stop_trail": 0.0, "trend_filter": 0,
+                "max_buys": 0, "max_exposure": 0.0, "market_gate": 0, "rank_top": 0}
+
+    def __init__(self, *args, hold_symbols: list[str] | None = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.hold_symbols = list(hold_symbols or [])
+
+    def _decide(self, view: MarketView) -> list[Order]:
+        wanted = [s for s in view.candles if not self.hold_symbols or s in self.hold_symbols]
+        if not wanted:
+            return []
+        orders = []
+        for symbol in wanted:
+            if self.wallet.positions.get(symbol, 0.0) > 0 or not self._can_buy():
+                continue
+            orders.append(Order(self.agent_id, symbol, "buy",
+                                self.wallet.equity(view.prices) * self.params["order_frac"],
+                                reason="buy and hold"))
+        return orders
+
+    def learn(self, lessons: list[str]) -> None:
+        """Holding is the whole idea; no lesson changes it."""
+
+    def clone(self, agent_id: str, starting_cash: float, rng=None, mutate: bool = False):
+        child = super().clone(agent_id, starting_cash, rng, mutate=False)
+        child.hold_symbols = list(self.hold_symbols)
+        return child

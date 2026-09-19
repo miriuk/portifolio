@@ -197,3 +197,15 @@ def test_state_keeps_the_tape_once_and_fills_a_missing_pair(tmp_path):
     sol = next(c for c in filled if c.symbol == "SOLUSD")
     assert sol.close == sol_price and sol.volume == 0.0 and sol.timestamp == bar[0].timestamp
     journal.close()
+
+
+def test_state_saved_before_a_field_existed_still_restores():
+    """A colony founded before `last_end` was added must survive the next tick."""
+    from cryptoarena.agents.rules import MomentumAgent
+    from cryptoarena.arena.live_colony import _dump_individual, _load_individual
+    from cryptoarena.arena.survival import Individual
+    ind = Individual(agent=MomentumAgent("m", 5.0), strategy="momentum", parent_id=None,
+                     generation=0, born_day=1, budget=5.0)
+    saved = _dump_individual(ind)
+    del saved["last_end"]
+    assert _load_individual(saved).last_end is None

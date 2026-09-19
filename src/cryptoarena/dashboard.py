@@ -107,7 +107,7 @@ def lineage_dot(events: pd.DataFrame) -> str:
     """Graphviz source for the family tree: one node per agent ever born,
     edges parent -> child, the dead greyed out with their day of death."""
     palette = {"momentum": "#f7931a", "meanreversion": "#3b82f6", "breakout": "#22c55e",
-               "regimeswitch": "#14b8a6", "voltarget": "#ec4899", "trendfollower": "#84cc16",
+               "regimeswitch": "#14b8a6", "voltarget": "#ec4899", "trendfollower": "#84cc16", "buyandhold": "#eab308",
                "claudetrader": "#a855f7"}
     born = events[events["event"] == "born"]
     died = events[events["event"] == "died"].set_index("agent_id")["day"]

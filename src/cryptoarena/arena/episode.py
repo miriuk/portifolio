@@ -14,6 +14,7 @@ class EpisodeResult:
     equity_curves: dict[str, list[float]] = field(default_factory=dict)
     max_drawdown: dict[str, float] = field(default_factory=dict)
     halted: dict[str, bool] = field(default_factory=dict)
+    last_prices: dict[str, float] = field(default_factory=dict)   # closes of the last bar
 
 
 def _realized_pnl(agent: TradingAgent, fill: Fill) -> float | None:
@@ -127,4 +128,5 @@ def run_episode(
 
     for agent in agents:
         result.halted[agent.agent_id] = risk[agent.agent_id].halted
+    result.last_prices = dict(prices) if steps else {}
     return result
