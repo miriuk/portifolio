@@ -379,11 +379,23 @@ cryptoarena dashboard --live --floor stocks                  # o andar de açõe
 ```
 
 No andar de ações os especialistas são os mesmos oito, com os parâmetros
-em escala diária: momentum de 20 e 60 pregões, rompimento da máxima de
-20 pregões, médias de 10 e 50, portão de tendência de 120 pregões (seis
-meses), meta de 0,2% por pregão, taxa de 0,05% por lado (corretagem zero
-mais spread). O workflow `live-colony-stocks.yml` bate o ponto de
-segunda a sexta depois do fechamento de Nova York.
+em escala diária (momentum de 20 e 60 pregões, rompimento da máxima de
+20 pregões, médias de 10 e 50), mais um nono, **`index-1`**, que compra
+SPY e QQQ no primeiro pregão e nunca vende — o investidor passivo dentro
+da colônia, para os outros terem com quem se comparar. Meta de 0,2% por
+pregão, taxa de 0,05% por lado (corretagem zero mais spread). O workflow
+`live-colony-stocks.yml` bate o ponto de segunda a sexta depois do
+fechamento de Nova York.
+
+O que seis anos de barras reais (2020–2026, mercado em alta) disseram:
+os portões do andar cripto (portão de mercado, ranking, exposição máxima
+de 60%, tendência de 28 dias) só custavam participação aqui. Com eles a
+colônia fazia +0,04% por janela de 60 pregões; sem eles (tendência de 3
+meses, exposição total, ordens maiores) e com o `index-1`, **+0,5%** por
+janela — contra **+5,0%** de comprar e segurar as seis. Regras lentas e
+só compradas não acompanham mega-caps num mercado em alta; o andar
+existe para ver se a colônia aprende algo que a fita de 6 anos não
+ensinou, não porque já venceu.
 
 Sobre os dados: sondados de um runner do GitHub, o Stooq responde com
 uma parede de JavaScript, o Yahoo com 429, o FRED e a Cboe estouram o
