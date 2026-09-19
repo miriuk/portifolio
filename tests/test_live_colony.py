@@ -161,3 +161,39 @@ def test_a_week_on_the_tape_hires_and_holds_the_happy_hour(tmp_path):
     assert colony.day == 10                                   # day 1 was one bar, then 8 full days
     assert len(colony.result.alive_per_day) == colony.day - 1
     journal.close()
+
+
+def test_state_keeps_the_tape_once_and_fills_a_missing_pair(tmp_path):
+    """24 pairs × 8 agents would be a heavy hourly commit if every agent
+    saved its own copy of the same candles; the tape is saved once and
+    every agent gets it back. A pair the feed misses on a bar is carried
+    at its last price, so nobody's position is marked to zero."""
+    client = FakeClient()
+    client.now = T0 + 120 * HOUR
+    db = tmp_path / "live.db"
+    journal = TradeJournal(db)
+    colony = LiveColony.open(journal, build_agents(5.0, False, ""), cfg(), make_feed(client),
+                             warmup=50, verbose=False)
+    state = journal.load_state("live_colony")
+    assert set(state["tape"]) == {"BTCUSD", "ETHUSD", "SOLUSD"}
+    assert len(state["tape"]["BTCUSD"]) == 50
+    assert "history" not in state["population"][0]["agent"]
+    assert state["symbol_map"] == {"BTCUSD": "BTC/USD", "ETHUSD": "ETH/USD", "SOLUSD": "SOL/USD"}
+    journal.close()
+
+    journal = TradeJournal(db)
+    feed = make_feed(client)
+    feed.symbols = {"BTCUSD": "BTC/USD"}                      # a narrower CLI default...
+    again = LiveColony.open(journal, [], cfg(), feed, verbose=False)
+    assert set(feed.symbols) == {"BTCUSD", "ETHUSD", "SOLUSD"}   # ...loses to the colony's own map
+    for ind in again.alive:
+        assert {s: len(h) for s, h in ind.agent.history.items()} == {
+            "BTCUSD": 50, "ETHUSD": 50, "SOLUSD": 50}
+
+    # SOL misses a bar: the colony carries it flat at the last price
+    sol_price = again.last_prices["SOLUSD"]
+    bar = [c for c in make_feed(client).aligned(limit=2)[-1] if c.symbol != "SOLUSD"]
+    filled = again._complete(bar)
+    sol = next(c for c in filled if c.symbol == "SOLUSD")
+    assert sol.close == sol_price and sol.volume == 0.0 and sol.timestamp == bar[0].timestamp
+    journal.close()

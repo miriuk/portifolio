@@ -96,6 +96,8 @@ class LiveColony:
             colony = cls(journal, SurvivalConfig(**{k: v for k, v in saved["config"].items()
                                                     if k in known}), feed, warmup=warmup,
                          verbose=verbose)
+            if saved.get("symbol_map") and hasattr(feed, "symbols"):
+                feed.symbols = dict(saved["symbol_map"])   # the colony keeps its own universe
             colony._restore(saved)
             return colony
         colony = cls(journal, cfg, feed, founders, warmup=warmup, verbose=verbose)
@@ -157,6 +159,7 @@ class LiveColony:
         alive = self.alive
         if not alive:
             return
+        candles = self._complete(candles)
         if self.hour == 0:
             self.day_curves = {}
             self.risk = {}                              # a fresh seatbelt every day, as in the sim
@@ -177,6 +180,18 @@ class LiveColony:
                   f"alive={len(alive)} colony={total:.2f}")
         if self._day_over(candles[0].timestamp):
             self._end_day(alive)
+
+    def _complete(self, candles: list[Candle]) -> list[Candle]:
+        """A pair the feed could not fetch this bar gets a flat candle at its
+        last price, so positions keep their value and nobody trades on a
+        hole in the tape."""
+        seen = {c.symbol for c in candles}
+        ts = candles[0].timestamp
+        filled = list(candles)
+        for symbol, price in self.last_prices.items():
+            if symbol not in seen and symbol in (getattr(self.feed, "symbols", {}) or {}):
+                filled.append(Candle(symbol, ts, price, price, price, price, 0.0))
+        return filled
 
     def _day_over(self, ts: int) -> bool:
         """The bar that opened at 23:00 UTC closes the day."""
@@ -213,6 +228,8 @@ class LiveColony:
             "exchange": getattr(self.feed, "exchange_id", ""),
             "timeframe": getattr(self.feed, "timeframe", "1h"),
             "symbols": list(getattr(self.feed, "symbols", {}) or {}),
+            "symbol_map": dict(getattr(self.feed, "symbols", {}) or {}),
+            "tape": self._tape(),
             "counters": dict(self.next_id.counters),
             "senior": self.result.senior.agent_id if self.result.senior else None,
             "alive_per_day": self.result.alive_per_day,
@@ -237,8 +254,25 @@ class LiveColony:
             rm.peak_equity, rm.halted = r["peak_equity"], r["halted"]
             self.risk[agent_id] = rm
         self.result.population = [_load_individual(d) for d in saved["population"]]
+        tape = saved.get("tape")
+        if tape:                                    # one shared tape -> every agent's history
+            for ind in self.result.population:
+                ind.agent.history = {
+                    sym: deque((Candle(sym, int(r[0]), *map(float, r[1:6])) for r in rows),
+                               maxlen=HISTORY_LEN) for sym, rows in tape.items()}
         by_id = {i.agent_id: i for i in self.result.population}
         self.result.senior = by_id.get(saved.get("senior"))
+
+    def _tape(self) -> dict[str, list[list[float]]]:
+        """Every agent sees the same candles, so the tape is saved once: the
+        longest history per symbol across the population."""
+        tape: dict[str, list[list[float]]] = {}
+        for ind in self.result.population:
+            for sym, hist in ind.agent.history.items():
+                if len(hist) > len(tape.get(sym, ())):
+                    tape[sym] = [[c.timestamp, c.open, c.high, c.low, c.close, c.volume]
+                                 for c in hist]
+        return tape
 
     def status(self) -> dict:
         alive = self.alive
@@ -273,8 +307,6 @@ def _dump_individual(ind: Individual) -> dict:
             "wallet": {"cash": agent.wallet.cash, "positions": dict(agent.wallet.positions),
                        "cost_basis": dict(agent.wallet.cost_basis),
                        "fees_paid": agent.wallet.fees_paid},
-            "history": {sym: [[c.timestamp, c.open, c.high, c.low, c.close, c.volume]
-                              for c in h] for sym, h in agent.history.items()},
             "last_trade_step": getattr(agent, "_last_trade_step", None),
             "stop_high": dict(getattr(agent, "_stop_high", {}) or {}),
         },

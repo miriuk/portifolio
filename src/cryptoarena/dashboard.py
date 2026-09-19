@@ -388,8 +388,10 @@ def live_view(state: dict) -> None:
                    help=(time.strftime("%d %b %Y", time.gmtime(last)) + " · " if last else "")
                    + f"source: {state.get('exchange', '?')} · saved {state.get('saved_at', '?')}")
     if prices:
+        shown = list(prices.items())[:8]
         st.caption(" · ".join(f"{s.replace('USDT', '').replace('USD', '')} {v:,.2f}"
-                              for s, v in prices.items()))
+                              for s, v in shown)
+                   + (f" · +{len(prices) - len(shown)} more" if len(prices) > len(shown) else ""))
 
 
 def data_view(equity: pd.DataFrame, summary: pd.DataFrame, trades: pd.DataFrame,

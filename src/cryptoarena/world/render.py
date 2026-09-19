@@ -27,6 +27,7 @@ def market_state(market: pd.DataFrame) -> dict:
             "regime": str(rows.iloc[-1]["regime"] or ""),
         })
     regimes = [s["regime"] for s in symbols if s["regime"]]
+    symbols = sorted(symbols, key=lambda s: -abs(s["change"]))[:8]   # a wall, not a spreadsheet
     return {"symbols": symbols,
             "regime": max(set(regimes), key=regimes.count) if regimes else ""}
 

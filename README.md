@@ -361,6 +361,30 @@ trader precisa pesar na decisão final. O debate força o modelo a considerar os
 dois lados em vez de ancorar na primeira leitura (custo: 3 chamadas extras por
 decisão; por isso é opt-in).
 
+## O prédio: um andar por classe de ativo
+
+A colônia não sabe o que negocia. O que muda de um andar para outro é a
+fita, o relógio e os especialistas; as regras (orçamento, meta,
+estagiários, dispensa, happy hour, sênior, imitação) são as mesmas.
+
+| Andar | Fita | Um "dia" da colônia | Semana | Fonte | Estado publicado |
+|---|---|---|---|---|---|
+| `crypto` | velas horárias, BTC/ETH/SOL | 24 velas, 7 dias por semana | 7 dias | Kraken (pública) | branch `colony-live` |
+| `stocks` | barras diárias, SPY/QQQ/AAPL/MSFT/NVDA/AMZN | 1 barra, um pregão | 5 pregões | Stooq, ou Yahoo quando o Stooq limita | branch `colony-live-stocks` |
+
+```bash
+cryptoarena live --floor stocks --once --db live/stocks.db   # um pregão (cron das 23:45 UTC, dias úteis)
+cryptoarena backtest --floor stocks                          # janelas de 60 pregões sobre 6 anos
+cryptoarena dashboard --live --floor stocks                  # o andar de ações; um seletor troca de andar
+```
+
+No andar de ações os especialistas são os mesmos oito, com os parâmetros
+em escala diária: momentum de 20 e 60 pregões, rompimento da máxima de
+20 pregões, médias de 10 e 50, portão de tendência de 120 pregões (seis
+meses), meta de 0,2% por pregão, taxa de 0,05% por lado (corretagem zero
+mais spread). O workflow `live-colony-stocks.yml` bate o ponto de
+segunda a sexta depois do fechamento de Nova York.
+
 ## A colônia no mundo real (uma semana de dados reais)
 
 `cryptoarena live` é a mesma colônia — meta diária, estagiários, dispensa,

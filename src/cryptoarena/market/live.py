@@ -45,8 +45,23 @@ DEFAULT_SYMBOLS: dict[str, dict[str, str]] = {
 }
 
 
+# The wider universe: majors quoted in USD on both Kraken (the live feed)
+# and Coinbase (the backtest tape), so a backtest and the live colony see
+# the same names. CoinMarketCap's full list is thousands of coins, most
+# without a liquid USD pair anywhere; these are the ones with real markets.
+MAJORS = ["BTC", "ETH", "SOL", "XRP", "ADA", "DOGE", "AVAX", "DOT", "LINK", "LTC", "BCH",
+          "UNI", "ATOM", "XLM", "ETC", "NEAR", "APT", "ARB", "OP", "FIL", "AAVE", "ALGO",
+          "SUI", "INJ"]
+
+
 def default_symbols(exchange_id: str) -> dict[str, str]:
     return dict(DEFAULT_SYMBOLS.get(exchange_id, DEFAULT_SYMBOLS["kraken"]))
+
+
+def majors_symbols(exchange_id: str = "kraken", quote: str | None = None) -> dict[str, str]:
+    """Arena name -> CCXT symbol for the majors on the given exchange."""
+    quote = quote or ("USDT" if exchange_id == "binance" else "USD")
+    return {f"{coin}{quote}": f"{coin}/{quote}" for coin in MAJORS}
 
 
 class LiveFeed:
@@ -89,7 +104,11 @@ class LiveFeed:
         exclusive unix-seconds lower bound on the candle's open time."""
         out: dict[str, list[Candle]] = {}
         for name, ccxt_symbol in self.symbols.items():
-            rows = self._fetch(ccxt_symbol, since, limit)
+            try:
+                rows = self._fetch(ccxt_symbol, since, limit)
+            except Exception as exc:     # noqa: BLE001 — one bad pair must not stop the bar
+                print(f"[feed] {ccxt_symbol}: {exc}; skipping this fetch")
+                continue
             out[name] = [Candle(symbol=name, timestamp=int(r[0] // 1000), open=float(r[1]),
                                 high=float(r[2]), low=float(r[3]), close=float(r[4]),
                                 volume=float(r[5]))

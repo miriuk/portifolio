@@ -25,7 +25,10 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 API = "https://api.exchange.coinbase.com/products/{product}/candles"
-PRODUCTS = {"BTCUSD": "BTC-USD", "ETHUSD": "ETH-USD", "SOLUSD": "SOL-USD"}
+MAJORS = ["BTC", "ETH", "SOL", "XRP", "ADA", "DOGE", "AVAX", "DOT", "LINK", "LTC", "BCH",
+          "UNI", "ATOM", "XLM", "ETC", "NEAR", "APT", "ARB", "OP", "FIL", "AAVE", "ALGO",
+          "SUI", "INJ"]          # keep in step with cryptoarena.market.live.MAJORS
+PRODUCTS = {f"{c}USD": f"{c}-USD" for c in MAJORS}
 STOOQ = "https://stooq.com/q/d/l/?s={ticker}&i=d"
 STOCKS = {"SPY": "spy.us", "QQQ": "qqq.us", "AAPL": "aapl.us", "MSFT": "msft.us",
           "NVDA": "nvda.us", "AMZN": "amzn.us"}
@@ -112,10 +115,15 @@ def main() -> None:
         name, product = pair.split("=", 1)
         if i and args.source == "stooq":
             time.sleep(3)
-        rows = fetch_stooq(product, args.days) if args.source == "stooq" \
-            else fetch(product, args.days)
+        try:
+            rows = fetch_stooq(product, args.days) if args.source == "stooq" \
+                else fetch(product, args.days)
+        except Exception as exc:          # noqa: BLE001 — one missing product is not fatal
+            print(f"{name}: {exc}; skipped")
+            continue
         if not rows:
-            raise SystemExit(f"{name}: no rows from {args.source} for {product}")
+            print(f"{name}: no rows from {args.source} for {product}; skipped")
+            continue
         path = out / f"{name}.csv"
         with path.open("w", newline="") as fh:
             w = csv.writer(fh)

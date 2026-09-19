@@ -84,8 +84,8 @@ def stock_founders(cash: float) -> list:
 
 def _crypto_feed(exchange_id: str = "kraken", symbols: dict | None = None,
                  timeframe: str = "1h"):
-    from .market.live import LiveFeed, default_symbols
-    return LiveFeed(exchange_id, symbols or default_symbols(exchange_id), timeframe=timeframe)
+    from .market.live import LiveFeed, majors_symbols
+    return LiveFeed(exchange_id, symbols or majors_symbols(exchange_id), timeframe=timeframe)
 
 
 def _stock_feed(exchange_id: str = "stooq", symbols: dict | None = None, timeframe: str = "1d"):
@@ -96,7 +96,7 @@ def _stock_feed(exchange_id: str = "stooq", symbols: dict | None = None, timefra
 FLOORS: dict[str, Floor] = {
     "crypto": Floor(
         name="crypto", label="Crypto",
-        caption="real Kraken prices, paper wallets, a real day per day",
+        caption="24 majors at real Kraken prices, paper wallets, a real day per day",
         build_founders=crypto_founders,
         config_defaults=dict(endogenous=False),
         make_feed=_crypto_feed,
