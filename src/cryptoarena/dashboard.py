@@ -30,15 +30,24 @@ from cryptoarena.arena.background import RunConfig
 from cryptoarena.world.render import build_state, render_world
 
 
+LIVE_COLONY_URL = ("https://raw.githubusercontent.com/miriuk/portifolio/"
+                   "colony-live/colony.db")   # what the hourly GitHub job publishes
+
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--db", default="arena.db")
     parser.add_argument("--db-url", default=os.environ.get("CRYPTOARENA_DB_URL", ""),
                         help="read a journal published at this URL (the live colony) "
                              "instead of the local file")
+    parser.add_argument("--live", action="store_true",
+                        help=f"shortcut for --db-url {LIVE_COLONY_URL}")
     # Streamlit's CLI consumes its own flags and the "--" separator itself,
     # so by the time the script runs, sys.argv[1:] is already just our args.
-    return parser.parse_args(sys.argv[1:])
+    args = parser.parse_args(sys.argv[1:])
+    if args.live and not args.db_url:
+        args.db_url = LIVE_COLONY_URL
+    return args
 
 
 def fetch_journal(url: str, max_age: float = 120.0) -> str:

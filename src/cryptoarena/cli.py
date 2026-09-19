@@ -198,6 +198,9 @@ def main() -> None:
 
     dash = sub.add_parser("dashboard", help="launch a live web dashboard (Streamlit)")
     dash.add_argument("--db", default="arena.db")
+    dash.add_argument("--db-url", default="", help="read a journal published at a URL")
+    dash.add_argument("--live", action="store_true",
+                      help="show the colony the hourly GitHub job publishes")
     dash.add_argument("--port", type=int, default=8501)
 
     args = parser.parse_args()
@@ -270,10 +273,12 @@ def main() -> None:
             print("Streamlit isn't installed. Run: pip install -e \".[ui]\"")
             raise SystemExit(1)
         dashboard_path = Path(__file__).parent / "dashboard.py"
+        extra = (["--live"] if args.live else []) + \
+            (["--db-url", args.db_url] if args.db_url else [])
         subprocess.run([
             sys.executable, "-m", "streamlit", "run", str(dashboard_path),
             "--server.port", str(args.port),
-            "--", "--db", args.db,
+            "--", "--db", args.db, *extra,
         ])
 
 

@@ -421,7 +421,8 @@ CRYPTOARENA_DB_URL = "https://raw.githubusercontent.com/<usuario>/portifolio/col
 
 e o app público passa a mostrar a colônia real (atualiza a cada 2 min;
 um seletor na barra lateral volta para o journal local). Localmente,
-`cryptoarena dashboard` aceita `--db-url` com a mesma URL.
+`cryptoarena dashboard --live` faz o mesmo sem configurar nada, e
+`--db-url` aceita qualquer outra URL.
 
 ## Trilha sim → paper → live
 
