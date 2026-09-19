@@ -6,6 +6,19 @@ from .memory import TradeJournal
 from .reflection import EpisodeStats
 
 
+def mutate_params(params: dict, rng: np.random.Generator,
+                  scale: float = 0.15) -> dict:
+    """Gaussian-perturb every numeric parameter; non-numeric ones pass through."""
+    mutated = {}
+    for key, value in params.items():
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            factor = 1 + rng.standard_normal() * scale
+            mutated[key] = type(value)(value * factor) if value != 0 else value
+        else:
+            mutated[key] = value
+    return mutated
+
+
 def evolve_population(
     journal: TradeJournal,
     stats: list[EpisodeStats],
@@ -32,14 +45,7 @@ def evolve_population(
     # only replace a clearly losing agent — don't churn near-ties
     if worst.return_pct > -0.01 and (best.return_pct - worst.return_pct) < 0.05:
         return log
-    parent = param_getter(best.agent_id)
-    mutated = {}
-    for key, value in parent.items():
-        if isinstance(value, (int, float)) and not isinstance(value, bool):
-            factor = 1 + rng.standard_normal() * mutation_scale
-            mutated[key] = type(value)(value * factor) if value != 0 else value
-        else:
-            mutated[key] = value
+    mutated = mutate_params(param_getter(best.agent_id), rng, mutation_scale)
     param_setter(worst.agent_id, mutated)
     prev = journal.load_params(worst.agent_id)
     generation = (prev[1] if prev else 0) + 1

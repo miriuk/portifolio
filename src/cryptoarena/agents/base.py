@@ -8,7 +8,7 @@ from ..market.candle import Candle
 from ..market.exchange import Order
 from ..portfolio.wallet import Wallet
 
-HISTORY_LEN = 200
+HISTORY_LEN = 720   # 30 days of hourly bars: room for weekly-scale indicators
 
 
 @dataclass
@@ -52,6 +52,16 @@ class TradingAgent(ABC):
 
     def reset_wallet(self) -> None:
         self.wallet = Wallet(cash=self.starting_cash)
+
+    def clone(self, agent_id: str, starting_cash: float, rng=None,
+              mutate: bool = False) -> "TradingAgent | None":
+        """A fresh offspring: a faithful copy by default (parameters and the
+        warmed-up indicator history), mutated only when asked. None if this
+        agent type cannot reproduce."""
+        return None
+
+    def imitate(self, params: dict, rate: float) -> None:
+        """Move own tunable parameters a fraction of the way towards `params`."""
 
     # --- indicator helpers ---------------------------------------------------
     def closes(self, symbol: str, n: int) -> list[float]:

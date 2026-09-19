@@ -1,0 +1,94 @@
+# The stocks floor: the same survival colony on daily US stock bars.
+#
+# Every weekday evening (after the NYSE close) the job restores the
+# colony's journal from the `colony-live-stocks` branch, feeds it the
+# trading day that just closed (paper trading on Stooq's public daily
+# bars: SPY, QQQ, AAPL, MSFT, NVDA, AMZN — no account, no keys, no real
+# money), runs the day's rituals and publishes the journal back. One bar
+# is one colony day; a colony week is five trading days.
+#
+# "Run workflow" (with reset) founds a fresh colony.
+name: Live colony (stocks)
+
+on:
+  schedule:
+    - cron: "45 23 * * 1-5"      # weekdays, after the NYSE close and Stooq's end-of-day row
+  workflow_dispatch:
+    inputs:
+      reset:
+        description: "Start a fresh colony (discard the saved state)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: live-colony-stocks
+  cancel-in-progress: false
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      COLONY_BRANCH: colony-live-stocks
+      COLONY_DB: live/stocks.db
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: pip install -e ".[live]"
+
+      - name: Restore the colony
+        if: ${{ !inputs.reset }}
+        run: |
+          mkdir -p live
+          if git fetch --depth 1 origin "$COLONY_BRANCH" 2>/dev/null; then
+            git show "origin/$COLONY_BRANCH:colony.db" > "$COLONY_DB"
+            echo "restored $(stat -c %s "$COLONY_DB") bytes"
+          else
+            echo "no saved colony — founding a new one"
+          fi
+
+      - name: Tick
+        run: cryptoarena live --floor stocks --once --db "$COLONY_DB"
+
+      - name: Status
+        run: cryptoarena live --status --db "$COLONY_DB" | tee live/status.json
+
+      - name: Publish the colony
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          pub=$(mktemp -d)
+          cp "$COLONY_DB" "$pub/colony.db"
+          cp live/status.json "$pub/status.json"
+          {
+            echo "# Live colony"
+            echo
+            echo "Updated $(date -u +'%Y-%m-%d %H:%M UTC') by the hourly job."
+            echo "Paper trading on real Kraken prices. Read \`colony.db\` with the dashboard:"
+            echo
+            echo '```'
+            echo "CRYPTOARENA_DB_URL=https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${COLONY_BRANCH}/colony.db"
+            echo '```'
+            echo
+            echo '```json'
+            cat live/status.json
+            echo '```'
+          } > "$pub/README.md"
+          cd "$pub"
+          git init -q -b "$COLONY_BRANCH"
+          git config user.name "live-colony-stocks[bot]"
+          git config user.email "live-colony@users.noreply.github.com"
+          git add -A
+          git commit -q -m "colony tick $(date -u +'%Y-%m-%dT%H:%MZ')"
+          # one commit, replaced every hour: the history lives inside the journal
+          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}" "$COLONY_BRANCH"

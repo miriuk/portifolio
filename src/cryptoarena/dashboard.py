@@ -1,0 +1,441 @@
+"""Live web dashboard for CryptoArena — watch a run as it happens.
+
+Run with:
+    cryptoarena dashboard              # launches this via streamlit for you
+    streamlit run streamlit_app.py     # what Streamlit Community Cloud runs
+
+The page only *reads* the journal (WAL mode lets it do that safely while a
+tournament is writing to the same file). The tournament itself can come from
+`cryptoarena run` in another terminal or from the sidebar, which runs it on a
+background thread inside this process — the only option on a hosted deploy.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sqlite3
+import sys
+import time
+from pathlib import Path
+
+import pandas as pd
+import streamlit as st
+
+import streamlit.components.v1 as components
+
+from cryptoarena.agents.llm import ClaudeTraderAgent
+from cryptoarena.arena import background
+from cryptoarena.arena.background import RunConfig
+from cryptoarena.world.render import build_state, render_world
+
+
+from cryptoarena.floors import FLOORS  # noqa: E402
+
+LIVE_COLONY_URL = FLOORS["crypto"].live_url   # what the hourly GitHub job publishes
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--db", default="arena.db")
+    parser.add_argument("--db-url", default=os.environ.get("CRYPTOARENA_DB_URL", ""),
+                        help="read a journal published at this URL (the live colony) "
+                             "instead of the local file")
+    parser.add_argument("--live", action="store_true",
+                        help=f"shortcut for --db-url {LIVE_COLONY_URL}")
+    parser.add_argument("--floor", default="crypto", choices=list(FLOORS))
+    # Streamlit's CLI consumes its own flags and the "--" separator itself,
+    # so by the time the script runs, sys.argv[1:] is already just our args.
+    args = parser.parse_args(sys.argv[1:])
+    if args.live and not args.db_url:
+        args.db_url = FLOORS[args.floor].live_url
+    return args
+
+
+def fetch_journal(url: str, max_age: float = 120.0) -> str:
+    """Download a journal (e.g. the live colony's, published to a branch by
+    the hourly job) into a per-URL cache file, refreshed every `max_age`
+    seconds. Returns the local path; on a failed refresh the stale copy is
+    kept, so the dashboard degrades to 'a little old' rather than 'broken'."""
+    import hashlib
+    import tempfile
+    import urllib.request
+    path = Path(tempfile.gettempdir()) / f"cryptoarena-{hashlib.sha1(url.encode()).hexdigest()[:12]}.db"
+    if not path.exists() or time.time() - path.stat().st_mtime > max_age:
+        try:
+            with urllib.request.urlopen(url, timeout=20) as resp:
+                data = resp.read()
+            if data[:16] == b"SQLite format 3\x00":
+                tmp = path.with_suffix(".part")
+                tmp.write_bytes(data)
+                tmp.replace(path)
+            elif not path.exists():
+                raise ValueError("not a SQLite file")
+        except Exception:
+            if not path.exists():
+                raise
+            path.touch()   # back off before retrying
+    return str(path)
+
+
+def _read_table(conn: sqlite3.Connection, query: str) -> pd.DataFrame:
+    try:
+        return pd.read_sql_query(query, conn)
+    except (sqlite3.OperationalError, pd.errors.DatabaseError):
+        return pd.DataFrame()
+
+
+def load_data(db_path: str) -> dict[str, pd.DataFrame]:
+    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    try:
+        return {
+            "equity": _read_table(conn, "SELECT * FROM equity_snapshots"),
+            "summary": _read_table(conn, "SELECT * FROM episode_summary"),
+            "trades": _read_table(conn, "SELECT * FROM trades ORDER BY id DESC LIMIT 300"),
+            "lessons": _read_table(
+                conn, "SELECT * FROM lessons ORDER BY importance DESC, id DESC LIMIT 150"),
+            "survival": _read_table(conn, "SELECT * FROM survival_events ORDER BY id"),
+            "market": _read_table(
+                conn, "SELECT * FROM market_snapshots ORDER BY episode DESC, step DESC LIMIT 600"),
+            "live": _read_table(conn, "SELECT value FROM colony_state WHERE key = 'live_colony'"),
+        }
+    finally:
+        conn.close()
+
+
+def lineage_dot(events: pd.DataFrame) -> str:
+    """Graphviz source for the family tree: one node per agent ever born,
+    edges parent -> child, the dead greyed out with their day of death."""
+    palette = {"momentum": "#f7931a", "meanreversion": "#3b82f6", "breakout": "#22c55e",
+               "regimeswitch": "#14b8a6", "voltarget": "#ec4899", "trendfollower": "#84cc16",
+               "claudetrader": "#a855f7"}
+    born = events[events["event"] == "born"]
+    died = events[events["event"] == "died"].set_index("agent_id")["day"]
+    latest_equity = events.groupby("agent_id")["equity"].last()
+    lines = ["digraph lineage {", "  rankdir=LR; bgcolor=transparent;",
+             '  node [shape=box, style="rounded,filled", fontname="Helvetica", '
+             'fontsize=11, color="#00000000"];',
+             '  edge [color="#888888"];']
+    for _, r in born.iterrows():
+        aid = r["agent_id"]
+        color = palette.get(r["strategy"], "#94a3b8")
+        if aid in died.index:
+            label = f"{aid}\\nlet go · day {int(died[aid])}"
+            lines.append(f'  "{aid}" [label="{label}", fillcolor="#3f3f46", fontcolor="#a1a1aa"];')
+        else:
+            label = f"{aid}\\ngen {int(r['generation'])} · {latest_equity[aid]:,.0f}"
+            lines.append(f'  "{aid}" [label="{label}", fillcolor="{color}", fontcolor="white"];')
+        if isinstance(r["parent_id"], str) and r["parent_id"]:
+            lines.append(f'  "{r["parent_id"]}" -> "{aid}" [label="day {int(r["day"])}", '
+                         'fontsize=9, fontcolor="#888888"];')
+    lines.append("}")
+    return "\n".join(lines)
+
+
+def colony_view(events: pd.DataFrame) -> None:
+    alive_ids = set(events.loc[events["event"] == "born", "agent_id"]) - \
+        set(events.loc[events["event"] == "died", "agent_id"])
+    survived = events[events["event"] == "survived"]
+    last_day = int(events["day"].max())
+    latest = survived[survived["day"] == survived["day"].max()] if not survived.empty \
+        else events[events["event"] == "born"]
+
+    st.subheader("Survival colony")
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Day", last_day)
+    c2.metric("Alive", len(alive_ids))
+    c3.metric("Born", int((events["event"] == "born").sum()))
+    c4.metric("Let go", int((events["event"] == "died").sum()),
+              help="dismissed for missing the target (below the death line or kill switch)")
+    c5.metric("Colony equity", f"{latest['equity'].sum():,.0f}")
+
+    left, right = st.columns([1, 2])
+    with left:
+        st.caption("population and colony equity by day")
+        if not survived.empty:
+            by_day = survived.groupby("day").agg(alive=("agent_id", "count"),
+                                                 equity=("equity", "sum"))
+            st.line_chart(by_day["alive"], height=150)
+            st.line_chart(by_day["equity"], height=150)
+    with right:
+        st.caption("lineage — who cloned whom, who was let go")
+        st.graphviz_chart(lineage_dot(events), width="stretch")
+
+    frames = events[events["event"] == "employee_of_week"]
+    seniors = events[events["event"] == "senior"]
+    badges = []
+    if not seniors.empty:
+        s = seniors.iloc[-1]
+        badges.append(f"🌟 senior specialist: **{s['agent_id']}** ({s['detail']}) — "
+                      "interns size and pace their orders like them")
+    if not frames.empty:
+        f = frames.iloc[-1]
+        badges.append(f"🏆 employee of the week: **{f['agent_id']}** ({f['detail']})")
+    if badges:
+        st.caption(" · ".join(badges))
+    notable = events[events["event"].isin(["born", "cloned", "died", "target_hit",
+                                           "consulted", "party", "employee_of_week",
+                                           "immune", "spared", "trained", "senior"])].copy()
+    notable["event"] = notable["event"].replace({
+        "died": "let go", "consulted": "asked a tip", "party": "happy hour",
+        "employee_of_week": "employee of the week", "immune": "immunity earned",
+        "spared": "spared by immunity", "trained": "weekly training",
+        "senior": "senior specialist"})
+    with st.expander(f"event log ({len(notable)} events)"):
+        st.dataframe(notable[["day", "agent_id", "event", "equity", "detail"]]
+                     .sort_values("day", ascending=False),
+                     width="stretch", hide_index=True, height=260)
+
+
+def leaderboard(summary: pd.DataFrame) -> pd.DataFrame:
+    def compound_return(sub: pd.DataFrame) -> float:
+        return (sub["end_equity"] / sub["start_equity"]).prod() - 1
+
+    rows = []
+    for agent_id, sub in summary.groupby("agent_id"):
+        wins, losses = sub["n_wins"].sum(), sub["n_losses"].sum()
+        rows.append({
+            "agent": agent_id,
+            "episodes": len(sub),
+            "return": compound_return(sub),
+            "win_rate": wins / (wins + losses) if (wins + losses) else float("nan"),
+            "trades": int(sub["n_trades"].sum()),
+            "max_drawdown": sub["max_drawdown"].max(),
+            "halted": bool(sub["halted"].any()),
+        })
+    board = pd.DataFrame(rows).sort_values("return", ascending=False)
+    return board.reset_index(drop=True)
+
+
+def run_controls(db_path: str) -> background.RunState | None:
+    """Sidebar panel that starts a tournament in-process (what a hosted
+    deploy needs, since there is no second terminal to run the CLI in)."""
+    run = background.current_run()
+    st.sidebar.subheader("Run")
+    mode = st.sidebar.radio("Mode", ["Survival colony", "Tournament"], horizontal=True,
+                            help="Survival: daily target, death below the line, clones paid "
+                                 "from profit. Tournament: episodes with fresh wallets.")
+    with st.sidebar.form("run_form"):
+        if mode == "Survival colony":
+            days = st.slider("Days", 5, 180, 60)
+            budget = st.number_input("Budget per agent", 1.0, 100_000.0, 5.0, step=1.0,
+                                     help="a fiver each — clones cost a full budget")
+            clone_at = st.slider("Hire a clone at × budget", 1.05, 4.0, 1.1, 0.05,
+                                 help="an agent hires a copy of itself once its equity "
+                                      "reaches this multiple of its budget (1.1 = +10%); the "
+                                      "child is born with the surplus")
+            min_child = st.number_input("Smallest child", 0.01, 1_000.0, 0.2, step=0.1,
+                                        help="a surplus below this stays with the parent")
+            target = st.slider("Daily target %", 0.0, 3.0, 0.5, 0.1)
+            death = st.slider("Dead below % of budget", 0, 95, 60, 5)
+            cost = st.slider("Cost of living %/day", 0.0, 2.0, 0.02, 0.01)
+            pressure = st.slider("Pressure after a miss", 0.0, 1.0, 0.0, 0.1,
+                                 help="order size × (1+pressure) per consecutive missed "
+                                      "target — the gambler's-ruin incentive, off by default")
+            max_pop = st.slider("Max population", 5, 30, 12)
+            episodes, steps = 0, 24
+        else:
+            episodes = st.slider("Episodes", 1, 10, 3)
+            steps = 24 * st.slider("Days per episode (hourly bars)", 1, 30, 7)
+            days = budget = target = death = cost = pressure = max_pop = clone_at = min_child = 0
+        endogenous = st.checkbox("Endogenous market (order book)", value=True)
+        llm_ok = ClaudeTraderAgent.available()
+        llm = st.checkbox("Include Claude trader", value=False, disabled=not llm_ok,
+                          help=None if llm_ok else
+                          "set ANTHROPIC_API_KEY (Streamlit secrets on the cloud)")
+        seed_text = st.text_input("Seed (optional)", "")
+        submitted = st.form_submit_button(
+            "Start", disabled=run is not None and run.running, width="stretch")
+    if submitted:
+        seed = int(seed_text) if seed_text.strip().lstrip("-").isdigit() else None
+        if mode == "Survival colony":
+            config = RunConfig(db_path=db_path, mode="survival", days=days, budget=budget,
+                               daily_target=target / 100, death_below=death / 100,
+                               daily_cost=cost / 100, pressure=pressure, clone_at=clone_at,
+                               min_child_budget=min_child,
+                               max_population=max_pop, endogenous=endogenous,
+                               llm=llm, seed=seed)
+        else:
+            config = RunConfig(db_path=db_path, episodes=episodes, steps=steps,
+                               endogenous=endogenous, llm=llm, seed=seed)
+        run = background.start_tournament(config)
+        st.rerun()
+
+    if run is not None and run.running:
+        what = (f"{run.config.days} days of survival" if run.config.mode == "survival"
+                else f"{run.config.episodes} episodes × {run.config.steps} bars")
+        st.sidebar.info(f"running… {what}")
+    elif run is not None and run.error:
+        st.sidebar.error("last run failed")
+        with st.sidebar.expander("traceback"):
+            st.code(run.error)
+    elif run is not None:
+        st.sidebar.success(f"finished in {run.finished_at - run.started_at:.0f}s")
+
+    if st.sidebar.button("Reset journal", disabled=run is not None and run.running,
+                         width="stretch"):
+        for suffix in ("", "-wal", "-shm"):
+            Path(db_path + suffix).unlink(missing_ok=True)
+        st.rerun()
+    return run
+
+
+def main() -> None:
+    args = _parse_args()
+    st.set_page_config(page_title="CryptoArena", page_icon="🏟️", layout="wide")
+    st.title("🏟️ CryptoArena")
+
+    source = "Live colony" if args.db_url else "Local journal"
+    if args.db_url:
+        source = st.sidebar.radio("Source", ["Live colony", "Local journal"], horizontal=True)
+    db_path, run, live_error = args.db, None, None
+    db_url = args.db_url
+    floor = FLOORS[args.floor]
+    if source == "Live colony":
+        db_url = args.db_url
+        if args.live:   # the building: pick a floor
+            labels = [f.label for f in FLOORS.values()]
+            picked = st.sidebar.radio("Floor", labels, horizontal=True,
+                                      index=labels.index(floor.label))
+            floor = next(f for f in FLOORS.values() if f.label == picked)
+            db_url = floor.live_url
+        try:
+            db_path = fetch_journal(db_url)
+        except Exception as exc:   # noqa: BLE001 — shown to the user
+            live_error = str(exc)
+            db_path = ""            # never fall back to a local file on the live tab
+        st.caption(f"the live {floor.label.lower()} colony: {floor.caption} — "
+                   "state is published by the GitHub job and refreshed here every 2 min")
+    else:
+        st.caption(f"reading `{args.db}` — start a run from the sidebar, or feed it with "
+                   "`cryptoarena run` in another terminal")
+        run = run_controls(args.db)
+    st.sidebar.divider()
+    auto_refresh = st.sidebar.checkbox("Auto-refresh", value=True)
+    st.sidebar.button("Refresh now")
+
+    if live_error:
+        if "404" in live_error:
+            st.info(f"The {floor.label.lower()} floor has no published colony yet — its GitHub "
+                    f"job hasn't founded one. It will appear at `{db_url}` after the first run.")
+        else:
+            st.error(f"could not fetch the live colony from `{db_url}`: {live_error}")
+    data = load_data(db_path) if db_path and os.path.exists(db_path) else {}
+    live = data.get("live", pd.DataFrame())
+    if not live.empty:
+        live_view(json.loads(live.iloc[0]["value"]))
+    equity = data.get("equity", pd.DataFrame())
+    summary = data.get("summary", pd.DataFrame())
+    trades = data.get("trades", pd.DataFrame())
+    lessons = data.get("lessons", pd.DataFrame())
+    survival = data.get("survival", pd.DataFrame())
+
+    if summary.empty and equity.empty and survival.empty:
+        st.info(
+            "No data yet. Press **Start** in the sidebar, or point a run at the same file:\n\n"
+            f"```\ncryptoarena survive --days 60 --db {args.db}\n```"
+        )
+    else:
+        running = run is not None and run.running
+        if running:
+            total = run.config.days if run.config.mode == "survival" else run.config.episodes
+            unit = "day" if run.config.mode == "survival" else "episode"
+            done = int(summary["episode"].max()) if not summary.empty else 0
+            st.progress(min(done / total, 1.0), text=f"{unit} {done}/{total} complete")
+        world_tab, data_tab = st.tabs(["🏢 The floor", "📊 Data"])
+        with world_tab:
+            state = build_state(data, running=running)
+            components.html(render_world(state), height=650)
+            st.caption("hover or click an agent for its vitals · green energy, red stress, "
+                       "blue focus · the chatter is composed live from each agent's real "
+                       "state and never stored")
+            if state["agents"]:
+                vitals = pd.DataFrame(state["agents"])[
+                    ["agent_id", "role", "alive", "generation", "mood", "activity", "energy",
+                     "stress", "focus", "motivation", "ego", "equity", "day_return", "streak",
+                     "misses", "parties", "awards", "immune_until", "spared", "lessons",
+                     "mentor"]].replace(
+                    {"mood": {"dead": "let go"}, "activity": {"dead": "—"}})
+                with st.expander("vitals table"):
+                    st.dataframe(vitals, width="stretch", hide_index=True)
+        with data_tab:
+            data_view(equity, summary, trades, lessons, survival)
+
+    if auto_refresh:
+        time.sleep(2 if run is not None and run.running else 5)
+        st.rerun()
+
+
+def live_view(state: dict) -> None:
+    """The live colony's clock and wallets, straight from the saved state."""
+    alive = [p for p in state.get("population", []) if p.get("died_day") is None]
+    prices = state.get("last_prices", {})
+    equity = sum(p["agent"]["wallet"]["cash"]
+                 + sum(q * prices.get(s, 0.0) for s, q in p["agent"]["wallet"]["positions"].items())
+                 for p in alive)
+    cash = sum(p["agent"]["wallet"]["cash"] for p in alive)
+    cols = st.columns(5)
+    cols[0].metric("Real day", f"{state.get('day', 0)} · h{state.get('hour', 0)}")
+    cols[1].metric("Alive", len(alive),
+                   help=f"{sum(1 for p in alive if p['generation'] > 0)} interns")
+    cols[2].metric("Colony equity", f"{equity:,.2f}")
+    cols[3].metric("Invested", f"{equity - cash:,.2f}")
+    last = state.get("last_ts")
+    daily = state.get("timeframe") == "1d"
+    cols[4].metric("Last bar" if daily else "Last candle",
+                   (time.strftime("%d %b", time.gmtime(last)) if daily
+                    else time.strftime("%H:%M UTC", time.gmtime(last))) if last else "—",
+                   help=(time.strftime("%d %b %Y", time.gmtime(last)) + " · " if last else "")
+                   + f"source: {state.get('exchange', '?')} · saved {state.get('saved_at', '?')}")
+    if prices:
+        shown = list(prices.items())[:8]
+        st.caption(" · ".join(f"{s.replace('USDT', '').replace('USD', '')} {v:,.2f}"
+                              for s, v in shown)
+                   + (f" · +{len(prices) - len(shown)} more" if len(prices) > len(shown) else ""))
+
+
+def data_view(equity: pd.DataFrame, summary: pd.DataFrame, trades: pd.DataFrame,
+              lessons: pd.DataFrame, survival: pd.DataFrame) -> None:
+    if not survival.empty:
+        colony_view(survival)
+    if not summary.empty:
+        st.subheader("Leaderboard (cumulative across episodes)")
+        board = leaderboard(summary)
+        st.dataframe(
+            board.style.format({
+                "return": "{:+.1%}", "win_rate": "{:.0%}", "max_drawdown": "{:.0%}",
+            }),
+            width="stretch", hide_index=True,
+        )
+
+    if not equity.empty:
+        st.subheader("Equity curves")
+        equity = equity.sort_values(["agent_id", "episode", "step"]).copy()
+        equity["t"] = equity.groupby("agent_id").cumcount()
+        pivot = equity.pivot(index="t", columns="agent_id", values="equity")
+        st.line_chart(pivot)
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("Recent trades")
+        if not trades.empty:
+            st.dataframe(
+                trades[["agent_id", "episode", "symbol", "side", "price",
+                        "pnl", "regime", "reason"]],
+                width="stretch", height=380, hide_index=True,
+            )
+        else:
+            st.caption("no trades yet")
+    with col2:
+        st.subheader("Lessons learned (by importance)")
+        if not lessons.empty:
+            st.dataframe(
+                lessons[["agent_id", "episode", "regime", "importance", "lesson"]],
+                width="stretch", height=380, hide_index=True,
+            )
+        else:
+            st.caption("no lessons yet")
+
+
+if __name__ == "__main__":
+    main()

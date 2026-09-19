@@ -16,6 +16,7 @@ dependencies = [
 
 [project.optional-dependencies]
 live = ["ccxt>=4.0"]
+ui = ["streamlit>=1.45"]
 dev = ["pytest>=7.0"]
 
 [project.scripts]
@@ -23,6 +24,9 @@ cryptoarena = "cryptoarena.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+cryptoarena = ["world/*.html"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

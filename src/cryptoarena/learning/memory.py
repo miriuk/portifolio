@@ -25,6 +25,8 @@ CREATE TABLE IF NOT EXISTS lessons (
     agent_id TEXT NOT NULL,
     episode INTEGER NOT NULL,
     lesson TEXT NOT NULL,
+    regime TEXT DEFAULT '',
+    importance REAL DEFAULT 1.0,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE IF NOT EXISTS agent_state (
@@ -32,7 +34,53 @@ CREATE TABLE IF NOT EXISTS agent_state (
     params TEXT NOT NULL,      -- JSON of tunable parameters
     generation INTEGER DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS equity_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent_id TEXT NOT NULL,
+    episode INTEGER NOT NULL,
+    step INTEGER NOT NULL,
+    equity REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS episode_summary (
+    agent_id TEXT NOT NULL,
+    episode INTEGER NOT NULL,
+    start_equity REAL NOT NULL,
+    end_equity REAL NOT NULL,
+    n_trades INTEGER NOT NULL,
+    n_wins INTEGER NOT NULL,
+    n_losses INTEGER NOT NULL,
+    n_stop_losses INTEGER NOT NULL,
+    fees REAL NOT NULL,
+    max_drawdown REAL NOT NULL,
+    halted INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (agent_id, episode)
+);
+CREATE TABLE IF NOT EXISTS market_snapshots (
+    episode INTEGER NOT NULL,
+    step INTEGER NOT NULL,
+    symbol TEXT NOT NULL,
+    close REAL NOT NULL,
+    regime TEXT DEFAULT '',
+    PRIMARY KEY (episode, step, symbol)
+);
+CREATE TABLE IF NOT EXISTS survival_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    day INTEGER NOT NULL,
+    agent_id TEXT NOT NULL,
+    event TEXT NOT NULL,         -- born | survived | target_hit | cloned | died
+    equity REAL NOT NULL,
+    parent_id TEXT,
+    generation INTEGER DEFAULT 0,
+    strategy TEXT DEFAULT '',
+    detail TEXT DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS colony_state (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,          -- JSON blob: a live colony's wallets, positions, clock…
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
 CREATE INDEX IF NOT EXISTS idx_trades_agent ON trades (agent_id, episode);
+CREATE INDEX IF NOT EXISTS idx_equity_agent ON equity_snapshots (agent_id, episode, step);
 """
 
 
@@ -61,7 +109,14 @@ class TradeJournal:
     def __init__(self, db_path: str | Path = "arena.db"):
         self.db_path = str(db_path)
         self._conn = sqlite3.connect(self.db_path)
+        # WAL lets a dashboard read the DB concurrently while a run is writing to it.
+        self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.executescript(SCHEMA)
+        cols = {r[1] for r in self._conn.execute("PRAGMA table_info(lessons)")}
+        if "regime" not in cols:
+            self._conn.execute("ALTER TABLE lessons ADD COLUMN regime TEXT DEFAULT ''")
+        if "importance" not in cols:
+            self._conn.execute("ALTER TABLE lessons ADD COLUMN importance REAL DEFAULT 1.0")
         self._conn.commit()
 
     def close(self) -> None:
@@ -87,19 +142,68 @@ class TradeJournal:
         rows = self._conn.execute(q + " ORDER BY id", args).fetchall()
         return [TradeRecord(*row) for row in rows]
 
-    def add_lesson(self, agent_id: str, episode: int, lesson: str) -> None:
-        self._conn.execute(
-            "INSERT INTO lessons (agent_id, episode, lesson) VALUES (?, ?, ?)",
-            (agent_id, episode, lesson),
-        )
+    def add_lesson(self, agent_id: str, episode: int, lesson: str,
+                   regime: str = "", importance: float = 1.0) -> None:
+        """Insert a lesson — or, if the same theme was already learned for the
+        same regime, reinforce the existing one (FinMem-style promotion:
+        repeated lessons decay slower instead of piling up as duplicates)."""
+        # theme = the advice clause (after the em-dash), which is stable
+        # across episodes; the numbers before it vary per episode
+        theme = (lesson.rsplit("\u2014", 1)[-1] if "\u2014" in lesson
+                 else lesson.split(":", 1)[-1]).strip()[:48]
+        row = self._conn.execute(
+            """SELECT id, importance FROM lessons
+               WHERE agent_id = ? AND regime = ? AND lesson LIKE ?
+               ORDER BY id DESC LIMIT 1""",
+            (agent_id, regime, f"%{theme}%"),
+        ).fetchone()
+        if row is not None:
+            self._conn.execute(
+                "UPDATE lessons SET importance = ?, episode = ? WHERE id = ?",
+                (min(row[1] + 0.5, 3.0), episode, row[0]),
+            )
+        else:
+            self._conn.execute(
+                """INSERT INTO lessons (agent_id, episode, lesson, regime, importance)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (agent_id, episode, lesson, regime, importance),
+            )
         self._conn.commit()
 
-    def lessons_for(self, agent_id: str, limit: int = 12) -> list[str]:
-        rows = self._conn.execute(
-            "SELECT lesson FROM lessons WHERE agent_id = ? ORDER BY id DESC LIMIT ?",
-            (agent_id, limit),
-        ).fetchall()
+    def lessons_for(self, agent_id: str, limit: int = 12,
+                    regime: str | None = None) -> list[str]:
+        """Retrieve lessons ranked by importance, boosted when they were
+        learned under the given market regime (condition-matched retrieval,
+        not recency-matched)."""
+        if regime:
+            rows = self._conn.execute(
+                """SELECT lesson FROM lessons WHERE agent_id = ?
+                   ORDER BY importance + (CASE WHEN regime = ? THEN 1.0 ELSE 0 END) DESC,
+                            id DESC LIMIT ?""",
+                (agent_id, regime, limit),
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                """SELECT lesson FROM lessons WHERE agent_id = ?
+                   ORDER BY importance DESC, id DESC LIMIT ?""",
+                (agent_id, limit),
+            ).fetchall()
         return [r[0] for r in reversed(rows)]
+
+    def decay_lessons(self, agent_id: str, factor: float = 0.85,
+                      prune_below: float = 0.25) -> int:
+        """Fade unreinforced memories; forget the ones that stopped mattering.
+        Returns how many lessons were pruned."""
+        self._conn.execute(
+            "UPDATE lessons SET importance = importance * ? WHERE agent_id = ?",
+            (factor, agent_id),
+        )
+        cur = self._conn.execute(
+            "DELETE FROM lessons WHERE agent_id = ? AND importance < ?",
+            (agent_id, prune_below),
+        )
+        self._conn.commit()
+        return cur.rowcount
 
     def save_params(self, agent_id: str, params: dict, generation: int = 0) -> None:
         self._conn.execute(
@@ -117,3 +221,69 @@ class TradeJournal:
         if row is None:
             return None
         return json.loads(row[0]), row[1]
+
+    def record_equity(self, agent_id: str, episode: int, step: int, equity: float) -> None:
+        """One point of a live equity curve — read by the dashboard while a
+        run is still in progress (WAL mode makes this safe concurrently)."""
+        self._conn.execute(
+            "INSERT INTO equity_snapshots (agent_id, episode, step, equity) VALUES (?, ?, ?, ?)",
+            (agent_id, episode, step, equity),
+        )
+        self._conn.commit()
+
+    def record_market(self, episode: int, step: int, closes: dict[str, float],
+                      regimes: dict[str, str]) -> None:
+        """The tape as the agents saw it, so a viewer can show a price
+        ticker and the regime without re-running the market."""
+        self._conn.executemany(
+            """INSERT OR REPLACE INTO market_snapshots (episode, step, symbol, close, regime)
+               VALUES (?, ?, ?, ?, ?)""",
+            [(episode, step, sym, px, regimes.get(sym, "")) for sym, px in closes.items()],
+        )
+        self._conn.commit()
+
+    def record_survival_event(self, day: int, agent_id: str, event: str, equity: float,
+                              parent_id: str | None = None, generation: int = 0,
+                              strategy: str = "", detail: str = "") -> None:
+        self._conn.execute(
+            """INSERT INTO survival_events (day, agent_id, event, equity, parent_id,
+               generation, strategy, detail) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (day, agent_id, event, equity, parent_id, generation, strategy, detail),
+        )
+        self._conn.commit()
+
+    def save_state(self, key: str, value) -> None:
+        """Persist a JSON-serialisable blob under `key` (live colonies keep
+        their whole in-memory state here so an hourly job can resume)."""
+        self._conn.execute(
+            """INSERT INTO colony_state (key, value, updated_at)
+               VALUES (?, ?, CURRENT_TIMESTAMP)
+               ON CONFLICT(key) DO UPDATE SET value = excluded.value,
+               updated_at = CURRENT_TIMESTAMP""",
+            (key, json.dumps(value)),
+        )
+        self._conn.commit()
+
+    def load_state(self, key: str):
+        row = self._conn.execute(
+            "SELECT value FROM colony_state WHERE key = ?", (key,)).fetchone()
+        return json.loads(row[0]) if row else None
+
+    def record_episode_summary(self, stats, halted: bool = False) -> None:
+        """Persist an EpisodeStats snapshot so the leaderboard survives the
+        run and can be read by a separate dashboard process."""
+        self._conn.execute(
+            """INSERT INTO episode_summary (agent_id, episode, start_equity, end_equity,
+               n_trades, n_wins, n_losses, n_stop_losses, fees, max_drawdown, halted)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(agent_id, episode) DO UPDATE SET
+                 start_equity=excluded.start_equity, end_equity=excluded.end_equity,
+                 n_trades=excluded.n_trades, n_wins=excluded.n_wins,
+                 n_losses=excluded.n_losses, n_stop_losses=excluded.n_stop_losses,
+                 fees=excluded.fees, max_drawdown=excluded.max_drawdown,
+                 halted=excluded.halted""",
+            (stats.agent_id, stats.episode, stats.start_equity, stats.end_equity,
+             stats.n_trades, stats.n_wins, stats.n_losses, stats.n_stop_losses,
+             stats.fees, stats.max_drawdown, int(halted)),
+        )
+        self._conn.commit()
