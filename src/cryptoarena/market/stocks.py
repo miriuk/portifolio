@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import time
+import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 from typing import Callable
@@ -18,8 +19,10 @@ from typing import Callable
 from .candle import Candle
 
 STOOQ_URL = "https://stooq.com/q/d/l/?s={ticker}&i=d"
-YAHOO_URL = ("https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
+YAHOO_URL = ("https://query2.finance.yahoo.com/v8/finance/chart/{ticker}"
              "?interval=1d&range={range}&includePrePost=false")
+FRED_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv?id={series}"
+FRED_PROXIES = {"SPY": "SP500", "QQQ": "NASDAQ100", "DIA": "DJIA"}   # index levels, close only
 DEFAULT_STOCKS = {"SPY": "spy.us", "QQQ": "qqq.us", "AAPL": "aapl.us", "MSFT": "msft.us",
                   "NVDA": "nvda.us", "AMZN": "amzn.us"}
 DAY = 86400
@@ -45,10 +48,64 @@ def _get(url: str, timeout: int = 30, attempts: int = 4) -> bytes:
     raise RuntimeError("unreachable")
 
 
+_yahoo_opener = None
+
+
+def _yahoo_get(url: str, attempts: int = 5) -> bytes:
+    """Yahoo wants a session cookie and a 'crumb' before it serves data to
+    an unfamiliar IP; without them shared runners get 429s. Same dance the
+    usual libraries do, with a growing pause on throttling."""
+    global _yahoo_opener
+    import http.cookiejar
+    import urllib.error
+    delay = 15
+    for attempt in range(attempts):
+        try:
+            if _yahoo_opener is None:
+                jar = http.cookiejar.CookieJar()
+                opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+                opener.addheaders = [("User-Agent", _UA), ("Accept", "*/*")]
+                try:
+                    opener.open("https://fc.yahoo.com", timeout=30).read()
+                except urllib.error.HTTPError:
+                    pass                          # 404 is fine: the cookie is set anyway
+                crumb = opener.open("https://query2.finance.yahoo.com/v1/test/getcrumb",
+                                    timeout=30).read().decode().strip()
+                _yahoo_opener = (opener, crumb)
+            opener, crumb = _yahoo_opener
+            sep = "&" if "?" in url else "?"
+            return opener.open(f"{url}{sep}crumb={urllib.parse.quote(crumb)}", timeout=30).read()
+        except urllib.error.HTTPError as exc:
+            _yahoo_opener = None                  # a fresh session next time
+            if exc.code not in (401, 403, 429, 500, 502, 503, 504) or attempt == attempts - 1:
+                raise
+            time.sleep(delay)
+            delay *= 2
+    raise RuntimeError("unreachable")
+
+
+def fetch_fred(series: str) -> list[list[float]]:
+    """FRED's daily index levels (close only): a bar with o = h = l = c."""
+    text = _get(FRED_URL.format(series=series)).decode("utf-8", "replace")
+    rows = []
+    for line in text.splitlines()[1:]:
+        date, _, value = line.partition(",")
+        if value.strip() in ("", "."):
+            continue
+        try:
+            day = datetime.strptime(date.strip(), "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            close = float(value)
+        except ValueError:
+            continue
+        rows.append([int(day.timestamp()), close, close, close, close, 0.0])
+    rows.sort()
+    return rows
+
+
 def fetch_yahoo(ticker: str, range_: str = "10y") -> list[list[float]]:
     """Yahoo's chart JSON -> [timestamp(midnight UTC), o, h, l, c, v] rows. The
     `close` series is split-adjusted, which is what a backtest needs."""
-    data = json.loads(_get(YAHOO_URL.format(ticker=ticker, range=range_)))
+    data = json.loads(_yahoo_get(YAHOO_URL.format(ticker=ticker, range=range_)))
     result = (data.get("chart") or {}).get("result") or []
     if not result:
         return []
@@ -77,7 +134,19 @@ def fetch_daily(ticker: str, min_rows: int = 100, verbose: bool = True) -> list[
         return rows
     yahoo = ticker.split(".")[0].upper()
     time.sleep(2)                # be a polite guest on the second source
-    return fetch_yahoo(yahoo)
+    try:
+        rows = fetch_yahoo(yahoo)
+    except Exception as exc:     # noqa: BLE001 — last resort below
+        if verbose:
+            print(f"yahoo {yahoo}: {exc}")
+        rows = []
+    if len(rows) >= min_rows:
+        return rows
+    if yahoo in FRED_PROXIES:
+        if verbose:
+            print(f"{yahoo}: using FRED index levels ({FRED_PROXIES[yahoo]}) as a proxy")
+        return fetch_fred(FRED_PROXIES[yahoo])
+    return rows
 
 
 def fetch_stooq(ticker: str, verbose: bool = False) -> list[list[float]]:
