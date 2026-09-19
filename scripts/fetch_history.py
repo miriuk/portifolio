@@ -108,8 +108,10 @@ def main() -> None:
     out.mkdir(parents=True, exist_ok=True)
     defaults = STOCKS if args.source == "stooq" else PRODUCTS
     products = args.products or ",".join(f"{k}={v}" for k, v in defaults.items())
-    for pair in products.split(","):
+    for i, pair in enumerate(products.split(",")):
         name, product = pair.split("=", 1)
+        if i and args.source == "stooq":
+            time.sleep(3)
         rows = fetch_stooq(product, args.days) if args.source == "stooq" \
             else fetch(product, args.days)
         if not rows:

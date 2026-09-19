@@ -289,6 +289,7 @@ def main() -> None:
     if args.db_url:
         source = st.sidebar.radio("Source", ["Live colony", "Local journal"], horizontal=True)
     db_path, run, live_error = args.db, None, None
+    db_url = args.db_url
     floor = FLOORS[args.floor]
     if source == "Live colony":
         db_url = args.db_url
@@ -302,6 +303,7 @@ def main() -> None:
             db_path = fetch_journal(db_url)
         except Exception as exc:   # noqa: BLE001 — shown to the user
             live_error = str(exc)
+            db_path = ""            # never fall back to a local file on the live tab
         st.caption(f"the live {floor.label.lower()} colony: {floor.caption} — "
                    "state is published by the GitHub job and refreshed here every 2 min")
     else:
@@ -313,8 +315,12 @@ def main() -> None:
     st.sidebar.button("Refresh now")
 
     if live_error:
-        st.error(f"could not fetch the live colony from `{args.db_url}`: {live_error}")
-    data = load_data(db_path) if os.path.exists(db_path) else {}
+        if "404" in live_error:
+            st.info(f"The {floor.label.lower()} floor has no published colony yet — its GitHub "
+                    f"job hasn't founded one. It will appear at `{db_url}` after the first run.")
+        else:
+            st.error(f"could not fetch the live colony from `{db_url}`: {live_error}")
+    data = load_data(db_path) if db_path and os.path.exists(db_path) else {}
     live = data.get("live", pd.DataFrame())
     if not live.empty:
         live_view(json.loads(live.iloc[0]["value"]))

@@ -27,10 +27,22 @@ _UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
        "Chrome/124.0 Safari/537.36")
 
 
-def _get(url: str, timeout: int = 30) -> bytes:
-    req = urllib.request.Request(url, headers={"User-Agent": _UA, "Accept": "*/*"})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return resp.read()
+def _get(url: str, timeout: int = 30, attempts: int = 4) -> bytes:
+    """GET with a browser user agent; 429/5xx are retried with a growing pause
+    (shared runner IPs get throttled by both sources now and then)."""
+    import urllib.error
+    delay = 10
+    for attempt in range(attempts):
+        req = urllib.request.Request(url, headers={"User-Agent": _UA, "Accept": "*/*"})
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return resp.read()
+        except urllib.error.HTTPError as exc:
+            if exc.code not in (429, 500, 502, 503, 504) or attempt == attempts - 1:
+                raise
+            time.sleep(delay)
+            delay *= 2
+    raise RuntimeError("unreachable")
 
 
 def fetch_yahoo(ticker: str, range_: str = "10y") -> list[list[float]]:
@@ -53,21 +65,26 @@ def fetch_yahoo(ticker: str, range_: str = "10y") -> list[list[float]]:
     return rows
 
 
-def fetch_daily(ticker: str, min_rows: int = 100) -> list[list[float]]:
+def fetch_daily(ticker: str, min_rows: int = 100, verbose: bool = True) -> list[list[float]]:
     """Stooq, then Yahoo when Stooq comes back (nearly) empty."""
     try:
-        rows = fetch_stooq(ticker)
-    except Exception:            # noqa: BLE001 — fall through to the second source
+        rows = fetch_stooq(ticker, verbose=verbose)
+    except Exception as exc:     # noqa: BLE001 — fall through to the second source
+        if verbose:
+            print(f"stooq {ticker}: {exc}")
         rows = []
     if len(rows) >= min_rows:
         return rows
     yahoo = ticker.split(".")[0].upper()
+    time.sleep(2)                # be a polite guest on the second source
     return fetch_yahoo(yahoo)
 
 
-def fetch_stooq(ticker: str) -> list[list[float]]:
+def fetch_stooq(ticker: str, verbose: bool = False) -> list[list[float]]:
     """[timestamp, open, high, low, close, volume] rows, oldest first."""
     text = _get(STOOQ_URL.format(ticker=ticker)).decode("utf-8", "replace")
+    if verbose and not text.lstrip().startswith("Date"):
+        print(f"stooq {ticker}: unexpected answer: {text[:160]!r}")
     rows = []
     for line in text.splitlines()[1:]:
         parts = line.strip().split(",")
