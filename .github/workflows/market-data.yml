@@ -22,7 +22,7 @@ jobs:
     timeout-minutes: 20
     env:
       PYTHONUNBUFFERED: "1"
-      CRYPTOARENA_DAILY_SOURCE: index     # Cboe or FRED index history: Stooq and Yahoo wall off GitHub runners
+      CRYPTOARENA_DAILY_SOURCE: nasdaq    # the one public source that answers GitHub runners
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -32,7 +32,7 @@ jobs:
         run: pip install -e .
       - name: Fetch crypto (Coinbase, hourly)
         run: python scripts/fetch_history.py --days "${{ inputs.days || '400' }}" --out data
-      - name: Fetch stocks (FRED index levels, daily, 6 years)
+      - name: Fetch stocks (Nasdaq API, daily, 6 years)
         continue-on-error: true           # the crypto tape publishes even if this fails
         run: python scripts/fetch_history.py --source stooq --days 2200 --out data/stocks
       - name: Publish

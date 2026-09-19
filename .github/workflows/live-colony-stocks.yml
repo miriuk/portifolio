@@ -2,10 +2,10 @@
 #
 # Every weekday evening (after the NYSE close) the job restores the
 # colony's journal from the `colony-live-stocks` branch, feeds it the
-# trading day that just closed (paper trading on FRED's daily levels of
-# the S&P 500, Nasdaq 100 and Dow as SPY, QQQ and DIA — no account, no
-# keys, no real money), runs the day's rituals and publishes the journal
-# back. One bar is one colony day; a colony week is five trading days.
+# trading day that just closed (paper trading on Nasdaq's public daily
+# bars: SPY, QQQ, AAPL, MSFT, NVDA, AMZN — no account, no keys, no real
+# money), runs the day's rituals and publishes the journal back. One bar
+# is one colony day; a colony week is five trading days.
 #
 # "Run workflow" (with reset) founds a fresh colony.
 name: Live colony (stocks)
@@ -35,7 +35,7 @@ jobs:
       COLONY_BRANCH: colony-live-stocks
       COLONY_DB: live/stocks.db
       PYTHONUNBUFFERED: "1"
-      CRYPTOARENA_DAILY_SOURCE: index     # Cboe or FRED index history: Stooq and Yahoo wall off GitHub runners
+      CRYPTOARENA_DAILY_SOURCE: nasdaq    # the one public source that answers GitHub runners
     steps:
       - uses: actions/checkout@v4
 

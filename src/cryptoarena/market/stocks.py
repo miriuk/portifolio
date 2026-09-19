@@ -1,14 +1,15 @@
-"""Daily US stock and index bars, with the live feed's interface.
+"""Daily US stock and ETF bars, with the live feed's interface.
 
-Three key-less sources, tried in order: Stooq (one CSV per ticker,
-split-adjusted OHLC), Yahoo Finance's chart endpoint, and FRED's daily
-index levels (close only). From a residential IP the first two work;
-GitHub-hosted runners get a JavaScript wall from Stooq and 429s from
-Yahoo, so there the floor runs on FRED — the S&P 500, Nasdaq 100 and
-Dow as proxies for SPY, QQQ and DIA. Set CRYPTOARENA_DAILY_SOURCE=fred
-to skip straight to FRED. A bar's timestamp is midnight UTC of its
-trading date; it counts as closed once its date is behind us, or on the
-same UTC day after 22:00 (the NYSE closes at 20:00 UTC).
+Key-less sources, tried in order: Stooq (one CSV per ticker), Nasdaq's
+own historical-quotes API (OHLC + volume for any listed stock or ETF),
+Yahoo Finance's chart endpoint, then index levels from Cboe or FRED as
+proxies for SPY/QQQ/DIA. Probed from a GitHub-hosted runner: Stooq
+answers with a JavaScript wall, Yahoo with 429, FRED and Cboe's NDX
+time out or 403 — Nasdaq's API is the one that works there, so the
+workflows set CRYPTOARENA_DAILY_SOURCE=nasdaq. A bar's timestamp is
+midnight UTC of its trading date; it counts as closed once its date is
+behind us, or on the same UTC day after 22:00 (the NYSE closes at
+20:00 UTC).
 """
 from __future__ import annotations
 
@@ -28,8 +29,11 @@ FRED_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv?id={series}"
 FRED_PROXIES = {"SPY": "SP500", "QQQ": "NASDAQ100", "DIA": "DJIA"}   # index levels, close only
 CBOE_URL = "https://cdn.cboe.com/api/global/us_indices/daily_prices/{index}_History.csv"
 CBOE_PROXIES = {"SPY": "SPX", "QQQ": "NDX", "DIA": "DJX", "IWM": "RUT"}   # OHLC index history
-DEFAULT_STOCKS = {"SPY": "spy.us", "QQQ": "qqq.us", "DIA": "dia.us"}
-EXTRA_STOCKS = {"AAPL": "aapl.us", "MSFT": "msft.us", "NVDA": "nvda.us", "AMZN": "amzn.us"}
+DEFAULT_STOCKS = {"SPY": "spy.us", "QQQ": "qqq.us", "AAPL": "aapl.us", "MSFT": "msft.us",
+                  "NVDA": "nvda.us", "AMZN": "amzn.us"}
+ETFS = {"SPY", "QQQ", "DIA", "IWM", "VTI", "VOO"}
+NASDAQ_URL = ("https://api.nasdaq.com/api/quote/{ticker}/historical"
+              "?assetclass={assetclass}&fromdate={fromdate}&limit=9999")
 DAY = 86400
 _UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
        "Chrome/124.0 Safari/537.36")
@@ -62,6 +66,8 @@ def parse_cboe(text: str) -> list[list[float]]:
     rows = []
     for line in text.splitlines()[1:]:
         parts = [x.strip() for x in line.split(",")]
+        if len(parts) == 2:                     # DATE,<index>: close only
+            parts = [parts[0], parts[1], parts[1], parts[1], parts[1]]
         if len(parts) < 5:
             continue
         day = None
@@ -125,6 +131,47 @@ def _yahoo_get(url: str, attempts: int = 2) -> bytes:
     raise RuntimeError("unreachable")
 
 
+def _money(text) -> float | None:
+    if text is None:
+        return None
+    t = str(text).replace("$", "").replace(",", "").strip()
+    if not t or t.upper() == "N/A":
+        return None
+    try:
+        return float(t)
+    except ValueError:
+        return None
+
+
+def parse_nasdaq(data: dict) -> list[list[float]]:
+    """Nasdaq's historical JSON (rows of date, close, volume, open, high,
+    low as '$'-prefixed strings, US dates, newest first) -> rows."""
+    table = ((data.get("data") or {}).get("tradesTable") or {})
+    rows = []
+    for r in table.get("rows") or []:
+        try:
+            day = datetime.strptime(r.get("date", ""), "%m/%d/%Y").replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+        c = _money(r.get("close"))
+        if c is None:
+            continue
+        o, h, lo = (_money(r.get(k)) for k in ("open", "high", "low"))
+        v = _money(r.get("volume")) or 0.0
+        rows.append([int(day.timestamp()), o if o else c, h if h else c, lo if lo else c, c, v])
+    rows.sort()
+    return rows
+
+
+def fetch_nasdaq(ticker: str, years: int = 6) -> list[list[float]]:
+    """Daily OHLCV from Nasdaq's public quote API, `years` back."""
+    from datetime import timedelta
+    fromdate = (datetime.now(timezone.utc) - timedelta(days=365 * years)).strftime("%Y-%m-%d")
+    assetclass = "etf" if ticker.upper() in ETFS else "stocks"
+    url = NASDAQ_URL.format(ticker=ticker.upper(), assetclass=assetclass, fromdate=fromdate)
+    return parse_nasdaq(json.loads(_get(url, timeout=60)))
+
+
 def fetch_fred(series: str) -> list[list[float]]:
     """FRED's daily index levels (close only): a bar with o = h = l = c."""
     text = _get(FRED_URL.format(series=series), timeout=120).decode("utf-8", "replace")
@@ -168,8 +215,19 @@ def fetch_daily(ticker: str, min_rows: int = 100, verbose: bool = True) -> list[
     away when CRYPTOARENA_DAILY_SOURCE=fred."""
     import os
     yahoo = ticker.split(".")[0].upper()
-    if os.environ.get("CRYPTOARENA_DAILY_SOURCE", "").lower() in ("fred", "index"):
+    source = os.environ.get("CRYPTOARENA_DAILY_SOURCE", "").lower()
+    if source in ("fred", "index"):
         return _fetch_index_proxy(yahoo, verbose)
+    if source == "nasdaq":
+        try:
+            rows = fetch_nasdaq(yahoo)
+            if verbose:
+                print(f"{yahoo}: Nasdaq API, {len(rows)} bars", flush=True)
+            return rows
+        except Exception as exc:     # noqa: BLE001 — then the index proxies
+            if verbose:
+                print(f"nasdaq {yahoo}: {exc}", flush=True)
+            return _fetch_index_proxy(yahoo, verbose)
     try:
         rows = fetch_stooq(ticker, verbose=verbose)
     except Exception as exc:     # noqa: BLE001 — fall through to the second source
@@ -178,7 +236,15 @@ def fetch_daily(ticker: str, min_rows: int = 100, verbose: bool = True) -> list[
         rows = []
     if len(rows) >= min_rows:
         return rows
-    time.sleep(2)                # be a polite guest on the second source
+    try:
+        rows = fetch_nasdaq(yahoo)
+    except Exception as exc:     # noqa: BLE001 — then Yahoo
+        if verbose:
+            print(f"nasdaq {yahoo}: {exc}", flush=True)
+        rows = []
+    if len(rows) >= min_rows:
+        return rows
+    time.sleep(2)                # be a polite guest on the next source
     try:
         rows = fetch_yahoo(yahoo)
     except Exception as exc:     # noqa: BLE001 — last resort below

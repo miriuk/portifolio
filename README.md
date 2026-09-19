@@ -370,7 +370,7 @@ estagiários, dispensa, happy hour, sênior, imitação) são as mesmas.
 | Andar | Fita | Um "dia" da colônia | Semana | Fonte | Estado publicado |
 |---|---|---|---|---|---|
 | `crypto` | velas horárias, 24 moedas principais (BTC, ETH, SOL, XRP, ADA, DOGE, …) | 24 velas, 7 dias por semana | 7 dias | Kraken (pública) | branch `colony-live` |
-| `stocks` | barras diárias, SPY/QQQ/DIA (S&P 500, Nasdaq 100, Dow) | 1 barra, um pregão | 5 pregões | FRED no GitHub; Stooq ou Yahoo de uma conexão doméstica | branch `colony-live-stocks` |
+| `stocks` | barras diárias, SPY/QQQ/AAPL/MSFT/NVDA/AMZN | 1 barra, um pregão | 5 pregões | API da Nasdaq no GitHub; Stooq de uma conexão doméstica | branch `colony-live-stocks` |
 
 ```bash
 cryptoarena live --floor stocks --once --db live/stocks.db   # um pregão (cron das 23:45 UTC, dias úteis)
@@ -385,11 +385,13 @@ meses), meta de 0,2% por pregão, taxa de 0,05% por lado (corretagem zero
 mais spread). O workflow `live-colony-stocks.yml` bate o ponto de
 segunda a sexta depois do fechamento de Nova York.
 
-Sobre os dados: os runners do GitHub recebem uma parede de JavaScript do
-Stooq e 429 do Yahoo, então lá o andar roda nos níveis diários do FRED
-(S&P 500, Nasdaq 100, Dow), que são só fechamento — abertura, máxima e
-mínima iguais ao fechamento. De um PC comum o Stooq responde, e aí
-`--symbols AAPL=aapl.us,NVDA=nvda.us` põe ações individuais no andar.
+Sobre os dados: sondados de um runner do GitHub, o Stooq responde com
+uma parede de JavaScript, o Yahoo com 429, o FRED e a Cboe estouram o
+tempo ou dão 403; a API pública da Nasdaq responde com abertura,
+máxima, mínima, fechamento e volume de qualquer ação ou ETF, e é ela que
+os workflows usam (`CRYPTOARENA_DAILY_SOURCE=nasdaq`). De um PC comum o
+Stooq também responde. `--symbols TSLA=tsla.us,META=meta.us` troca a
+lista.
 
 Sobre as moedas: a colônia cripto negocia 24 moedas principais cotadas em
 dólar tanto na Kraken (feed real) quanto na Coinbase (fita do backtest),

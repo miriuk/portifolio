@@ -120,3 +120,17 @@ def test_cboe_history_parses_us_dates_and_ohlc():
     assert [r[4] for r in rows] == [3257.85, 3234.85]
     assert rows[0][0] == int(datetime(2020, 1, 2, tzinfo=timezone.utc).timestamp())
     assert rows[0][1:5] == [3244.67, 3258.14, 3235.53, 3257.85]
+
+
+def test_nasdaq_history_parses_dollar_strings_newest_first():
+    from cryptoarena.market.stocks import parse_nasdaq
+    data = {"data": {"symbol": "SPY", "tradesTable": {"rows": [
+        {"date": "09/19/2026", "close": "$671.23", "volume": "58,123,456",
+         "open": "$669.10", "high": "$673.50", "low": "$668.02"},
+        {"date": "09/18/2026", "close": "$667.00", "volume": "N/A",
+         "open": "$664.00", "high": "$668.00", "low": "$663.00"},
+        {"date": "bad", "close": "$1"}]}}}
+    rows = parse_nasdaq(data)
+    assert [r[4] for r in rows] == [667.0, 671.23]                # oldest first
+    assert rows[1][1:] == [669.10, 673.50, 668.02, 671.23, 58123456.0]
+    assert rows[0][5] == 0.0

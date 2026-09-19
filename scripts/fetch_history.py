@@ -30,7 +30,8 @@ MAJORS = ["BTC", "ETH", "SOL", "XRP", "ADA", "DOGE", "AVAX", "DOT", "LINK", "LTC
           "SUI", "INJ"]          # keep in step with cryptoarena.market.live.MAJORS
 PRODUCTS = {f"{c}USD": f"{c}-USD" for c in MAJORS}
 STOOQ = "https://stooq.com/q/d/l/?s={ticker}&i=d"
-STOCKS = {"SPY": "spy.us", "QQQ": "qqq.us", "DIA": "dia.us"}   # FRED proxies exist for these
+STOCKS = {"SPY": "spy.us", "QQQ": "qqq.us", "AAPL": "aapl.us", "MSFT": "msft.us",
+          "NVDA": "nvda.us", "AMZN": "amzn.us"}
 
 
 def fetch_stooq(ticker: str, days: int | None = None) -> list[list[float]]:
