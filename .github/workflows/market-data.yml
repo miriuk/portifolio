@@ -25,9 +25,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Install (the stock fetcher lives in the package)
+        run: pip install -e .
       - name: Fetch crypto (Coinbase, hourly)
         run: python scripts/fetch_history.py --days "${{ inputs.days || '400' }}" --out data
-      - name: Fetch stocks (Stooq, daily, 6 years)
+      - name: Fetch stocks (Stooq or Yahoo, daily, 6 years)
         run: python scripts/fetch_history.py --source stooq --days 2200 --out data/stocks
       - name: Publish
         env:

@@ -30,8 +30,9 @@ from cryptoarena.arena.background import RunConfig
 from cryptoarena.world.render import build_state, render_world
 
 
-LIVE_COLONY_URL = ("https://raw.githubusercontent.com/miriuk/portifolio/"
-                   "colony-live/colony.db")   # what the hourly GitHub job publishes
+from cryptoarena.floors import FLOORS  # noqa: E402
+
+LIVE_COLONY_URL = FLOORS["crypto"].live_url   # what the hourly GitHub job publishes
 
 
 def _parse_args() -> argparse.Namespace:
@@ -42,11 +43,12 @@ def _parse_args() -> argparse.Namespace:
                              "instead of the local file")
     parser.add_argument("--live", action="store_true",
                         help=f"shortcut for --db-url {LIVE_COLONY_URL}")
+    parser.add_argument("--floor", default="crypto", choices=list(FLOORS))
     # Streamlit's CLI consumes its own flags and the "--" separator itself,
     # so by the time the script runs, sys.argv[1:] is already just our args.
     args = parser.parse_args(sys.argv[1:])
     if args.live and not args.db_url:
-        args.db_url = LIVE_COLONY_URL
+        args.db_url = FLOORS[args.floor].live_url
     return args
 
 
@@ -287,13 +289,21 @@ def main() -> None:
     if args.db_url:
         source = st.sidebar.radio("Source", ["Live colony", "Local journal"], horizontal=True)
     db_path, run, live_error = args.db, None, None
+    floor = FLOORS[args.floor]
     if source == "Live colony":
+        db_url = args.db_url
+        if args.live:   # the building: pick a floor
+            labels = [f.label for f in FLOORS.values()]
+            picked = st.sidebar.radio("Floor", labels, horizontal=True,
+                                      index=labels.index(floor.label))
+            floor = next(f for f in FLOORS.values() if f.label == picked)
+            db_url = floor.live_url
         try:
-            db_path = fetch_journal(args.db_url)
+            db_path = fetch_journal(db_url)
         except Exception as exc:   # noqa: BLE001 — shown to the user
             live_error = str(exc)
-        st.caption("the live colony: real Kraken prices, paper wallets, a real day per day — "
-                   "state is published by the hourly job and refreshed here every 2 min")
+        st.caption(f"the live {floor.label.lower()} colony: {floor.caption} — "
+                   "state is published by the GitHub job and refreshed here every 2 min")
     else:
         st.caption(f"reading `{args.db}` — start a run from the sidebar, or feed it with "
                    "`cryptoarena run` in another terminal")
@@ -365,9 +375,12 @@ def live_view(state: dict) -> None:
     cols[2].metric("Colony equity", f"{equity:,.2f}")
     cols[3].metric("Invested", f"{equity - cash:,.2f}")
     last = state.get("last_ts")
-    cols[4].metric("Last candle", time.strftime("%H:%M UTC", time.gmtime(last)) if last else "—",
+    daily = state.get("timeframe") == "1d"
+    cols[4].metric("Last bar" if daily else "Last candle",
+                   (time.strftime("%d %b", time.gmtime(last)) if daily
+                    else time.strftime("%H:%M UTC", time.gmtime(last))) if last else "—",
                    help=(time.strftime("%d %b %Y", time.gmtime(last)) + " · " if last else "")
-                   + f"exchange: {state.get('exchange', '?')} · saved {state.get('saved_at', '?')}")
+                   + f"source: {state.get('exchange', '?')} · saved {state.get('saved_at', '?')}")
     if prices:
         st.caption(" · ".join(f"{s.replace('USDT', '').replace('USD', '')} {v:,.2f}"
                               for s, v in prices.items()))

@@ -32,11 +32,27 @@ STOCKS = {"SPY": "spy.us", "QQQ": "qqq.us", "AAPL": "aapl.us", "MSFT": "msft.us"
 
 
 def fetch_stooq(ticker: str, days: int | None = None) -> list[list[float]]:
-    """Daily bars, oldest first; `days` keeps only the most recent ones."""
+    """Daily bars, oldest first; `days` keeps only the most recent ones.
+    Stooq rate-limits by IP and then answers with a stub, so the package's
+    fetch_daily (Stooq, then Yahoo Finance) is used when it is installed."""
+    try:
+        from cryptoarena.market.stocks import fetch_daily
+        rows = fetch_daily(ticker)
+    except ImportError:
+        rows = _fetch_stooq_raw(ticker)
+    if days:
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).timestamp()
+        rows = [r for r in rows if r[0] >= cutoff]
+    return rows
+
+
+def _fetch_stooq_raw(ticker: str) -> list[list[float]]:
     req = urllib.request.Request(STOOQ.format(ticker=ticker),
                                  headers={"User-Agent": "cryptoarena/1.0"})
     with urllib.request.urlopen(req, timeout=30) as resp:
         text = resp.read().decode("utf-8", "replace")
+    if not text.lstrip().startswith("Date"):
+        print(f"stooq {ticker}: unexpected answer: {text[:120]!r}")
     rows = []
     for line in text.splitlines()[1:]:
         parts = line.strip().split(",")
@@ -50,9 +66,6 @@ def fetch_stooq(ticker: str, days: int | None = None) -> list[list[float]]:
             continue
         rows.append([int(day.timestamp()), o, h, lo, c, v])
     rows.sort()
-    if days:
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).timestamp()
-        rows = [r for r in rows if r[0] >= cutoff]
     return rows
 
 
@@ -99,6 +112,8 @@ def main() -> None:
         name, product = pair.split("=", 1)
         rows = fetch_stooq(product, args.days) if args.source == "stooq" \
             else fetch(product, args.days)
+        if not rows:
+            raise SystemExit(f"{name}: no rows from {args.source} for {product}")
         path = out / f"{name}.csv"
         with path.open("w", newline="") as fh:
             w = csv.writer(fh)

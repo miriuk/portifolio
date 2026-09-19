@@ -5,25 +5,14 @@ import sys
 from pathlib import Path
 
 from .agents.llm import ClaudeTraderAgent
-from .agents.rules import (BreakoutAgent, MeanReversionAgent, MomentumAgent,
-                           RegimeSwitchAgent, TrendFollowerAgent, VolTargetAgent)
 from .arena.tournament import run_tournament
 from .learning.memory import TradeJournal
 
 
 def build_agents(cash: float, with_llm: bool, llm_model: str, journal=None,
-                 debate: bool = False) -> list:
-    agents = [
-        MomentumAgent("momentum-1", cash),
-        MomentumAgent("momentum-2", cash, params={"lookback": 336, "entry_threshold": 0.08,
-                                                  "exit_threshold": -0.04}),
-        MeanReversionAgent("meanrev-1", cash),
-        MeanReversionAgent("meanrev-2", cash, params={"lookback": 240, "entry_threshold": 0.10}),
-        BreakoutAgent("breakout-1", cash),
-        RegimeSwitchAgent("regime-1", cash),
-        VolTargetAgent("voltarget-1", cash),
-        TrendFollowerAgent("trend-1", cash),
-    ]
+                 debate: bool = False, floor: str = "crypto") -> list:
+    from .floors import get_floor
+    agents = get_floor(floor).build_founders(cash)
     if with_llm:
         if ClaudeTraderAgent.available():
             agents.append(ClaudeTraderAgent("claude-trader", cash, model=llm_model,
@@ -39,8 +28,10 @@ def _live(args) -> None:
 
     from .arena.live_colony import LiveColony
     from .arena.survival import SurvivalConfig
-    from .market.live import LiveFeed, default_symbols
+    from .floors import get_floor
 
+    floor = get_floor(args.floor)
+    args.db = args.db or floor.default_db
     Path(args.db).parent.mkdir(parents=True, exist_ok=True)
     journal = TradeJournal(args.db)
     try:
@@ -57,17 +48,17 @@ def _live(args) -> None:
         symbols = None
         if args.symbols:
             symbols = dict(pair.split("=", 1) for pair in args.symbols.split(","))
-        feed = LiveFeed(args.exchange, symbols or default_symbols(args.exchange),
-                        timeframe=args.timeframe)
-        cfg = SurvivalConfig(
-            days=args.days, budget=args.budget, daily_target=args.target,
-            death_below=args.death, daily_cost=args.cost, clone_at=args.clone_at,
-            min_child_budget=args.min_child, pressure=args.pressure,
-            max_population=args.max_pop, seed=args.seed, endogenous=False,
-            fee_rate=args.fee, learn=bool(args.learn))
-        founders = build_agents(args.budget, False, "")
+        feed_kw = {"symbols": symbols}
+        if args.exchange:
+            feed_kw["exchange_id"] = args.exchange
+        if args.timeframe:
+            feed_kw["timeframe"] = args.timeframe
+        feed = floor.make_feed(**feed_kw)
+        cfg = floor.config(days=args.days, **_overrides(args))
+        founders = build_agents(cfg.budget, False, "", floor=floor.name)
         founding = journal.load_state("live_colony") is None
-        colony = LiveColony.open(journal, founders, cfg, feed, warmup=args.warmup)
+        colony = LiveColony.open(journal, founders, cfg, feed,
+                                 warmup=args.warmup or floor.warmup)
         if args.once:
             n = 1 if founding else colony.run_once()
             s = colony.status()
@@ -78,6 +69,22 @@ def _live(args) -> None:
             colony.run_forever(args.days)
     finally:
         journal.close()
+
+
+_OVERRIDES = {"budget": "budget", "target": "daily_target", "death": "death_below",
+              "cost": "daily_cost", "clone_at": "clone_at", "min_child": "min_child_budget",
+              "pressure": "pressure", "max_pop": "max_population", "seed": "seed",
+              "fee": "fee_rate", "learn": "learn"}
+
+
+def _overrides(args) -> dict:
+    """Only the survival knobs the user actually set; the floor supplies the rest."""
+    out = {}
+    for flag, field in _OVERRIDES.items():
+        value = getattr(args, flag, None)
+        if value is not None:
+            out[field] = bool(value) if field == "learn" else value
+    return out
 
 
 class _StaticFeed:
@@ -144,10 +151,13 @@ def main() -> None:
                       help="use the synthetic price generator instead of the order book")
 
     live = sub.add_parser("live", help="survival colony on real market data (paper trading)")
-    live.add_argument("--db", default="live/colony.db")
-    live.add_argument("--exchange", default="kraken",
+    live.add_argument("--floor", default="crypto", choices=["crypto", "stocks"],
+                      help="which floor of the building: crypto (hourly, Kraken) or "
+                           "stocks (daily, Stooq)")
+    live.add_argument("--db", default=None, help="journal path (default: the floor's)")
+    live.add_argument("--exchange", default=None,
                       help="CCXT exchange id for public candles (kraken, coinbase, binance…)")
-    live.add_argument("--timeframe", default="1h")
+    live.add_argument("--timeframe", default=None)
     live.add_argument("--symbols", default=None,
                       help="comma list of ARENA=CCXT pairs, e.g. BTCUSD=BTC/USD,ETHUSD=ETH/USD")
     live.add_argument("--once", action="store_true",
@@ -156,35 +166,29 @@ def main() -> None:
     live.add_argument("--days", type=int, default=7,
                       help="without --once: stay up and tick hourly for this many days")
     live.add_argument("--status", action="store_true", help="print the colony's state as JSON")
-    live.add_argument("--warmup", type=int, default=700,
+    live.add_argument("--warmup", type=int, default=None,
                       help="closed candles of history the founders start with")
-    live.add_argument("--budget", type=float, default=5.0)
-    live.add_argument("--clone-at", type=float, default=1.1)
-    live.add_argument("--min-child", type=float, default=0.2)
-    live.add_argument("--target", type=float, default=0.005)
-    live.add_argument("--death", type=float, default=0.6)
-    live.add_argument("--cost", type=float, default=0.0002)
-    live.add_argument("--fee", type=float, default=0.0026, help="taker fee per side")
-    live.add_argument("--learn", type=int, default=1, help="1 = nightly reflection nudges params")
-    live.add_argument("--pressure", type=float, default=0.0)
-    live.add_argument("--max-pop", type=int, default=12)
+    for flag, help_ in [("--budget", "cash per founder (5)"), ("--clone-at", "hire at × budget (1.1)"),
+                        ("--min-child", "smallest child (0.2)"), ("--target", "daily target (crypto 0.5%%, stocks 0.2%%)"),
+                        ("--death", "let go below this × budget (0.6)"), ("--cost", "cost of living/day (0.02%%)"),
+                        ("--fee", "taker fee per side (crypto 0.26%%, stocks 0.05%%)"), ("--pressure", "after a miss (0)")]:
+        live.add_argument(flag, type=float, default=None, help=help_)
+    live.add_argument("--learn", type=int, default=None, help="1 = nightly reflection nudges params")
+    live.add_argument("--max-pop", type=int, default=None)
     live.add_argument("--seed", type=int, default=None)
 
     bt = sub.add_parser("backtest", help="walk-forward survival colonies on real candles")
-    bt.add_argument("--data", default="data", help="directory of ReplayMarket CSVs")
-    bt.add_argument("--days", type=int, default=30, help="colony days per window")
-    bt.add_argument("--stride", type=int, default=10, help="days between window starts")
+    bt.add_argument("--floor", default="crypto", choices=["crypto", "stocks"])
+    bt.add_argument("--data", default=None, help="directory of ReplayMarket CSVs (default: the floor's)")
+    bt.add_argument("--days", type=int, default=None, help="colony days per window (crypto 30, stocks 60)")
+    bt.add_argument("--stride", type=int, default=None, help="days between window starts")
     bt.add_argument("--windows", type=int, default=None, help="only the last N windows")
-    bt.add_argument("--warmup", type=int, default=720)
-    bt.add_argument("--fee", type=float, default=0.0026, help="taker fee per side (Kraken)")
-    bt.add_argument("--budget", type=float, default=5.0)
-    bt.add_argument("--clone-at", type=float, default=1.1)
-    bt.add_argument("--min-child", type=float, default=0.2)
-    bt.add_argument("--target", type=float, default=0.005)
-    bt.add_argument("--death", type=float, default=0.6)
-    bt.add_argument("--cost", type=float, default=0.0002)
-    bt.add_argument("--learn", type=int, default=1)
-    bt.add_argument("--max-pop", type=int, default=12)
+    bt.add_argument("--warmup", type=int, default=None, help="bars before day 1 (crypto 720, stocks 250)")
+    for flag in ("--fee", "--budget", "--clone-at", "--min-child", "--target", "--death", "--cost",
+                 "--pressure"):
+        bt.add_argument(flag, type=float, default=None)
+    bt.add_argument("--learn", type=int, default=None)
+    bt.add_argument("--max-pop", type=int, default=None)
     bt.add_argument("--seed", type=int, default=1)
     bt.add_argument("--quiet", action="store_true")
 
@@ -201,6 +205,8 @@ def main() -> None:
     dash.add_argument("--db-url", default="", help="read a journal published at a URL")
     dash.add_argument("--live", action="store_true",
                       help="show the colony the hourly GitHub job publishes")
+    dash.add_argument("--floor", default="crypto", choices=["crypto", "stocks"],
+                      help="with --live: which floor to open first")
     dash.add_argument("--port", type=int, default=8501)
 
     args = parser.parse_args()
@@ -236,15 +242,14 @@ def main() -> None:
         _live(args)
     elif args.command == "backtest":
         from .arena.backtest import format_summary, load_tape, run_backtest
-        from .arena.survival import SurvivalConfig
-        tape = load_tape(args.data)
-        cfg = SurvivalConfig(budget=args.budget, daily_target=args.target,
-                             death_below=args.death, daily_cost=args.cost,
-                             clone_at=args.clone_at, min_child_budget=args.min_child,
-                             max_population=args.max_pop, seed=args.seed,
-                             fee_rate=args.fee, endogenous=False, learn=bool(args.learn))
-        report = run_backtest(tape, lambda: build_agents(args.budget, False, ""), cfg,
-                              days=args.days, stride_days=args.stride, warmup_bars=args.warmup,
+        from .floors import get_floor
+        floor = get_floor(args.floor)
+        tape = load_tape(args.data or floor.data_dir)
+        cfg = floor.config(**_overrides(args))
+        report = run_backtest(tape, lambda: build_agents(cfg.budget, False, "", floor=floor.name),
+                              cfg, days=args.days or floor.backtest_days,
+                              stride_days=args.stride or floor.backtest_stride,
+                              warmup_bars=args.warmup or (720 if floor.name == "crypto" else 250),
                               max_windows=args.windows, verbose=not args.quiet)
         print()
         print(format_summary(report.summary()))
@@ -273,7 +278,7 @@ def main() -> None:
             print("Streamlit isn't installed. Run: pip install -e \".[ui]\"")
             raise SystemExit(1)
         dashboard_path = Path(__file__).parent / "dashboard.py"
-        extra = (["--live"] if args.live else []) + \
+        extra = (["--live"] if args.live else []) + ["--floor", args.floor] + \
             (["--db-url", args.db_url] if args.db_url else [])
         subprocess.run([
             sys.executable, "-m", "streamlit", "run", str(dashboard_path),
