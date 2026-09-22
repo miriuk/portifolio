@@ -331,11 +331,12 @@ class LiveColony:
         if not sized:
             return {"orders": 0, "executable": None, "min_costs": self.min_costs}
         ok = sum(1 for sym, value in sized if value >= self.min_costs[sym])
-        shortfalls = [self.min_costs[sym] / value for sym, value in sized
-                      if value > 0 and value < self.min_costs[sym]]
-        scale = max(shortfalls) if shortfalls else 1.0
+        ratios = sorted(self.min_costs[sym] / value for sym, value in sized if value > 0)
+        typical = ratios[len(ratios) // 2] if ratios else 1.0        # the median order
+        worst = ratios[-1] if ratios else 1.0                         # the smallest top-up
         return {"orders": len(sized), "executable": round(ok / len(sized), 3),
-                "budget_for_all": round(self.cfg.budget * scale, 2),
+                "budget_for_typical": round(self.cfg.budget * max(typical, 1.0), 2),
+                "budget_for_all": round(self.cfg.budget * max(worst, 1.0), 2),
                 "min_costs": self.min_costs}
 
     def status(self) -> dict:

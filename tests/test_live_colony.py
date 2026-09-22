@@ -265,7 +265,7 @@ def test_readiness_compares_the_colony_orders_with_the_exchange_minimums(tmp_pat
     r = colony.status()["readiness"]
     assert r["min_costs"] == mins and 0 <= (r["executable"] or 0) <= 1
     if r["orders"] and r["executable"] < 1:
-        assert r["budget_for_all"] > 5.0                   # the budget that clears the minimum
+        assert r["budget_for_all"] >= r["budget_for_typical"] > 5.0   # budgets that clear the line
     journal.close()
     reopened = LiveColony.open(TradeJournal(tmp_path / "r.db"), [], cfg(), feed, verbose=False)
     assert reopened.min_costs == mins
