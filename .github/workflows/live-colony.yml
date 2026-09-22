@@ -20,6 +20,10 @@ on:
         description: "Start a fresh colony (discard the saved state)"
         type: boolean
         default: false
+      budget:
+        description: "Budget per agent for a fresh colony (quote units); ignored without reset"
+        type: string
+        default: "50"
 
 permissions:
   contents: write
@@ -58,7 +62,9 @@ jobs:
           fi
 
       - name: Tick
-        run: cryptoarena live --once --db "$COLONY_DB" --exchange kraken
+        # the budget only matters at the founding: a resumed colony keeps the
+        # one saved in its state
+        run: cryptoarena live --once --db "$COLONY_DB" --exchange kraken --budget "${{ inputs.budget || '50' }}"
 
       - name: Status
         run: cryptoarena live --status --db "$COLONY_DB" | tee live/status.json
