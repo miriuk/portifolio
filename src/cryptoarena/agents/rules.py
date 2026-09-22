@@ -179,7 +179,7 @@ class MomentumAgent(ParamAgent):
     DEFAULTS = {"lookback": 168, "entry_threshold": 0.05, "exit_threshold": -0.03,
                 "order_frac": 0.30, "cooldown": 24,
                 "stop_trail": 0.0, "trend_filter": 672,
-                "max_buys": 1, "max_exposure": 0.6, "market_gate": 672, "rank_top": 6, "greed_gate": 0}
+                "max_buys": 1, "max_exposure": 0.6, "market_gate": 672, "rank_top": 6, "greed_gate": 60}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -212,7 +212,7 @@ class MeanReversionAgent(ParamAgent):
     DEFAULTS = {"lookback": 168, "entry_threshold": 0.08, "exit_gain": 0.04,
                 "order_frac": 0.15, "cooldown": 24,
                 "stop_trail": 0.06, "trend_filter": 672,
-                "max_buys": 1, "max_exposure": 0.6, "market_gate": 672, "rank_top": 6, "greed_gate": 0}
+                "max_buys": 1, "max_exposure": 0.6, "market_gate": 672, "rank_top": 6, "greed_gate": 60}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -249,7 +249,7 @@ class RegimeSwitchAgent(ParamAgent):
     DEFAULTS = {"lookback": 168, "trend_threshold": 0.06, "entry_threshold": 0.03,
                 "vol_panic": 0.03, "order_frac": 0.15, "cooldown": 24,
                 "stop_trail": 0.0, "trend_filter": 672,
-                "max_buys": 1, "max_exposure": 0.6, "market_gate": 672, "rank_top": 6, "greed_gate": 0}
+                "max_buys": 1, "max_exposure": 0.6, "market_gate": 672, "rank_top": 6, "greed_gate": 60}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -308,7 +308,7 @@ class VolTargetAgent(ParamAgent):
     DEFAULTS = {"lookback": 168, "entry_threshold": 0.04, "target_vol": 0.01,
                 "vol_exit": 0.04, "order_frac": 0.30, "cooldown": 24,
                 "stop_trail": 0.0, "trend_filter": 672,
-                "max_buys": 1, "max_exposure": 0.6, "market_gate": 672, "rank_top": 6, "greed_gate": 0}
+                "max_buys": 1, "max_exposure": 0.6, "market_gate": 672, "rank_top": 6, "greed_gate": 60}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -349,7 +349,7 @@ class BreakoutAgent(ParamAgent):
     DEFAULTS = {"lookback": 168, "entry_threshold": 0.005, "trail_pct": 0.08,
                 "order_frac": 0.30, "cooldown": 24,
                 "stop_trail": 0.0, "trend_filter": 672,
-                "max_buys": 1, "max_exposure": 0.6, "market_gate": 672, "rank_top": 6, "greed_gate": 0}
+                "max_buys": 1, "max_exposure": 0.6, "market_gate": 672, "rank_top": 6, "greed_gate": 60}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -391,7 +391,7 @@ class TrendFollowerAgent(ParamAgent):
 
     DEFAULTS = {"fast": 72, "slow": 240, "order_frac": 0.30, "cooldown": 12,
                 "exit_buffer": 0.02, "stop_trail": 0.0, "trend_filter": 672,
-                "max_buys": 1, "max_exposure": 0.6, "market_gate": 672, "rank_top": 6, "greed_gate": 0}
+                "max_buys": 1, "max_exposure": 0.6, "market_gate": 672, "rank_top": 6, "greed_gate": 60}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -430,7 +430,7 @@ class RotationAgent(ParamAgent):
     DEFAULTS = {"lookback": 336, "top": 3, "rebalance": 168, "entry_threshold": 0.0,
                 "order_frac": 0.30, "cooldown": 168,
                 "stop_trail": 0.10, "trend_filter": 672,
-                "max_buys": 3, "max_exposure": 0.9, "market_gate": 672, "rank_top": 0, "greed_gate": 0}
+                "max_buys": 3, "max_exposure": 0.9, "market_gate": 672, "rank_top": 0, "greed_gate": 60}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -466,7 +466,7 @@ class PullbackAgent(ParamAgent):
     DEFAULTS = {"lookback": 168, "entry_threshold": 0.08, "exit_gain": 0.06,
                 "order_frac": 0.30, "cooldown": 24,
                 "stop_trail": 0.08, "trend_filter": 672,
-                "max_buys": 1, "max_exposure": 0.6, "market_gate": 672, "rank_top": 6, "greed_gate": 0}
+                "max_buys": 1, "max_exposure": 0.6, "market_gate": 672, "rank_top": 6, "greed_gate": 60}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -511,7 +511,7 @@ class BearAgent(ParamAgent):
                 "take_profit": 0.12, "max_shorts": 2,
                 "order_frac": 0.30, "cooldown": 24,
                 "stop_trail": 0.08, "trend_filter": 672,
-                "max_buys": 0, "max_exposure": 0.0, "market_gate": 672, "rank_top": 0, "greed_gate": 0}
+                "max_buys": 0, "max_exposure": 0.0, "market_gate": 672, "rank_top": 0, "greed_gate": 60}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

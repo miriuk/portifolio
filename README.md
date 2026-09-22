@@ -312,8 +312,14 @@ alternative.me (`sentiment/fng.csv`, diário desde 2018, sem chave). Na
 nossa fita ele é contrarian: quanto mais ganância, pior o mês seguinte
 (correlação de postos −0,33 com o retorno de 30 dias do BTC; acima de 45
 os retornos médios de 30 dias foram de −4% a −11%). Todo agente de regra
-tem um `greed_gate` (0 = desligado) que veta compras novas acima desse
-nível; a colônia ao vivo lê o índice a cada tick e o backtest lê o CSV.
+tem um `greed_gate` que veta compras novas acima desse nível (0 =
+desligado); a colônia ao vivo lê o índice a cada tick e o backtest lê o
+CSV. Na fita, quanto mais apertado o portão, menos a colônia perde
+(sem portão −1,5% por janela; 60 → −1,4%; 45 → −1,1%; 30 → −0,8%), mas
+30 ou 45 significam "quase nunca compre" num ano de queda, e numa alta
+o índice passa meses acima de 60. O default é **60**: sem compras novas
+em ganância ou ganância extrema, a leitura clássica, e a única que não
+está ajustada a este ano.
 
 ## O andar (mundo isométrico)
 
