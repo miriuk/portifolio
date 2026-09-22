@@ -1,6 +1,6 @@
 # The stocks floor: the same survival colony on daily US stock bars.
 #
-# Every weekday evening (after the NYSE close) the job restores the
+# Every weekday night (a few hours after the NYSE close) the job restores the
 # colony's journal from the `colony-live-stocks` branch, feeds it the
 # trading day that just closed (paper trading on Nasdaq's public daily
 # bars: SPY, QQQ, AAPL, MSFT, NVDA, AMZN — no account, no keys, no real
@@ -12,7 +12,11 @@ name: Live colony (stocks)
 
 on:
   schedule:
-    - cron: "45 23 * * 1-5"      # weekdays, after the NYSE close and Stooq's end-of-day row
+    # Nasdaq's API publishes the day's row a few hours after the close
+    # (not yet at 23:50 UTC, there by 01:30 UTC). Tue-Sat 01:30 UTC picks up
+    # Mon-Fri; the 05:30 run is a retry, a no-op when nothing new closed.
+    - cron: "30 1 * * 2-6"
+    - cron: "30 5 * * 2-6"
   workflow_dispatch:
     inputs:
       reset:

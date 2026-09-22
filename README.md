@@ -373,7 +373,7 @@ estagiários, dispensa, happy hour, sênior, imitação) são as mesmas.
 | `stocks` | barras diárias, SPY/QQQ/AAPL/MSFT/NVDA/AMZN | 1 barra, um pregão | 5 pregões | API da Nasdaq no GitHub; Stooq de uma conexão doméstica | branch `colony-live-stocks` |
 
 ```bash
-cryptoarena live --floor stocks --once --db live/stocks.db   # um pregão (cron das 23:45 UTC, dias úteis)
+cryptoarena live --floor stocks --once --db live/stocks.db   # um pregão (cron às 01:30 UTC, ter-sáb)
 cryptoarena backtest --floor stocks                          # janelas de 60 pregões sobre 6 anos
 cryptoarena dashboard --live --floor stocks                  # o andar de ações; um seletor troca de andar
 ```
@@ -384,8 +384,10 @@ em escala diária (momentum de 20 e 60 pregões, rompimento da máxima de
 SPY e QQQ no primeiro pregão e nunca vende — o investidor passivo dentro
 da colônia, para os outros terem com quem se comparar. Meta de 0,2% por
 pregão, taxa de 0,05% por lado (corretagem zero mais spread). O workflow
-`live-colony-stocks.yml` bate o ponto de segunda a sexta depois do
-fechamento de Nova York.
+`live-colony-stocks.yml` bate o ponto de terça a sábado às 01:30 UTC:
+a API da Nasdaq só publica a barra do dia algumas horas depois do
+fechamento de Nova York (às 23:50 UTC ainda não está lá; à 01:30 está),
+e uma segunda passada às 05:30 serve de retry.
 
 O que seis anos de barras reais (2020–2026, mercado em alta) disseram:
 os portões do andar cripto (portão de mercado, ranking, exposição máxima
