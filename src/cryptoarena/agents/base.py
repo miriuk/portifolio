@@ -20,6 +20,7 @@ class MarketView:
     prices: dict[str, float]
     step: int
     regimes: dict[str, str] = field(default_factory=dict)  # hidden by default
+    sentiment: float | None = None                   # Crypto Fear & Greed, 0 (fear) .. 100 (greed)
 
 
 class TradingAgent(ABC):

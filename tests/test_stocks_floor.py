@@ -89,7 +89,7 @@ def test_floor_registry_and_live_urls():
     assert FLOORS["stocks"].live_url.endswith("colony-live-stocks/colony.db")
     assert FLOORS["crypto"].live_url.endswith("colony-live/colony.db")
     ids = {a.agent_id for a in stock_founders(5.0)}
-    assert ids == {a.agent_id for a in FLOORS["crypto"].build_founders(5.0)} | {"index-1"}
+    assert ids == {a.agent_id for a in FLOORS["crypto"].build_founders(5.0)} - {"bear-1"} | {"index-1"}
     assert all(a.params["trend_filter"] == 60 for a in stock_founders(5.0)
                if a.agent_id != "index-1")
 

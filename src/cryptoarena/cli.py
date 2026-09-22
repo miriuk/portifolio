@@ -244,16 +244,18 @@ def main() -> None:
     elif args.command == "live":
         _live(args)
     elif args.command == "backtest":
-        from .arena.backtest import format_summary, load_tape, run_backtest
+        from .arena.backtest import format_summary, load_sentiment, load_tape, run_backtest
         from .floors import get_floor
         floor = get_floor(args.floor)
         tape = load_tape(args.data or floor.data_dir)
+        sentiment = load_sentiment(args.data or floor.data_dir) if floor.name == "crypto" else {}
         cfg = floor.config(**_overrides(args))
         report = run_backtest(tape, lambda: build_agents(cfg.budget, False, "", floor=floor.name),
                               cfg, days=args.days or floor.backtest_days,
                               stride_days=args.stride or floor.backtest_stride,
                               warmup_bars=args.warmup or (720 if floor.name == "crypto" else 250),
-                              max_windows=args.windows, verbose=not args.quiet)
+                              max_windows=args.windows, verbose=not args.quiet,
+                              sentiment=sentiment or None)
         print()
         print(format_summary(report.summary()))
     elif args.command == "lessons":

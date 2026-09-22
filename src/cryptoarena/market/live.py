@@ -64,6 +64,20 @@ def majors_symbols(exchange_id: str = "kraken", quote: str | None = None) -> dic
     return {f"{coin}{quote}": f"{coin}/{quote}" for coin in MAJORS}
 
 
+FNG_URL = "https://api.alternative.me/fng/?limit=1&format=json"
+
+
+def fetch_fear_and_greed(url: str = FNG_URL, timeout: int = 15) -> int | None:
+    """alternative.me's Crypto Fear & Greed index, today's value (free, no key)."""
+    import json
+    import urllib.request
+    req = urllib.request.Request(url, headers={"User-Agent": "cryptoarena/1.0"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        data = json.loads(resp.read())
+    rows = data.get("data") or []
+    return int(rows[0]["value"]) if rows else None
+
+
 class LiveFeed:
     """Real OHLCV candles via CCXT, with the next_candles() interface.
 
@@ -75,16 +89,27 @@ class LiveFeed:
     def __init__(self, exchange_id: str = "kraken",
                  symbols: dict[str, str] | None = None,  # arena name -> ccxt name
                  timeframe: str = "1h", client=None, closed_only: bool = True,
-                 now: Callable[[], float] | None = None):
+                 now: Callable[[], float] | None = None,
+                 sentiment: Callable[[], int | None] | None = None):
         self.exchange_id = exchange_id
         self.symbols = symbols or default_symbols(exchange_id)
         self.timeframe = timeframe
         self.closed_only = closed_only
         self._now = now or time.time
+        # today's Crypto Fear & Greed: fetched for a real client, injectable for tests
+        self._sentiment = sentiment if sentiment is not None else (
+            fetch_fear_and_greed if client is None else (lambda: None))
         if client is None:
             import ccxt
             client = getattr(ccxt, exchange_id)({"enableRateLimit": True})
         self.client = client
+
+    def sentiment(self) -> int | None:
+        try:
+            return self._sentiment()
+        except Exception as exc:     # noqa: BLE001 — the index is a nicety, never a blocker
+            print(f"[feed] fear & greed: {exc}")
+            return None
 
     @property
     def seconds(self) -> int:

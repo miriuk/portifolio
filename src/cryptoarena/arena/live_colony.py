@@ -43,12 +43,16 @@ AGENT_CLASSES: dict[str, type] = {
 class _OneBar:
     """A market that serves exactly the candles it was given, once."""
 
-    def __init__(self, candles: list[Candle]):
+    def __init__(self, candles: list[Candle], sentiment: int | None = None):
         self._candles = candles
         self._regime: dict[str, str] = {}
+        self._sentiment = sentiment
 
     def next_candles(self) -> list[Candle]:
         return self._candles
+
+    def sentiment_at(self, ts: int) -> int | None:
+        return self._sentiment
 
 
 def _utc(ts: int) -> datetime:
@@ -76,6 +80,7 @@ class LiveColony:
         self.risk: dict[str, RiskManager] = {}
         self.last_prices: dict[str, float] = {}
         self.min_costs: dict[str, float] = {}   # the exchange's smallest order per symbol (quote)
+        self.sentiment: int | None = None       # the latest Crypto Fear & Greed reading
         self.exchange = SimulatedExchange(fee_rate=getattr(cfg, "fee_rate", 0.001),
                                           seed=int(self.rng.integers(1 << 31)))
         if founders:
@@ -159,6 +164,10 @@ class LiveColony:
         """Process every bar that closed since the last one seen. Returns
         how many bars were processed (0 = nothing new, safe to call often)."""
         processed = 0
+        if hasattr(self.feed, "sentiment"):
+            fresh = self.feed.sentiment()
+            if fresh is not None:
+                self.sentiment = int(fresh)
         for _page in range(100):                    # exchanges page their history
             bars = self.feed.aligned(limit=200, since=self.last_ts)
             if not bars:
@@ -194,7 +203,8 @@ class LiveColony:
             self.risk = {}                              # a fresh seatbelt every day, as in the sim
             for ind in alive:
                 ind.apply_pressure(self.cfg.pressure)
-        ep = run_episode(self.day, _OneBar(candles), [i.agent for i in alive], self.journal,
+        ep = run_episode(self.day, _OneBar(candles, self.sentiment), [i.agent for i in alive],
+                         self.journal,
                          steps=1, step_offset=self.clock, record_step_offset=self.hour,
                          risk=self.risk, exchange=self.exchange)
         for agent_id, curve in ep.equity_curves.items():
@@ -266,6 +276,7 @@ class LiveColony:
             "day_curves": self.day_curves,
             "last_prices": self.last_prices,
             "min_costs": self.min_costs,
+            "sentiment": self.sentiment,
             "risk": {k: {"peak_equity": r.peak_equity, "halted": r.halted}
                      for k, r in self.risk.items()},
             "population": [_dump_individual(i) for i in self.result.population],
@@ -280,6 +291,7 @@ class LiveColony:
         self.day_curves = {k: list(v) for k, v in saved.get("day_curves", {}).items()}
         self.last_prices = dict(saved.get("last_prices", {}))
         self.min_costs = dict(saved.get("min_costs", {}))
+        self.sentiment = saved.get("sentiment")
         for agent_id, r in saved.get("risk", {}).items():
             rm = RiskManager()
             rm.peak_equity, rm.halted = r["peak_equity"], r["halted"]
@@ -339,6 +351,7 @@ class LiveColony:
                                   for i in alive for sym, q in i.agent.wallet.positions.items()), 4),
             "senior": self.result.senior.agent_id if self.result.senior else None,
             "prices": self.last_prices,
+            "sentiment": self.sentiment,
             "readiness": self.readiness(),
             "agents": [{"id": i.agent_id, "gen": i.generation, "budget": round(i.budget, 4),
                         "equity": round(equity[i.agent_id], 4), "streak": i.streak,

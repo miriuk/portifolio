@@ -93,7 +93,7 @@ def test_state_survives_a_restart_and_the_day_rolls_over(tmp_path):
                              warmup=100, verbose=False)
     assert colony.day == 2 and colony.hour == 0               # day 1 was that single 23:00 bar
     assert journal._conn.execute(
-        "SELECT COUNT(*) FROM survival_events WHERE event='survived' AND day=1").fetchone()[0] == 8
+        "SELECT COUNT(*) FROM survival_events WHERE event='survived' AND day=1").fetchone()[0] == 9
     journal.close()
 
     # a fresh process, six hours later: everything comes back and the clock continues
@@ -130,7 +130,7 @@ def test_state_survives_a_restart_and_the_day_rolls_over(tmp_path):
     steps = [r[0] for r in journal._conn.execute(
         "SELECT DISTINCT step FROM market_snapshots WHERE episode = 2 ORDER BY step")]
     assert steps == list(range(24))                           # the day's tape reads 0..23
-    assert again.status()["alive"] == 8
+    assert again.status()["alive"] == 9
     journal.close()
 
 

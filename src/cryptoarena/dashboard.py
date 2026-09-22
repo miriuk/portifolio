@@ -374,13 +374,17 @@ def live_view(state: dict) -> None:
     equity = sum(p["agent"]["wallet"]["cash"]
                  + sum(q * prices.get(s, 0.0) for s, q in p["agent"]["wallet"]["positions"].items())
                  for p in alive)
-    cash = sum(p["agent"]["wallet"]["cash"] for p in alive)
+    invested = sum(abs(q) * prices.get(s, 0.0)
+                   for p in alive for s, q in p["agent"]["wallet"]["positions"].items())
+    shorts = sum(-q * prices.get(s, 0.0)
+                 for p in alive for s, q in p["agent"]["wallet"]["positions"].items() if q < 0)
     cols = st.columns(5)
     cols[0].metric("Real day", f"{state.get('day', 0)} · h{state.get('hour', 0)}")
     cols[1].metric("Alive", len(alive),
                    help=f"{sum(1 for p in alive if p['generation'] > 0)} interns")
     cols[2].metric("Colony equity", f"{equity:,.2f}")
-    cols[3].metric("Invested", f"{equity - cash:,.2f}")
+    cols[3].metric("At risk", f"{invested:,.2f}",
+                   help=f"long and short positions at the last prices; {shorts:,.2f} of it short")
     last = state.get("last_ts")
     daily = state.get("timeframe") == "1d"
     cols[4].metric("Last bar" if daily else "Last candle",
@@ -393,6 +397,19 @@ def live_view(state: dict) -> None:
         st.caption(" · ".join(f"{s.replace('USDT', '').replace('USD', '')} {v:,.2f}"
                               for s, v in shown)
                    + (f" · +{len(prices) - len(shown)} more" if len(prices) > len(shown) else ""))
+    notes = []
+    fng = state.get("sentiment")
+    if fng is not None:
+        label = ("extreme fear" if fng <= 25 else "fear" if fng <= 45 else "neutral" if fng <= 55
+                 else "greed" if fng <= 75 else "extreme greed")
+        notes.append(f"Fear & Greed {fng} ({label})")
+    mins = state.get("min_costs") or {}
+    if mins:
+        floor = min(mins.values())
+        notes.append(f"exchange minimum order from {floor:,.2f} per coin: with a fiver per "
+                     f"agent most paper orders are below it, real money needs a bigger budget")
+    if notes:
+        st.caption(" · ".join(notes))
 
 
 def data_view(equity: pd.DataFrame, summary: pd.DataFrame, trades: pd.DataFrame,

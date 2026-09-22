@@ -40,15 +40,35 @@ def load_tape(data_dir: str | Path, symbols: list[str] | None = None) -> dict[st
     return {sym: df.loc[common].reset_index() for sym, df in frames.items()}
 
 
-class TapeSlice:
-    """A market that replays rows [start, start + length) of aligned frames."""
+def load_sentiment(data_dir: str | Path) -> dict[int, int]:
+    """The Crypto Fear & Greed index by UTC day (`sentiment/fng.csv` as the
+    market-data workflow publishes it); empty when the file is absent."""
+    path = Path(data_dir) / "sentiment" / "fng.csv"
+    if not path.exists():
+        return {}
+    df = pd.read_csv(path)
+    return {int(ts) // 86400: int(v) for ts, v in zip(df["timestamp"], df["value"])}
 
-    def __init__(self, tape: dict[str, pd.DataFrame], start: int, length: int):
+
+class TapeSlice:
+    """A market that replays rows [start, start + length) of aligned frames,
+    and knows the day's sentiment when a Fear & Greed history is given."""
+
+    def __init__(self, tape: dict[str, pd.DataFrame], start: int, length: int,
+                 sentiment: dict[int, int] | None = None):
         self._rows = {sym: df.iloc[start:start + length].to_numpy() for sym, df in tape.items()}
         self._cols = {sym: list(df.columns) for sym, df in tape.items()}
         self._i = 0
         self._length = length
         self._regime: dict[str, str] = {}
+        self._sentiment = sentiment or {}
+
+    def sentiment_at(self, ts: int) -> int | None:
+        day = ts // 86400
+        for back in range(0, 4):                    # the index is daily; tolerate a gap
+            if day - back in self._sentiment:
+                return self._sentiment[day - back]
+        return None
 
     def next_candles(self) -> list[Candle]:
         if self._i >= self._length:
@@ -111,8 +131,10 @@ class BacktestReport:
 
 def run_backtest(tape: dict[str, pd.DataFrame], make_founders, cfg: SurvivalConfig,
                  days: int = 30, stride_days: int = 10, warmup_bars: int = 150,
-                 max_windows: int | None = None, verbose: bool = False) -> BacktestReport:
-    """`make_founders()` returns a fresh list of founder agents each call."""
+                 max_windows: int | None = None, verbose: bool = False,
+                 sentiment: dict[int, int] | None = None) -> BacktestReport:
+    """`make_founders()` returns a fresh list of founder agents each call.
+    `sentiment` (UTC day -> Fear & Greed) lets the agents' greed gate act."""
     bars_per_day = cfg.steps_per_day
     n = len(next(iter(tape.values())))
     window_bars = warmup_bars + days * bars_per_day
@@ -121,7 +143,7 @@ def run_backtest(tape: dict[str, pd.DataFrame], make_founders, cfg: SurvivalConf
         starts = starts[-max_windows:]
     report = BacktestReport()
     for start in starts:
-        market = TapeSlice(tape, start, window_bars)
+        market = TapeSlice(tape, start, window_bars, sentiment)
         journal = TradeJournal(":memory:")
         founders = make_founders()
         wcfg = SurvivalConfig(**{**cfg.__dict__, "days": days, "warmup_bars": warmup_bars})

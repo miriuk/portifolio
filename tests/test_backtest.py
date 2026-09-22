@@ -31,7 +31,7 @@ def test_backtest_windows_compare_with_buy_and_hold(tmp_path):
         assert w.end_ts - w.start_ts == (24 * 10 - 1) * 3600
         assert w.hold_return > 0                                 # the tape drifts up
         assert set(w.by_strategy) == {a.agent_id for a in build_agents(5.0, False, "")}
-        assert w.target_days == 8 * 10                            # every founder, every day
+        assert w.target_days == 9 * 10                            # every founder, every day
     summary = report.summary()
     assert summary["windows"] == 3 and 0 <= summary["beats_hold"] <= 1
     text = format_summary(summary)
@@ -48,6 +48,6 @@ def test_lineage_counts_for_the_founder(tmp_path):
                           days=20, stride_days=20, warmup_bars=720)
     w = report.windows[0]
     assert w.hires > 0
-    founding = 8 * 5.0
+    founding = 9 * 5.0
     lineage_total = sum(r + 1 for r in w.by_strategy.values()) * 5.0
     assert abs(lineage_total / founding - 1 - w.colony_return) < 1e-9

@@ -13,8 +13,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable
 
-from .agents.rules import (BreakoutAgent, BuyAndHoldAgent, MeanReversionAgent, MomentumAgent,
-                           RegimeSwitchAgent, TrendFollowerAgent, VolTargetAgent)
+from .agents.rules import (BearAgent, BreakoutAgent, BuyAndHoldAgent, MeanReversionAgent,
+                           MomentumAgent, RegimeSwitchAgent, TrendFollowerAgent, VolTargetAgent)
 from .arena.survival import SurvivalConfig
 
 REPO = "miriuk/portifolio"
@@ -54,6 +54,9 @@ def crypto_founders(cash: float) -> list:
         RegimeSwitchAgent("regime-1", cash),
         VolTargetAgent("voltarget-1", cash),
         TrendFollowerAgent("trend-1", cash),
+        # the one specialist that makes money when the market falls: a
+        # paper short seller, gated by BTC's own 28-day trend
+        BearAgent("bear-1", cash),
     ]
 
 
