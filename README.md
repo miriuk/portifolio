@@ -295,9 +295,9 @@ não exige refundar a colônia: quem entra no andar depois da fundação é
 **contratado** na colônia que já roda, com £5 novas, a fita compartilhada
 como histórico e "nascido hoje" no diário.
 
-A colônia ao vivo roda hoje com **£50 por agente** (£450 no total, ainda
+A colônia ao vivo roda hoje com **£80 por agente** (£720 no total, ainda
 em papel): é o orçamento que faz a ordem típica passar no mínimo da
-Kraken na maioria das moedas. Os backtests seguem com £5, que é o que
+Kraken em praticamente todas as moedas. Os backtests seguem com £5, que é o que
 as tabelas acima medem; as regras escalam com o orçamento, os mínimos
 da bolsa não.
 
