@@ -75,6 +75,7 @@ class LiveColony:
         self.day_curves: dict[str, list[float]] = {}
         self.risk: dict[str, RiskManager] = {}
         self.last_prices: dict[str, float] = {}
+        self.min_costs: dict[str, float] = {}   # the exchange's smallest order per symbol (quote)
         self.exchange = SimulatedExchange(fee_rate=getattr(cfg, "fee_rate", 0.001),
                                           seed=int(self.rng.integers(1 << 31)))
         if founders:
@@ -99,6 +100,7 @@ class LiveColony:
             if saved.get("symbol_map") and hasattr(feed, "symbols"):
                 feed.symbols = dict(saved["symbol_map"])   # the colony keeps its own universe
             colony._restore(saved)
+            colony._hire(founders)
             return colony
         colony = cls(journal, cfg, feed, founders, warmup=warmup, verbose=verbose)
         for ind in colony.result.population:
@@ -111,6 +113,33 @@ class LiveColony:
     @property
     def alive(self) -> list[Individual]:
         return self.result.alive
+
+    def _hire(self, founders: list[TradingAgent]) -> None:
+        """A specialist added to the floor after the founding joins the
+        running colony: a fresh budget, the shared tape as history, born
+        today. The colony keeps its history instead of being re-founded."""
+        known = {i.agent_id for i in self.result.population}
+        tape = self._tape()
+        hired = False
+        for agent in founders or []:
+            if agent.agent_id in known:
+                continue
+            agent.starting_cash = self.cfg.budget
+            agent.reset_wallet()
+            agent.history = {
+                sym: deque((Candle(sym, int(r[0]), *map(float, r[1:6])) for r in rows),
+                           maxlen=HISTORY_LEN) for sym, rows in tape.items()}
+            ind = Individual(agent, _strategy_name(agent), self.cfg.budget, None, 0,
+                             born_day=self.day)
+            self.result.population.append(ind)
+            self.journal.record_survival_event(self.day, agent.agent_id, "born",
+                                               self.cfg.budget, generation=0,
+                                               strategy=ind.strategy, detail="hired")
+            if self.verbose:
+                print(f"hired {agent.agent_id} ({ind.strategy}) on day {self.day}")
+            hired = True
+        if hired:
+            self.save()
 
     def _warm_up(self) -> None:
         """Give the founders the recent tape so their indicators work from
@@ -236,6 +265,7 @@ class LiveColony:
             "equity_per_day": self.result.equity_per_day,
             "day_curves": self.day_curves,
             "last_prices": self.last_prices,
+            "min_costs": self.min_costs,
             "risk": {k: {"peak_equity": r.peak_equity, "halted": r.halted}
                      for k, r in self.risk.items()},
             "population": [_dump_individual(i) for i in self.result.population],
@@ -249,6 +279,7 @@ class LiveColony:
         self.result.equity_per_day = list(saved.get("equity_per_day", []))
         self.day_curves = {k: list(v) for k, v in saved.get("day_curves", {}).items()}
         self.last_prices = dict(saved.get("last_prices", {}))
+        self.min_costs = dict(saved.get("min_costs", {}))
         for agent_id, r in saved.get("risk", {}).items():
             rm = RiskManager()
             rm.peak_equity, rm.halted = r["peak_equity"], r["halted"]
@@ -274,6 +305,27 @@ class LiveColony:
                                  for c in hist]
         return tape
 
+    def readiness(self, last: int = 200) -> dict:
+        """Real-money readiness: how many of the colony's recent buys were
+        big enough for the exchange to accept (its minimum order per
+        symbol), and the budget per agent that would make the typical
+        order clear that line."""
+        if not self.min_costs:
+            return {}
+        rows = self.journal._conn.execute(
+            "SELECT symbol, quantity * price FROM trades WHERE side = 'buy' "
+            "ORDER BY id DESC LIMIT ?", (last,)).fetchall()
+        sized = [(sym, value) for sym, value in rows if sym in self.min_costs]
+        if not sized:
+            return {"orders": 0, "executable": None, "min_costs": self.min_costs}
+        ok = sum(1 for sym, value in sized if value >= self.min_costs[sym])
+        shortfalls = [self.min_costs[sym] / value for sym, value in sized
+                      if value > 0 and value < self.min_costs[sym]]
+        scale = max(shortfalls) if shortfalls else 1.0
+        return {"orders": len(sized), "executable": round(ok / len(sized), 3),
+                "budget_for_all": round(self.cfg.budget * scale, 2),
+                "min_costs": self.min_costs}
+
     def status(self) -> dict:
         alive = self.alive
         equity = {i.agent_id: i.agent.wallet.equity(self.last_prices) for i in alive}
@@ -283,9 +335,11 @@ class LiveColony:
             "alive": len(alive), "population": len(self.result.population),
             "interns": sum(1 for i in alive if i.generation > 0),
             "colony_equity": round(sum(equity.values()), 4),
-            "invested": round(sum(equity.values()) - sum(i.agent.wallet.cash for i in alive), 4),
+            "invested": round(sum(abs(q) * self.last_prices.get(sym, 0.0)
+                                  for i in alive for sym, q in i.agent.wallet.positions.items()), 4),
             "senior": self.result.senior.agent_id if self.result.senior else None,
             "prices": self.last_prices,
+            "readiness": self.readiness(),
             "agents": [{"id": i.agent_id, "gen": i.generation, "budget": round(i.budget, 4),
                         "equity": round(equity[i.agent_id], 4), "streak": i.streak,
                         "misses": i.misses, "immune_until": i.immune_until}
@@ -329,7 +383,7 @@ def _load_individual(d: dict) -> Individual:
     w = a["wallet"]
     agent.wallet = Wallet(cash=w["cash"], positions=dict(w.get("positions", {})),
                           cost_basis=dict(w.get("cost_basis", {})),
-                          fees_paid=w.get("fees_paid", 0.0))
+                          fees_paid=w.get("fees_paid", 0.0), allow_short=agent.allow_short)
     agent.history = {
         sym: deque((Candle(sym, int(r[0]), *map(float, r[1:6])) for r in rows),
                    maxlen=HISTORY_LEN)

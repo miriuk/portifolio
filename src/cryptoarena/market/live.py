@@ -131,6 +131,32 @@ class LiveFeed:
         """The latest (closed) bar per symbol."""
         return [candles[-1] for candles in self.history(limit=2).values() if candles]
 
+    def min_costs(self, prices: dict[str, float]) -> dict[str, float]:
+        """The smallest order the exchange accepts per arena symbol, in
+        quote currency at the given prices: the market's minimum cost, or
+        its minimum amount times the price. Real money starts here — a
+        paper order below this line could never have been sent."""
+        try:
+            markets = self.client.load_markets()
+        except Exception as exc:     # noqa: BLE001 — readiness is informative, never fatal
+            print(f"[feed] load_markets: {exc}")
+            return {}
+        out: dict[str, float] = {}
+        for name, ccxt_symbol in self.symbols.items():
+            m = markets.get(ccxt_symbol) or {}
+            limits = m.get("limits") or {}
+            cost_min = (limits.get("cost") or {}).get("min")
+            amount_min = (limits.get("amount") or {}).get("min")
+            price = prices.get(name)
+            floor = 0.0
+            if cost_min:
+                floor = float(cost_min)
+            if amount_min and price:
+                floor = max(floor, float(amount_min) * price)
+            if floor:
+                out[name] = round(floor, 4)
+        return out
+
 
 class LiveExchange:
     """Executes arena orders on a real exchange through CCXT — guarded.

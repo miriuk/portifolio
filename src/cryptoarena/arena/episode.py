@@ -18,10 +18,16 @@ class EpisodeResult:
 
 
 def _realized_pnl(agent: TradingAgent, fill: Fill) -> float | None:
-    if fill.side != "sell":
-        return None
+    """P&L realised by this fill: closing a long (sell) or a short (buy)."""
+    held = agent.wallet.positions.get(fill.symbol, 0.0)
     basis = agent.wallet.cost_basis.get(fill.symbol, 0.0)
-    return (fill.price - basis) * fill.quantity - fill.fee
+    if fill.side == "sell":
+        if held <= 0:
+            return None                                   # opening or adding to a short
+        return (fill.price - basis) * min(fill.quantity, held) - fill.fee
+    if held < 0:
+        return (basis - fill.price) * min(fill.quantity, -held) - fill.fee
+    return None
 
 
 def run_episode(
@@ -86,14 +92,17 @@ def run_episode(
             if rm.check_drawdown(equity):
                 # kill switch: liquidate everything, sit out the rest
                 for symbol, qty in list(agent.wallet.positions.items()):
-                    fill = exchange.execute(
-                        Order(agent.agent_id, symbol, "sell", qty,
-                              reason="risk:kill_switch"),
-                        latest[symbol])
+                    if symbol not in latest:
+                        continue
+                    flat = (Order(agent.agent_id, symbol, "sell", qty, reason="risk:kill_switch")
+                            if qty > 0 else
+                            Order(agent.agent_id, symbol, "buy", 0.0, reason="risk:kill_switch",
+                                  base_qty=-qty))
+                    fill = exchange.execute(flat, latest[symbol])
                     pnl = _realized_pnl(agent, fill)
                     agent.wallet.apply(fill)
                     journal.record_trade(TradeRecord(
-                        agent.agent_id, episode, symbol, "sell", fill.quantity,
+                        agent.agent_id, episode, symbol, fill.side, fill.quantity,
                         fill.price, fill.fee, fill.timestamp, "risk:kill_switch",
                         regimes.get(symbol, ""), pnl))
                 if verbose:

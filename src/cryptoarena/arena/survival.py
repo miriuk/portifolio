@@ -47,6 +47,7 @@ class SurvivalConfig:
     endogenous: bool = True
     symbols: dict[str, float] | None = None
     fee_rate: float = 0.0026        # taker fee per side (Kraken spot taker)
+    short_funding: float = 0.0012   # a short's daily carry (Kraken margin rollover ~0.02% per 4h)
     learn: bool = True              # nightly reflection nudges parameters (off = fixed rules)
     warmup_bars: int = 0            # candles the founders see before day 1 (indicators warm)
 
@@ -182,6 +183,9 @@ def _end_of_day(day: int, alive: list[Individual], ep, cfg: SurvivalConfig, rng,
         curve = ep.equity_curves[ind.agent_id]
         cost = ind.budget * cfg.daily_cost
         ind.agent.wallet.cash -= cost           # rent is due whether you traded or not
+        prices = getattr(ep, "last_prices", None) or {}
+        if prices:                              # a short pays its funding every day it is open
+            ind.agent.wallet.cash -= ind.agent.wallet.short_notional(prices) * cfg.short_funding
         # the day runs from yesterday's close to today's close, after today's
         # trades — with one bar a day, measuring both ends on the same close
         # would make every day a flat day

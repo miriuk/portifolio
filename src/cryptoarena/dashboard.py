@@ -108,6 +108,7 @@ def lineage_dot(events: pd.DataFrame) -> str:
     edges parent -> child, the dead greyed out with their day of death."""
     palette = {"momentum": "#f7931a", "meanreversion": "#3b82f6", "breakout": "#22c55e",
                "regimeswitch": "#14b8a6", "voltarget": "#ec4899", "trendfollower": "#84cc16", "buyandhold": "#eab308",
+               "rotation": "#f97316", "pullback": "#06b6d4", "bear": "#ef4444",
                "claudetrader": "#a855f7"}
     born = events[events["event"] == "born"]
     died = events[events["event"] == "died"].set_index("agent_id")["day"]

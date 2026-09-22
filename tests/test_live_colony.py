@@ -209,3 +209,63 @@ def test_state_saved_before_a_field_existed_still_restores():
     saved = _dump_individual(ind)
     del saved["last_end"]
     assert _load_individual(saved).last_end is None
+
+
+def test_a_specialist_added_to_the_floor_is_hired_into_the_running_colony(tmp_path):
+    """New founders in the floor join a saved colony with a fresh budget and
+    the shared tape, born today — no re-founding."""
+    from cryptoarena.agents.rules import BearAgent, MomentumAgent
+    client = FakeClient()
+    client.now = T0 + 800 * HOUR
+    journal = TradeJournal(tmp_path / "c.db")
+    colony = LiveColony.open(journal, [MomentumAgent("momentum-1", 5.0)], cfg(),
+                             make_feed(client), warmup=700, verbose=False)
+    colony.run_once()
+    day = colony.day
+    journal.close()
+    client.now += 2 * HOUR
+    journal = TradeJournal(tmp_path / "c.db")
+    again = LiveColony.open(journal, [MomentumAgent("momentum-1", 5.0), BearAgent("bear-1", 5.0)],
+                            cfg(), make_feed(client), warmup=700, verbose=False)
+    ids = {i.agent_id: i for i in again.result.population}
+    assert set(ids) == {"momentum-1", "bear-1"}
+    bear = ids["bear-1"]
+    assert bear.born_day == day and bear.budget == 5.0 and bear.agent.wallet.cash == 5.0
+    assert len(bear.agent.history["BTCUSD"]) == len(ids["momentum-1"].agent.history["BTCUSD"])
+    assert bear.agent.wallet.allow_short
+    events = journal._conn.execute(
+        "SELECT event, detail FROM survival_events WHERE agent_id = 'bear-1'").fetchall()
+    assert ("born", "hired") in events
+    assert again.run_once() == 2                           # both trade the new bars
+    journal.close()
+    once_more = LiveColony.open(TradeJournal(tmp_path / "c.db"), [MomentumAgent("momentum-1", 5.0),
+                                BearAgent("bear-1", 5.0)], cfg(), make_feed(client), verbose=False)
+    assert len(once_more.result.population) == 2           # hired once, not every tick
+
+
+def test_readiness_compares_the_colony_orders_with_the_exchange_minimums(tmp_path):
+    client = FakeClient()
+    client.now = T0 + 800 * HOUR
+    client.load_markets = lambda: {
+        "BTC/USD": {"limits": {"amount": {"min": 0.0001}, "cost": {"min": None}}},
+        "ETH/USD": {"limits": {"amount": {"min": 0.002}, "cost": {"min": 5.0}}},
+        "SOL/USD": {"limits": {}},
+    }
+    feed = make_feed(client)
+    journal = TradeJournal(tmp_path / "r.db")
+    colony = LiveColony.open(journal, build_agents(5.0, False, ""), cfg(), feed, warmup=700,
+                             verbose=False)
+    prices = colony.last_prices
+    mins = feed.min_costs(prices)
+    assert set(mins) == {"BTCUSD", "ETHUSD"}
+    assert abs(mins["BTCUSD"] - round(0.0001 * prices["BTCUSD"], 4)) < 1e-6
+    assert mins["ETHUSD"] == max(5.0, round(0.002 * prices["ETHUSD"], 4))
+    colony.min_costs = mins
+    colony.save()
+    r = colony.status()["readiness"]
+    assert r["min_costs"] == mins and 0 <= (r["executable"] or 0) <= 1
+    if r["orders"] and r["executable"] < 1:
+        assert r["budget_for_all"] > 5.0                   # the budget that clears the minimum
+    journal.close()
+    reopened = LiveColony.open(TradeJournal(tmp_path / "r.db"), [], cfg(), feed, verbose=False)
+    assert reopened.min_costs == mins

@@ -89,11 +89,11 @@ class ParamAgent(TradingAgent):
         stopped = {o.symbol for o in orders}
         buys: list[Order] = []
         for order in self._decide(view):
-            if order.side == "buy":
+            if order.side == "buy" and not order.base_qty:
                 if order.symbol in stopped or not self._trend_ok(order.symbol):
                     continue
                 buys.append(order)
-            else:
+            else:                                # sells, and covers of a short, pass as they are
                 orders.append(order)
         if buys and not self._market_ok():
             buys = []
@@ -125,8 +125,15 @@ class ParamAgent(TradingAgent):
         orders = []
         for symbol, candle in view.candles.items():
             held = self.wallet.positions.get(symbol, 0.0)
-            if held <= 0:
+            if held == 0:
                 hw.pop(symbol, None)
+                continue
+            if held < 0:                                   # a short: the mark is the low
+                hw[symbol] = min(hw.get(symbol, candle.close), candle.close)
+                if trail and candle.close > hw[symbol] * (1 + trail):
+                    orders.append(Order(self.agent_id, symbol, "buy", 0.0, base_qty=-held,
+                                        reason=f"trailing stop {trail:.0%} off the low"))
+                    hw.pop(symbol, None)
                 continue
             hw[symbol] = max(hw.get(symbol, candle.close), candle.close)
             if trail and candle.close < hw[symbol] * (1 - trail):
@@ -135,16 +142,19 @@ class ParamAgent(TradingAgent):
                 hw.pop(symbol, None)
         return orders
 
-    def _market_ok(self) -> bool:
-        """`market_gate` bars (0 = off): no new buys while the market's
-        bellwether (the BTC pair, or the first symbol) is below where it
-        was that many bars ago — the whole floor's weather, not one coin's."""
-        bars = int(self.params.get("market_gate", 0) or 0)
+    def _weather(self, bars: int) -> float | None:
+        """The market's bellwether (the BTC pair, or the first symbol) over
+        `bars`: the whole floor's weather, not one coin's."""
         if not bars or not self.history:
-            return True
+            return None
         bell = next((s for prefix in ("BTC", "SPY") for s in sorted(self.history)
                      if s.upper().startswith(prefix)), next(iter(sorted(self.history))))
-        mom = self.momentum(bell, bars)
+        return self.momentum(bell, bars)
+
+    def _market_ok(self) -> bool:
+        """`market_gate` bars (0 = off): no new buys while the bellwether is
+        below where it was that many bars ago."""
+        mom = self._weather(int(self.params.get("market_gate", 0) or 0))
         return mom is None or mom > 0
 
     def _trend_ok(self, symbol: str) -> bool:
@@ -478,6 +488,67 @@ class PullbackAgent(ParamAgent):
                 orders.append(Order(self.agent_id, symbol, "sell", held,
                                     reason="pullback target hit"))
                 self._last_trade_step = view.step
+        return orders
+
+
+class BearAgent(ParamAgent):
+    """The short seller. When the bellwether is below where it was
+    `market_gate` bars ago, shorts the weakest coins: `lookback` momentum
+    under -`entry_threshold` and still below their `trend_filter` level.
+    Covers when the drop is bought (`lookback` momentum back above
+    -`exit_threshold`), at `take_profit` under the entry, or on the
+    trailing stop above the low. Paper margin: the position goes negative,
+    the proceeds sit in cash, and the short pays its funding every day."""
+
+    allow_short = True
+    DEFAULTS = {"lookback": 168, "entry_threshold": 0.05, "exit_threshold": 0.0,
+                "take_profit": 0.12, "max_shorts": 2,
+                "order_frac": 0.30, "cooldown": 24,
+                "stop_trail": 0.08, "trend_filter": 672,
+                "max_buys": 0, "max_exposure": 0.0, "market_gate": 672, "rank_top": 0}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._last_trade_step = -999
+
+    def _decide(self, view: MarketView) -> list[Order]:
+        orders = []
+        lookback = int(self.params["lookback"])
+        for symbol, held in list(self.wallet.positions.items()):
+            if held >= 0 or symbol not in view.candles:
+                continue
+            mom = self.momentum(symbol, lookback)
+            basis = self.wallet.cost_basis.get(symbol, 0.0)
+            price = view.prices[symbol]
+            if mom is not None and mom > -self.params["exit_threshold"]:
+                orders.append(Order(self.agent_id, symbol, "buy", 0.0, base_qty=-held,
+                                    reason=f"cover: the drop is bought {mom:+.1%}"))
+            elif basis > 0 and price < basis * (1 - self.params["take_profit"]):
+                orders.append(Order(self.agent_id, symbol, "buy", 0.0, base_qty=-held,
+                                    reason=f"cover: take profit {price / basis - 1:+.1%}"))
+        if view.step - self._last_trade_step < int(self.params["cooldown"]):
+            return orders
+        weather = self._weather(int(self.params.get("market_gate", 0) or 0))
+        if weather is None or weather >= 0:
+            return orders                                   # no shorting into a rising market
+        open_shorts = sum(1 for q in self.wallet.positions.values() if q < 0)
+        room = int(self.params["max_shorts"]) - open_shorts
+        if room <= 0:
+            return orders
+        trend_bars = int(self.params.get("trend_filter", 0) or 0)
+        weakest = sorted(
+            (mom, sym) for sym in view.candles
+            if self.wallet.positions.get(sym, 0.0) == 0
+            and (mom := self.momentum(sym, lookback)) is not None
+            and mom < -self.params["entry_threshold"]
+            and (not trend_bars or (self.momentum(sym, trend_bars) or 0.0) < 0))
+        for mom, sym in weakest[:room]:
+            price = view.prices[sym]
+            if price <= 0:
+                continue
+            orders.append(Order(self.agent_id, sym, "sell", self._order_amount(view) / price,
+                                reason=f"short {mom:+.1%}"))
+            self._last_trade_step = view.step
         return orders
 
 

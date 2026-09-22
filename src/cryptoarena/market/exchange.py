@@ -14,6 +14,7 @@ class Order:
     side: str          # "buy" | "sell"
     quote_amount: float  # buy: quote currency to spend; sell: base quantity to sell
     reason: str = ""
+    base_qty: float | None = None  # buy exactly this many base units (covering a short)
 
 
 @dataclass
@@ -48,13 +49,19 @@ class SimulatedExchange:
     def execute(self, order: Order, candle: Candle) -> Fill:
         mid = candle.close
         bar_quote_volume = max(candle.volume * mid, 1e-9)
-        order_quote = order.quote_amount if order.side == "buy" else order.quote_amount * mid
+        if order.side == "buy" and order.base_qty:
+            order_quote = order.base_qty * mid
+        else:
+            order_quote = order.quote_amount if order.side == "buy" else order.quote_amount * mid
         impact = self.slippage_base * (1 + 20 * min(order_quote / bar_quote_volume, 1.0))
         noise = abs(self.rng.standard_normal()) * self.slippage_base
         slip = impact + noise
         price = mid * (1 + slip) if order.side == "buy" else mid * (1 - slip)
 
-        if order.side == "buy":
+        if order.side == "buy" and order.base_qty:
+            quantity = order.base_qty
+            fee = quantity * price * self.fee_rate
+        elif order.side == "buy":
             fee = order.quote_amount * self.fee_rate
             quantity = (order.quote_amount - fee) / price
         else:

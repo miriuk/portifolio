@@ -61,6 +61,9 @@ def _live(args) -> None:
                                  warmup=args.warmup or floor.warmup)
         if args.once:
             n = 1 if founding else colony.run_once()
+            if hasattr(feed, "min_costs"):              # real-money readiness, refreshed each tick
+                colony.min_costs = feed.min_costs(colony.last_prices) or colony.min_costs
+                colony.save()
             s = colony.status()
             print(("founded the colony on " if founding else "processed ")
                   + f"{n} new candle(s); day {s['day']} h{s['hour']}, "
