@@ -35,6 +35,9 @@ jobs:
       - name: Fetch stocks (Nasdaq API, daily, 6 years)
         continue-on-error: true           # the crypto tape publishes even if this fails
         run: python scripts/fetch_history.py --source stooq --days 2200 --out data/stocks
+      - name: Fetch the Crypto Fear & Greed index (alternative.me, daily)
+        continue-on-error: true
+        run: python scripts/fetch_history.py --source fng --out data/sentiment
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
@@ -43,6 +46,7 @@ jobs:
           pub=$(mktemp -d)
           cp data/*.csv "$pub/"
           mkdir -p "$pub/stocks" && cp data/stocks/*.csv "$pub/stocks/" 2>/dev/null || true
+          mkdir -p "$pub/sentiment" && cp data/sentiment/*.csv "$pub/sentiment/" 2>/dev/null || true
           {
             echo "# Market data"
             echo
@@ -52,6 +56,7 @@ jobs:
             echo
             for f in data/*.csv; do echo "- $(basename "$f"): $(($(wc -l < "$f") - 1)) hourly candles"; done
             for f in data/stocks/*.csv; do [ -f "$f" ] && echo "- stocks/$(basename "$f"): $(($(wc -l < "$f") - 1)) daily bars"; done
+            for f in data/sentiment/*.csv; do [ -f "$f" ] && echo "- sentiment/$(basename "$f"): $(($(wc -l < "$f") - 1)) days"; done
           } > "$pub/README.md"
           cd "$pub"
           git init -q -b market-data

@@ -11,12 +11,14 @@
 name: Live colony (stocks)
 
 on:
-  schedule:
-    # Nasdaq's API publishes the day's row a few hours after the close
-    # (not yet at 23:50 UTC, there by 01:30 UTC). Tue-Sat 01:30 UTC picks up
-    # Mon-Fri; the 05:30 run is a retry, a no-op when nothing new closed.
-    - cron: "30 1 * * 2-6"
-    - cron: "30 5 * * 2-6"
+  # Paused: the stocks floor is on hold while the crypto floor gets all the
+  # attention. "Run workflow" still ticks it by hand; to resume the clock,
+  # restore the schedule (Nasdaq publishes the day's row a few hours after
+  # the close: not yet at 23:50 UTC, there by 01:30 UTC; Tue-Sat 01:30 UTC
+  # picks up Mon-Fri, and a 05:30 retry is a no-op when nothing closed):
+  #   schedule:
+  #     - cron: "30 1 * * 2-6"
+  #     - cron: "30 5 * * 2-6"
   workflow_dispatch:
     inputs:
       reset:

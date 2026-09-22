@@ -72,6 +72,25 @@ def _fetch_stooq_raw(ticker: str) -> list[list[float]]:
     return rows
 
 
+FNG_URL = "https://api.alternative.me/fng/?limit=0&format=json"
+
+
+def fetch_fng() -> list[list]:
+    """alternative.me's Crypto Fear & Greed index, the whole daily history:
+    rows of (timestamp, value 0-100, label), oldest first. Free, no key."""
+    req = urllib.request.Request(FNG_URL, headers={"User-Agent": "cryptoarena/1.0"})
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        data = json.loads(resp.read())
+    rows = []
+    for r in data.get("data", []):
+        try:
+            rows.append([int(r["timestamp"]), int(r["value"]), r.get("value_classification", "")])
+        except (KeyError, ValueError, TypeError):
+            continue
+    rows.sort()
+    return rows
+
+
 def fetch(product: str, days: int, granularity: int = 3600) -> list[list[float]]:
     end = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
     start_limit = end - timedelta(days=days)
@@ -103,12 +122,21 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--days", type=int, default=400)
     parser.add_argument("--out", default="data")
-    parser.add_argument("--source", choices=["coinbase", "stooq"], default="coinbase")
+    parser.add_argument("--source", choices=["coinbase", "stooq", "fng"], default="coinbase")
     parser.add_argument("--products", default=None,
                         help="comma list of ARENA=SOURCE pairs (e.g. SPY=spy.us)")
     args = parser.parse_args()
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
+    if args.source == "fng":
+        rows = fetch_fng()
+        path = out / "fng.csv"
+        with path.open("w", newline="") as fh:
+            w = csv.writer(fh)
+            w.writerow(["timestamp", "value", "label"])
+            w.writerows(rows)
+        print(f"{path}: {len(rows)} days of Fear & Greed", flush=True)
+        return
     defaults = STOCKS if args.source == "stooq" else PRODUCTS
     products = args.products or ",".join(f"{k}={v}" for k, v in defaults.items())
     for i, pair in enumerate(products.split(",")):

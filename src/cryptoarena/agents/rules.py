@@ -407,6 +407,80 @@ class TrendFollowerAgent(ParamAgent):
         return orders
 
 
+class RotationAgent(ParamAgent):
+    """Cross-sectional momentum: every `rebalance` bars, hold the `top`
+    coins with the strongest `lookback` momentum (only ones going up),
+    equal-weighted, and drop whatever fell out of the leaders. Between
+    rebalances only the trailing stop acts. The classic crypto rotation."""
+
+    DEFAULTS = {"lookback": 336, "top": 3, "rebalance": 168, "entry_threshold": 0.0,
+                "order_frac": 0.30, "cooldown": 168,
+                "stop_trail": 0.10, "trend_filter": 672,
+                "max_buys": 3, "max_exposure": 0.9, "market_gate": 672, "rank_top": 0}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._last_trade_step = -999
+
+    def _decide(self, view: MarketView) -> list[Order]:
+        if view.step - self._last_trade_step < int(self.params["rebalance"]):
+            return []
+        lookback = int(self.params["lookback"])
+        ranked = sorted(((mom, sym) for sym in view.candles
+                         if (mom := self.momentum(sym, lookback)) is not None
+                         and mom > self.params["entry_threshold"]), reverse=True)
+        leaders = [sym for _, sym in ranked[:int(self.params["top"])]]
+        orders = []
+        for sym, held in list(self.wallet.positions.items()):
+            if held > 0 and sym not in leaders and sym in view.candles:
+                orders.append(Order(self.agent_id, sym, "sell", held,
+                                    reason="rotation: out of the leaders"))
+        for rank, sym in enumerate(leaders, 1):
+            if self.wallet.positions.get(sym, 0.0) <= 0 and self._can_buy():
+                orders.append(Order(self.agent_id, sym, "buy", self._order_amount(view),
+                                    reason=f"rotation: #{rank} momentum"))
+        if orders:
+            self._last_trade_step = view.step
+        return orders
+
+
+class PullbackAgent(ParamAgent):
+    """Buys a dip inside an uptrend: the coin is above where it was
+    `trend_filter` bars ago (the gate), yet `entry_threshold` below its
+    `lookback`-bar high. Sells `exit_gain` above the entry, or on the trail."""
+
+    DEFAULTS = {"lookback": 168, "entry_threshold": 0.08, "exit_gain": 0.06,
+                "order_frac": 0.30, "cooldown": 24,
+                "stop_trail": 0.08, "trend_filter": 672,
+                "max_buys": 1, "max_exposure": 0.6, "market_gate": 672, "rank_top": 6}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._last_trade_step = -999
+
+    def _decide(self, view: MarketView) -> list[Order]:
+        orders = []
+        cooled = view.step - self._last_trade_step >= int(self.params["cooldown"])
+        lookback = int(self.params["lookback"])
+        for symbol, candle in view.candles.items():
+            closes = self.closes(symbol, lookback)
+            if len(closes) < lookback:
+                continue
+            high = max(closes)
+            dip = (candle.close - high) / high
+            held = self.wallet.positions.get(symbol, 0.0)
+            basis = self.wallet.cost_basis.get(symbol, 0.0)
+            if held <= 0 and cooled and dip < -self.params["entry_threshold"] and self._can_buy():
+                orders.append(Order(self.agent_id, symbol, "buy", self._order_amount(view),
+                                    reason=f"pullback {dip:+.1%} off the {lookback // 24}d high"))
+                self._last_trade_step = view.step
+            elif held > 0 and basis > 0 and candle.close > basis * (1 + self.params["exit_gain"]):
+                orders.append(Order(self.agent_id, symbol, "sell", held,
+                                    reason="pullback target hit"))
+                self._last_trade_step = view.step
+        return orders
+
+
 class BuyAndHoldAgent(ParamAgent):
     """The passive investor: buys `hold_symbols` (or everything) in equal
     weights on the first bar it can, then sits. No exits, no signals — the
