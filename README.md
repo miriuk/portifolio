@@ -245,8 +245,11 @@ de 0,26% por lado e aluguel de 0,02%/dia:
 
 | Fundadores | 30 dias: colônia / segurar / bate segurar | 60 dias: colônia / segurar / bate segurar | taxas (34 janelas de 30 d) |
 |---|---|---|---|
-| horários (antigos) | −3,4% / −4,0% / 47% | −7,2% / −9,8% / 67% | 15,9 |
-| semanais + portão de tendência (atuais) | −1,2% / −4,0% / 53% | −2,6% / −9,8% / 67% | 3,8 |
+| horários (antigos), 3 moedas | −3,4% / −4,0% / 47% | −7,2% / −9,8% / 67% | 15,9 |
+| semanais + portão de tendência, 3 moedas | −1,2% / −4,0% / 53% | −2,6% / −9,8% / 67% | 3,8 |
+| idem, 24 moedas, sem disciplinas | −3,9% / −6,3% / 50% | — | 13,9 |
+| idem, 24 moedas, com disciplinas | −2,0% / −6,3% / 56% | — | 6,2 |
+| **+ o urso (`bear-1`), 24 moedas — atuais** | **−1,5% / −6,3% / 53%** | **−3,3% / −13,1% / 69%** | 8,2 |
 
 (Com a configuração antiga — aluguel de 0,1%/dia, taxa de 0,1% — a mesma
 colônia antiga dava −6,9% por janela de 30 dias.)
@@ -261,9 +264,56 @@ entradas" só quando o mercado subiu mais de 3% sem o agente (ficar em
 caixa numa queda é acerto, não passividade); e o custo de vida de
 0,02%/dia (0,1% custava 3% ao mês, mais do que qualquer regra rende).
 Stops apertados em todos os agentes (5–8%) pioraram: chicoteiam no
-horário. Num ano de queda, uma colônia só-comprada que fica perto de
-zero está ganhando de segurar — e é isso que os números mostram, nem
+horário. Com 24 moedas os agentes compravam demais, e entraram as
+**disciplinas**: uma compra por vela (a de momentum mais forte), no
+máximo 60% investido, um portão de "clima" pelo BTC e só as 6 moedas
+mais fortes. Num ano de queda, uma colônia só-comprada que fica perto
+de zero está ganhando de segurar — e é isso que os números mostram, nem
 mais nem menos.
+
+### O urso: quem ganha quando cai
+
+Regras só-compradas não fazem dinheiro num mercado que cai 6% ao mês;
+no máximo perdem menos. Testamos dois especialistas novos que continuam
+só-comprados — **rotação** (toda semana, as 3 moedas de maior momentum) e
+**pullback** (compra a queda dentro de uma alta) — e nenhum bateu os
+fundadores atuais (−1,9% e −3,8% por janela). O que bateu foi o
+**`bear-1`**, o único fundador que **vende a descoberto**: quando o BTC
+está abaixo de onde estava 28 dias atrás, ele vende as duas moedas mais
+fracas dos últimos 7 dias (que também estejam abaixo do próprio nível de
+28 dias) e recompra quando a queda é comprada (momentum de 7 dias volta a
++5%), no lucro de 12%, ou no trailing stop de 8% acima da mínima. Na
+carteira de papel a posição fica negativa e o dinheiro da venda fica em
+caixa; o funil de risco aplica os mesmos limites do lado vendido, o stop
+forçado cobre a venda que virou contra, e o urso paga **0,12% por dia**
+de funding pela posição aberta (o rollover da margem da Kraken). Num ano
+de queda: **+1,8% por janela de 30 dias (mediana +1,0%, positivo em 53%)
+e +3,0% por janela de 60 (positivo em 69%)**, o único fundador no azul.
+Quando o BTC está subindo ele fica em caixa (paga só o aluguel), por
+desenho: não vende a descoberto num mercado em alta. Um fundador novo
+não exige refundar a colônia: quem entra no andar depois da fundação é
+**contratado** na colônia que já roda, com £5 novas, a fita compartilhada
+como histórico e "nascido hoje" no diário.
+
+### Pronto para dinheiro de verdade?
+
+Cada tick a colônia pergunta à Kraken o **menor pedido aceito** por
+moeda (`readiness` no `status.json`: mínimos por moeda, fração das
+últimas compras que a bolsa aceitaria, e o orçamento por agente que
+faria todas passarem). Com £5 por agente as ordens de £0,3 a £1,5 ficam
+quase todas abaixo do mínimo; é o número que diz quanto capital o andar
+precisa antes de a camada `LiveExchange` (dry-run por padrão, limites
+por ordem e por dia, aprovação humana acima de um teto) receber chaves.
+
+### O medo e a ganância
+
+O workflow `market-data` publica também o **Crypto Fear & Greed** da
+alternative.me (`sentiment/fng.csv`, diário desde 2018, sem chave). Na
+nossa fita ele é contrarian: quanto mais ganância, pior o mês seguinte
+(correlação de postos −0,33 com o retorno de 30 dias do BTC; acima de 45
+os retornos médios de 30 dias foram de −4% a −11%). Todo agente de regra
+tem um `greed_gate` (0 = desligado) que veta compras novas acima desse
+nível; a colônia ao vivo lê o índice a cada tick e o backtest lê o CSV.
 
 ## O andar (mundo isométrico)
 
@@ -370,10 +420,10 @@ estagiários, dispensa, happy hour, sênior, imitação) são as mesmas.
 | Andar | Fita | Um "dia" da colônia | Semana | Fonte | Estado publicado |
 |---|---|---|---|---|---|
 | `crypto` | velas horárias, 24 moedas principais (BTC, ETH, SOL, XRP, ADA, DOGE, …) | 24 velas, 7 dias por semana | 7 dias | Kraken (pública) | branch `colony-live` |
-| `stocks` | barras diárias, SPY/QQQ/AAPL/MSFT/NVDA/AMZN | 1 barra, um pregão | 5 pregões | API da Nasdaq no GitHub; Stooq de uma conexão doméstica | branch `colony-live-stocks` |
+| `stocks` (**pausado**) | barras diárias, SPY/QQQ/AAPL/MSFT/NVDA/AMZN | 1 barra, um pregão | 5 pregões | API da Nasdaq no GitHub; Stooq de uma conexão doméstica | branch `colony-live-stocks` |
 
 ```bash
-cryptoarena live --floor stocks --once --db live/stocks.db   # um pregão (cron às 01:30 UTC, ter-sáb)
+cryptoarena live --floor stocks --once --db live/stocks.db   # um pregão (andar pausado; à mão)
 cryptoarena backtest --floor stocks                          # janelas de 60 pregões sobre 6 anos
 cryptoarena dashboard --live --floor stocks                  # o andar de ações; um seletor troca de andar
 ```
@@ -384,10 +434,11 @@ em escala diária (momentum de 20 e 60 pregões, rompimento da máxima de
 SPY e QQQ no primeiro pregão e nunca vende — o investidor passivo dentro
 da colônia, para os outros terem com quem se comparar. Meta de 0,2% por
 pregão, taxa de 0,05% por lado (corretagem zero mais spread). O workflow
-`live-colony-stocks.yml` bate o ponto de terça a sábado às 01:30 UTC:
-a API da Nasdaq só publica a barra do dia algumas horas depois do
-fechamento de Nova York (às 23:50 UTC ainda não está lá; à 01:30 está),
-e uma segunda passada às 05:30 serve de retry.
+`live-colony-stocks.yml` está **pausado** (o cron fica comentado no
+workflow; "Run workflow" ainda dá um tick à mão). Quando voltar: a API
+da Nasdaq só publica a barra do dia algumas horas depois do fechamento
+de Nova York (às 23:50 UTC ainda não está lá; à 01:30 está), por isso o
+horário é terça a sábado à 01:30 UTC, com uma passada às 05:30 de retry.
 
 O que seis anos de barras reais (2020–2026, mercado em alta) disseram:
 os portões do andar cripto (portão de mercado, ranking, exposição máxima
