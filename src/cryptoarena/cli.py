@@ -186,6 +186,8 @@ def main() -> None:
     bt.add_argument("--days", type=int, default=None, help="colony days per window (crypto 30, stocks 60)")
     bt.add_argument("--stride", type=int, default=None, help="days between window starts")
     bt.add_argument("--windows", type=int, default=None, help="only the last N windows")
+    bt.add_argument("--aligned", action="store_true",
+                    help="a fixed universe: only the bars every coin has (crypto grows by default)")
     bt.add_argument("--warmup", type=int, default=None, help="bars before day 1 (crypto 720, stocks 250)")
     for flag in ("--fee", "--budget", "--clone-at", "--min-child", "--target", "--death", "--cost",
                  "--pressure"):
@@ -244,10 +246,12 @@ def main() -> None:
     elif args.command == "live":
         _live(args)
     elif args.command == "backtest":
-        from .arena.backtest import format_summary, load_sentiment, load_tape, run_backtest
+        from .arena.backtest import (format_by_year, format_summary, load_sentiment, load_tape,
+                                     run_backtest)
         from .floors import get_floor
         floor = get_floor(args.floor)
-        tape = load_tape(args.data or floor.data_dir)
+        # crypto: the universe grows with the years (a coin joins at its listing)
+        tape = load_tape(args.data or floor.data_dir, align=args.aligned or floor.name != "crypto")
         sentiment = load_sentiment(args.data or floor.data_dir) if floor.name == "crypto" else {}
         cfg = floor.config(**_overrides(args))
         report = run_backtest(tape, lambda: build_agents(cfg.budget, False, "", floor=floor.name),
@@ -258,6 +262,10 @@ def main() -> None:
                               sentiment=sentiment or None)
         print()
         print(format_summary(report.summary()))
+        years = report.by_year()
+        if len(years) > 1:
+            print()
+            print(format_by_year(years, ("bear-1",)))
     elif args.command == "lessons":
         journal = TradeJournal(args.db)
         try:

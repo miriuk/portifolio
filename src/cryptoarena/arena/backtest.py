@@ -22,9 +22,16 @@ from ..market.candle import Candle
 from .survival import SurvivalConfig, run_survival
 
 
-def load_tape(data_dir: str | Path, symbols: list[str] | None = None) -> dict[str, pd.DataFrame]:
-    """CSVs (timestamp, open, high, low, close, volume) aligned on the
-    timestamps every symbol has, oldest first."""
+def load_tape(data_dir: str | Path, symbols: list[str] | None = None,
+              align: bool = True, fill_gaps: int = 6) -> dict[str, pd.DataFrame]:
+    """CSVs (timestamp, open, high, low, close, volume), oldest first.
+
+    `align=True`: only the timestamps every symbol has (a fixed universe).
+    `align=False`: every symbol on the union timeline, missing bars as NaN
+    (a gap of up to `fill_gaps` bars is carried forward): a coin listed in
+    2023 is simply absent before that, and each backtest window trades the
+    coins that exist for the whole of it — a universe that grows with the
+    years instead of a list of today's survivors."""
     data_dir = Path(data_dir)
     frames: dict[str, pd.DataFrame] = {}
     for path in sorted(data_dir.glob("*.csv")):
@@ -34,10 +41,33 @@ def load_tape(data_dir: str | Path, symbols: list[str] | None = None) -> dict[st
         frames[path.stem] = df.set_index("timestamp")
     if not frames:
         raise FileNotFoundError(f"no CSVs in {data_dir}")
-    common = None
+    if align:
+        common = None
+        for df in frames.values():
+            common = df.index if common is None else common.intersection(df.index)
+        return {sym: df.loc[common].reset_index() for sym, df in frames.items()}
+    union = None
     for df in frames.values():
-        common = df.index if common is None else common.intersection(df.index)
-    return {sym: df.loc[common].reset_index() for sym, df in frames.items()}
+        union = df.index if union is None else union.union(df.index)
+    out = {}
+    for sym, df in frames.items():
+        full = df.reindex(union)
+        if fill_gaps:
+            present = full["close"].notna()
+            filled = full.ffill(limit=fill_gaps)
+            filled.loc[~present, "volume"] = 0.0            # a carried bar traded nothing
+            first = present.idxmax() if present.any() else None
+            if first is not None:
+                filled.loc[filled.index < first] = float("nan")   # never fill before the listing
+            full = filled
+        out[sym] = full.reset_index()
+    return out
+
+
+def window_symbols(tape: dict[str, pd.DataFrame], start: int, length: int) -> list[str]:
+    """The symbols with a complete tape over rows [start, start + length)."""
+    return [sym for sym, df in tape.items()
+            if not df["close"].iloc[start:start + length].isna().any()]
 
 
 def load_sentiment(data_dir: str | Path) -> dict[int, int]:
@@ -96,11 +126,34 @@ class WindowResult:
     fees: float
     target_hits: int
     target_days: int
+    symbols: int = 0                        # coins that existed for the whole window
 
 
 @dataclass
 class BacktestReport:
     windows: list[WindowResult] = field(default_factory=list)
+
+    def by_year(self) -> dict[int, dict]:
+        """The same summary per calendar year of the window's start: the
+        regimes a multi-year tape contains, one row each."""
+        years: dict[int, list[WindowResult]] = {}
+        for w in self.windows:
+            years.setdefault(pd.Timestamp(w.start_ts, unit="s").year, []).append(w)
+        out = {}
+        for year, ws in sorted(years.items()):
+            colony = [w.colony_return for w in ws]
+            hold = [w.hold_return for w in ws]
+            strategies = sorted({s for w in ws for s in w.by_strategy})
+            out[year] = {
+                "windows": len(ws),
+                "symbols": round(statistics.fmean(w.symbols for w in ws), 1),
+                "colony_mean": statistics.fmean(colony), "hold_mean": statistics.fmean(hold),
+                "colony_positive": sum(c > 0 for c in colony) / len(ws),
+                "beats_hold": sum(c > h for c, h in zip(colony, hold)) / len(ws),
+                "strategies": {s: statistics.fmean(w.by_strategy[s] for w in ws if s in w.by_strategy)
+                               for s in strategies},
+            }
+        return out
 
     def summary(self) -> dict:
         if not self.windows:
@@ -143,20 +196,27 @@ def run_backtest(tape: dict[str, pd.DataFrame], make_founders, cfg: SurvivalConf
         starts = starts[-max_windows:]
     report = BacktestReport()
     for start in starts:
-        market = TapeSlice(tape, start, window_bars, sentiment)
+        present = window_symbols(tape, start, window_bars)
+        if len(present) < min(2, len(tape)):
+            continue                                    # nothing listed yet: no market to trade
+        sub = {sym: tape[sym] for sym in present}
+        market = TapeSlice(sub, start, window_bars, sentiment)
         journal = TradeJournal(":memory:")
         founders = make_founders()
         wcfg = SurvivalConfig(**{**cfg.__dict__, "days": days, "warmup_bars": warmup_bars})
         try:
             res = run_survival(founders, journal, wcfg, verbose=False, market=market)
-            report.windows.append(_summarise(tape, start, warmup_bars, window_bars, res, journal))
+            w = _summarise(sub, start, warmup_bars, window_bars, res, journal)
+            w.symbols = len(present)
+            report.windows.append(w)
         finally:
             journal.close()
         if verbose:
             w = report.windows[-1]
-            print(f"{pd.Timestamp(w.start_ts, unit='s'):%Y-%m-%d}  colony {w.colony_return:+.1%}  "
-                  f"hold {w.hold_return:+.1%}  hires {w.hires}  let go {w.dismissed}  "
-                  + "  ".join(f"{s} {r:+.1%}" for s, r in w.by_strategy.items()))
+            print(f"{pd.Timestamp(w.start_ts, unit='s'):%Y-%m-%d}  {w.symbols:2d} coins  "
+                  f"colony {w.colony_return:+.1%}  hold {w.hold_return:+.1%}  hires {w.hires}  "
+                  f"let go {w.dismissed}  "
+                  + "  ".join(f"{s} {r:+.1%}" for s, r in w.by_strategy.items()), flush=True)
     return report
 
 
@@ -189,6 +249,20 @@ def _summarise(tape, start, warmup, window_bars, res, journal) -> WindowResult:
         hires=sum(1 for i in res.population if i.generation > 0),
         dismissed=sum(1 for i in res.population if not i.alive),
         fees=fees, target_hits=hits, target_days=survived)
+
+
+def format_by_year(by_year: dict[int, dict], strategies: tuple[str, ...] = ()) -> str:
+    """One line per year: windows, coins, colony, hold, beats hold, and the
+    founders asked for."""
+    if not by_year:
+        return "no windows"
+    lines = []
+    for year, d in by_year.items():
+        extra = "".join(f"  {s} {d['strategies'][s]:+.1%}" for s in strategies if s in d["strategies"])
+        lines.append(f"{year}: {d['windows']:3d} windows · {d['symbols']:4.1f} coins · "
+                     f"colony {d['colony_mean']:+.2%} (positive {d['colony_positive']:.0%}) · "
+                     f"hold {d['hold_mean']:+.2%} · beats hold {d['beats_hold']:.0%}{extra}")
+    return "\n".join(lines)
 
 
 def format_summary(summary: dict) -> str:
