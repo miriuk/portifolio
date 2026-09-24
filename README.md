@@ -249,7 +249,7 @@ de 0,26% por lado e aluguel de 0,02%/dia:
 | semanais + portão de tendência, 3 moedas | −1,2% / −4,0% / 53% | −2,6% / −9,8% / 67% | 3,8 |
 | idem, 24 moedas, sem disciplinas | −3,9% / −6,3% / 50% | — | 13,9 |
 | idem, 24 moedas, com disciplinas | −2,0% / −6,3% / 56% | — | 6,2 |
-| **+ o urso (`bear-1`), 24 moedas — atuais** | **−1,5% / −6,3% / 53%** | **−3,3% / −13,1% / 69%** | 8,2 |
+| + o urso (`bear-1`), 24 moedas | −1,5% / −6,3% / 53% | −3,3% / −13,1% / 69% | 8,2 |
 
 (Com a configuração antiga — aluguel de 0,1%/dia, taxa de 0,1% — a mesma
 colônia antiga dava −6,9% por janela de 30 dias.)
@@ -271,35 +271,56 @@ mais fortes. Num ano de queda, uma colônia só-comprada que fica perto
 de zero está ganhando de segurar — e é isso que os números mostram, nem
 mais nem menos.
 
-### O urso: quem ganha quando cai
+### Cinco anos: o que um ano de queda não ensina
 
-Regras só-compradas não fazem dinheiro num mercado que cai 6% ao mês;
-no máximo perdem menos. Testamos dois especialistas novos que continuam
-só-comprados — **rotação** (toda semana, as 3 moedas de maior momentum) e
-**pullback** (compra a queda dentro de uma alta) — e nenhum bateu os
-fundadores atuais (−1,9% e −3,8% por janela). O que bateu foi o
-**`bear-1`**, o único fundador que **vende a descoberto**: quando o BTC
-está abaixo de onde estava 28 dias atrás, ele vende as duas moedas mais
-fracas dos últimos 7 dias (que também estejam abaixo do próprio nível de
-28 dias) e recompra quando a queda é comprada (momentum de 7 dias volta a
-+5%), no lucro de 12%, ou no trailing stop de 8% acima da mínima. Na
-carteira de papel a posição fica negativa e o dinheiro da venda fica em
-caixa; o funil de risco aplica os mesmos limites do lado vendido, o stop
-forçado cobre a venda que virou contra, e o urso paga **0,12% por dia**
-de funding pela posição aberta (o rollover da margem da Kraken). Num ano
-de queda: **+1,8% por janela de 30 dias (mediana +1,0%, positivo em 53%)
-e +3,0% por janela de 60 (positivo em 69%)**, o único fundador no azul.
-Quando o BTC está subindo ele fica em caixa (paga só o aluguel), por
-desenho: não vende a descoberto num mercado em alta. Um fundador novo
-não exige refundar a colônia: quem entra no andar depois da fundação é
-**contratado** na colônia que já roda, com £5 novas, a fita compartilhada
-como histórico e "nascido hoje" no diário.
+Tudo acima foi calibrado num único ano de queda. O workflow `market-data`
+puxa agora **cinco anos** de velas horárias das 24 moedas (jul/2021 a
+hoje, cada moeda a partir da listagem: 16 em 2021, 24 desde 2023) e o
+backtest usa um **universo que cresce com o tempo** (`load_tape(align=False)`:
+cada janela negocia as moedas que existiam nela inteira, para não
+testar só as sobreviventes de hoje). São 184 janelas de 30 dias cobrindo a
+alta de 2021, o colapso de 2022, a recuperação de 2023, a alta de 2024
+e a queda de 2025-26. `cryptoarena backtest` imprime a tabela por ano.
 
-A colônia ao vivo roda hoje com **£80 por agente** (£720 no total, ainda
-em papel): é o orçamento que faz a ordem típica passar no mínimo da
-Kraken em praticamente todas as moedas. Os backtests seguem com £5, que é o que
-as tabelas acima medem; as regras escalam com o orçamento, os mínimos
-da bolsa não.
+| Configuração (5 anos, 184 janelas) | média/janela | positivo | bate segurar | taxas |
+|---|---|---|---|---|
+| sem disciplinas, sem urso, sem portão de ganância (a de agosto) | −1,25% | 32% | 41% | 94 |
+| com disciplinas, com urso, portão de ganância 60 | −0,39% | 26% | 53% | 34 |
+| com disciplinas, com urso, portão 80 | +0,11% | 35% | 50% | 52 |
+| com disciplinas, com urso, sem portão | +0,24% | 35% | 49% | 53 |
+| **com disciplinas, sem urso, sem portão — atual** | **+0,44%** | 34% | 49% | 41 |
+| comprar e segurar as moedas | +0,94% | | | |
+
+Por ano, com a configuração atual: 2021 +0,6% (segurar −2,8%), 2022
+−0,7% (−5,0%), 2023 +4,5% (+7,6%), 2024 +1,9% (+9,8%), 2025 −2,4%
+(−4,4%), 2026 −2,1% (−3,4%). Nos anos de queda a colônia perde bem
+menos que segurar; nos de alta fica para trás. O momentum-1 sozinho fez
++10% por janela em 2023 e +7% em 2024.
+
+O que os cinco anos decidiram:
+
+- **Disciplinas ficam.** De −1,25% para +0,44% por janela, taxas de 94
+  para 41. Uma compra por vela, 60% investido no máximo, portão de clima
+  pelo BTC e só as 6 mais fortes valem em todo regime.
+- **O urso sai dos fundadores.** `BearAgent`, o vendedor a descoberto
+  (posição negativa na carteira de papel, funding de 0,12% por dia, os
+  mesmos limites do lado vendido no funil de risco), foi o único fundador
+  no azul nos 13 meses de queda (+1,8% por janela). Em cinco anos perdeu
+  em 5 dos 6 anos, −3,9% em 2024, e nenhuma variante (BTC 10% ou 15%
+  abaixo do nível de 28 dias, horizontes mais longos, só em medo) fica
+  positiva: taxas mais funding comem o que a queda rende. A classe fica
+  disponível para contratar; não é mais fundador.
+- **O portão de ganância sai (fica desligado).** O Crypto Fear & Greed
+  (alternative.me, publicado em `sentiment/fng.csv`) é contrarian na fita
+  de 13 meses e o portão em 60 ajudava ali; em cinco anos ele custa os
+  anos de alta (2024: −0,8% com portão, +1,9% sem). `greed_gate` continua
+  em todo agente (0 = desligado) e a colônia ao vivo segue lendo o índice
+  a cada tick e mostrando no dashboard, mas ninguém deixa de comprar por
+  ele.
+- **Contratar e aposentar sem refundar.** O que está na lista de
+  fundadores do andar é a verdade: quem entra na lista é contratado na
+  colônia que já roda (£ novas, fita compartilhada, "nascido hoje"); quem
+  sai é aposentado (evento `retired`, posições avaliadas no último preço).
 
 ### Pronto para dinheiro de verdade?
 
