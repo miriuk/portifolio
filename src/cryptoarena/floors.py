@@ -13,8 +13,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable
 
-from .agents.rules import (BearAgent, BreakoutAgent, BuyAndHoldAgent, MeanReversionAgent,
-                           MomentumAgent, RegimeSwitchAgent, TrendFollowerAgent, VolTargetAgent)
+from .agents.rules import (BreakoutAgent, BuyAndHoldAgent, MeanReversionAgent, MomentumAgent,
+                           RegimeSwitchAgent, TrendFollowerAgent, VolTargetAgent)
 from .arena.survival import SurvivalConfig
 
 REPO = "miriuk/portifolio"
@@ -54,9 +54,10 @@ def crypto_founders(cash: float) -> list:
         RegimeSwitchAgent("regime-1", cash),
         VolTargetAgent("voltarget-1", cash),
         TrendFollowerAgent("trend-1", cash),
-        # the one specialist that makes money when the market falls: a
-        # paper short seller, gated by BTC's own 28-day trend
-        BearAgent("bear-1", cash),
+        # not a founder: BearAgent, the paper short seller. On 13 months of
+        # falling tape it was the only founder in the black; on five years
+        # (2021-2026, 184 windows) every variant lost, even in 2022 — fees
+        # plus 0.12%/day of funding eat what shorting makes. Available to hire.
     ]
 
 

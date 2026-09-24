@@ -87,7 +87,7 @@ const winnerIds = new Set(PARTY.winners.map(w => w.agent_id));
 const winnerRet = Object.fromEntries(PARTY.winners.map(w => [w.agent_id, w.ret]));
 const lounge = [...alive].sort((a, b) => (winnerIds.has(b.agent_id) ? 1 : 0) - (winnerIds.has(a.agent_id) ? 1 : 0));
 lounge.forEach((a, i) => { a.loungeSpot = { x: 1.2 + (i % 5) * 0.85, y: 6.6 + Math.floor(i / 5) * 0.75 }; });
-const recentlyGone = ((STATE && STATE.events) || []).filter(e => e.event === 'died' && e.day >= STATE.day - 3).map(e => e.agent_id);
+const recentlyGone = ((STATE && STATE.events) || []).filter(e => (e.event === 'died' || e.event === 'retired') && e.day >= STATE.day - 3).map(e => e.agent_id);
 const SENIOR = (STATE && STATE.senior) || null;       // earned weekly: best growth since day 0
 const isSenior = a => SENIOR && SENIOR.agent_id === a.agent_id;
 
@@ -324,6 +324,7 @@ const REGIME_LINES = { crash: `Regime flipped to crash. Who's still long?`, mani
   bull: `Bull tape. Even meanrev is smiling.`, bear: `Bear tape. Targets are going to be brutal.`, chop: `Chop again. Fees win in chop.` };
 const EVENT_LINES = e => e.event === 'born' ? `Welcome to the intern room, ${e.agent_id}. Same target, smaller budget.`
   : e.event === 'died' ? `Heads up: ${e.agent_id} was let go for missing the target. Desk's empty.`
+  : e.event === 'retired' ? `${e.agent_id} retired today: the floor dropped that specialty. Five years of tape said so.`
   : e.event === 'spared' ? `${e.agent_id} was below the line today — last week's win kept them here.`
   : e.event === 'trained' ? `${e.agent_id} rewrote half their playbook after ${e.other || 'the best specialist'}'s week.`
   : `${e.agent_id} hired an intern. Someone actually made money.`;

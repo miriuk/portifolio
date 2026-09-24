@@ -174,11 +174,11 @@ def colony_view(events: pd.DataFrame) -> None:
         badges.append(f"🏆 employee of the week: **{f['agent_id']}** ({f['detail']})")
     if badges:
         st.caption(" · ".join(badges))
-    notable = events[events["event"].isin(["born", "cloned", "died", "target_hit",
+    notable = events[events["event"].isin(["born", "cloned", "died", "retired", "target_hit",
                                            "consulted", "party", "employee_of_week",
                                            "immune", "spared", "trained", "senior"])].copy()
     notable["event"] = notable["event"].replace({
-        "died": "let go", "consulted": "asked a tip", "party": "happy hour",
+        "died": "let go", "retired": "retired", "consulted": "asked a tip", "party": "happy hour",
         "employee_of_week": "employee of the week", "immune": "immunity earned",
         "spared": "spared by immunity", "trained": "weekly training",
         "senior": "senior specialist"})

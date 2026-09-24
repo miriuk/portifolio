@@ -106,6 +106,7 @@ class LiveColony:
                 feed.symbols = dict(saved["symbol_map"])   # the colony keeps its own universe
             colony._restore(saved)
             colony._hire(founders)
+            colony._retire(founders)
             return colony
         colony = cls(journal, cfg, feed, founders, warmup=warmup, verbose=verbose)
         for ind in colony.result.population:
@@ -118,6 +119,29 @@ class LiveColony:
     @property
     def alive(self) -> list[Individual]:
         return self.result.alive
+
+    def _retire(self, founders: list[TradingAgent]) -> None:
+        """A specialist dropped from the floor leaves the running colony:
+        retired today, positions closed at the last prices, budget gone
+        with them, like a dismissal without the blame. The floor's list of
+        founders is the source of truth; interns are never retired here."""
+        if not founders:
+            return                                   # a bare resume (status, dashboard) changes nothing
+        keep = {a.agent_id for a in founders}
+        retired = False
+        for ind in self.alive:
+            if ind.generation > 0 or ind.agent_id in keep:
+                continue
+            equity = ind.agent.wallet.equity(self.last_prices)
+            ind.died_day = self.day
+            self.journal.record_survival_event(self.day, ind.agent_id, "retired", equity,
+                                               ind.parent_id, ind.generation, ind.strategy,
+                                               detail="dropped from the floor")
+            if self.verbose:
+                print(f"retired {ind.agent_id} ({ind.strategy}) on day {self.day} at {equity:.2f}")
+            retired = True
+        if retired:
+            self.save()
 
     def _hire(self, founders: list[TradingAgent]) -> None:
         """A specialist added to the floor after the founding joins the
