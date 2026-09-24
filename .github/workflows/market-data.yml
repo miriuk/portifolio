@@ -1,7 +1,8 @@
 # Real hourly candles for backtests. Coinbase's public API is reachable
 # from GitHub-hosted runners (the sandboxed dev sessions can't reach any
-# exchange), so this job fetches ~13 months of BTC/ETH/SOL and publishes
-# the CSVs to the `market-data` branch as a single replaced commit.
+# exchange), so this job fetches five years of the 24 majors (each coin
+# from its listing) and publishes the CSVs to the `market-data` branch as
+# a single replaced commit.
 name: Market data
 
 on:
@@ -11,7 +12,7 @@ on:
     inputs:
       days:
         description: "Days of history to fetch"
-        default: "400"
+        default: "1900"
 
 permissions:
   contents: write
@@ -19,7 +20,7 @@ permissions:
 jobs:
   fetch:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 75               # five years of 24 pairs is ~3,700 Coinbase pages
     env:
       PYTHONUNBUFFERED: "1"
       CRYPTOARENA_DAILY_SOURCE: nasdaq    # the one public source that answers GitHub runners
@@ -31,7 +32,7 @@ jobs:
       - name: Install (the stock fetcher lives in the package)
         run: pip install -e .
       - name: Fetch crypto (Coinbase, hourly)
-        run: python scripts/fetch_history.py --days "${{ inputs.days || '400' }}" --out data
+        run: python scripts/fetch_history.py --days "${{ inputs.days || '1900' }}" --out data
       - name: Fetch stocks (Nasdaq API, daily, 6 years)
         continue-on-error: true           # the crypto tape publishes even if this fails
         run: python scripts/fetch_history.py --source stooq --days 2200 --out data/stocks
