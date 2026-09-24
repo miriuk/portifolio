@@ -497,7 +497,9 @@ class PullbackAgent(ParamAgent):
 
 class BearAgent(ParamAgent):
     """The short seller. When the bellwether is below where it was
-    `market_gate` bars ago, shorts the weakest coins: `lookback` momentum
+    `market_gate` bars ago (by at least `weather_min`, e.g. -0.10 for a
+    real downtrend rather than a dip; `fear_max` > 0 also asks the Fear &
+    Greed index to be at or under it), shorts the weakest coins: `lookback` momentum
     under -`entry_threshold` and still below their `trend_filter` level.
     Covers when the drop is bought (`lookback` momentum back above
     -`exit_threshold`; the default waits for a clear +5% bounce, which a
@@ -508,7 +510,7 @@ class BearAgent(ParamAgent):
 
     allow_short = True
     DEFAULTS = {"lookback": 168, "entry_threshold": 0.05, "exit_threshold": -0.05,
-                "take_profit": 0.12, "max_shorts": 2,
+                "take_profit": 0.12, "max_shorts": 2, "weather_min": 0.0, "fear_max": 0,
                 "order_frac": 0.30, "cooldown": 24,
                 "stop_trail": 0.08, "trend_filter": 672,
                 "max_buys": 0, "max_exposure": 0.0, "market_gate": 672, "rank_top": 0, "greed_gate": 60}
@@ -535,8 +537,11 @@ class BearAgent(ParamAgent):
         if view.step - self._last_trade_step < int(self.params["cooldown"]):
             return orders
         weather = self._weather(int(self.params.get("market_gate", 0) or 0))
-        if weather is None or weather >= 0:
+        if weather is None or weather >= min(0.0, float(self.params.get("weather_min", 0.0))):
             return orders                                   # no shorting into a rising market
+        fear_max = float(self.params.get("fear_max", 0) or 0)
+        if fear_max and view.sentiment is not None and view.sentiment > fear_max:
+            return orders                                   # only short once the crowd is already afraid
         open_shorts = sum(1 for q in self.wallet.positions.values() if q < 0)
         room = int(self.params["max_shorts"]) - open_shorts
         if room <= 0:
