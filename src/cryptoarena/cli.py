@@ -114,6 +114,52 @@ def _call(args) -> None:
         journal.close()
 
 
+FORECASTERS = {
+    "drift": lambda: __import__("cryptoarena.forecast.models", fromlist=["Drift"]).Drift(),
+    "arima": lambda: __import__("cryptoarena.forecast.models", fromlist=["x"]).StatsModel("AutoARIMA"),
+    "ets": lambda: __import__("cryptoarena.forecast.models", fromlist=["x"]).StatsModel("AutoETS"),
+    "theta": lambda: __import__("cryptoarena.forecast.models", fromlist=["x"]).StatsModel("AutoTheta"),
+    "lgbm": lambda: __import__("cryptoarena.forecast.models", fromlist=["x"]).BoostedLags(),
+    "chronos": lambda: __import__("cryptoarena.forecast.models", fromlist=["x"]).ChronosModel(),
+}
+
+
+def _forecast(args) -> None:
+    """Price-prediction models against holding BTC, walk-forward, daily."""
+    import json
+    import time as _time
+
+    from .arena.backtest import load_tape
+    from .arena.trend_hold import Tape
+    from .forecast import benchmarks, daily_closes, evaluate, format_verdicts, walk_forward
+
+    frames = load_tape(args.data, align=False)
+    tape = Tape.from_frames(frames)
+    daily = daily_closes(tape, args.symbol)
+    start = args.min_history
+    print(f"{args.symbol}: {len(daily.close)} daily closes, predicting from "
+          f"{__import__('pandas').Timestamp(daily.ts[start], unit='s'):%Y-%m-%d}, "
+          f"horizon {args.horizon} days")
+    rows = benchmarks(tape, daily, start)
+    out = {}
+    for key in args.models.split(","):
+        model = FORECASTERS[key]()
+        t = _time.time()
+        preds = walk_forward(daily, model, start, args.horizon,
+                             context_days=getattr(model, "context_days", None) or args.context)
+        v = evaluate(tape, daily, preds, start, args.horizon, name=model.name)
+        rows.append(v)
+        out[key] = {"preds": [None if p != p else round(float(p), 6) for p in preds]}
+        print(f"  {model.name}: {_time.time() - t:.0f}s", flush=True)
+    print()
+    print(format_verdicts(rows))
+    if args.out:
+        with open(args.out, "w") as fh:
+            json.dump({"symbol": args.symbol, "horizon": args.horizon, "start": start,
+                       "ts": [int(x) for x in daily.ts],
+                       "verdicts": [v.__dict__ for v in rows], "models": out}, fh)
+
+
 _OVERRIDES = {"budget": "budget", "target": "daily_target", "death": "death_below",
               "cost": "daily_cost", "clone_at": "clone_at", "min_child": "min_child_budget",
               "pressure": "pressure", "max_pop": "max_population", "seed": "seed",
@@ -229,6 +275,18 @@ def main() -> None:
                                                 "being filed twice)")
     call.add_argument("--at", default=None, help="when it was posted, ISO 8601 (default: now)")
 
+    fc = sub.add_parser("forecast", help="price-prediction models against holding BTC")
+    fc.add_argument("--data", required=True, help="directory of hourly CSVs (the market-data branch)")
+    fc.add_argument("--symbol", default="BTCUSD")
+    fc.add_argument("--models", default="drift,arima,ets,theta,lgbm",
+                    help=f"comma-separated: {', '.join(FORECASTERS)}")
+    fc.add_argument("--horizon", type=int, default=7, help="days ahead each prediction is for")
+    fc.add_argument("--min-history", type=int, default=365,
+                    help="days of history before the first prediction")
+    fc.add_argument("--context", type=int, default=730,
+                    help="days of closes each prediction sees (models may use fewer)")
+    fc.add_argument("--out", default=None, help="write predictions and verdicts as JSON")
+
     bt = sub.add_parser("backtest", help="walk-forward survival colonies on real candles")
     bt.add_argument("--floor", default="crypto", choices=["crypto", "stocks"])
     bt.add_argument("--data", default=None, help="directory of ReplayMarket CSVs (default: the floor's)")
@@ -296,6 +354,8 @@ def main() -> None:
         _live(args)
     elif args.command == "call":
         _call(args)
+    elif args.command == "forecast":
+        _forecast(args)
     elif args.command == "backtest":
         from .arena.backtest import (format_by_year, format_summary, load_sentiment, load_tape,
                                      run_backtest)

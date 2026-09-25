@@ -1,0 +1,71 @@
+# Price-prediction models against holding BTC, on the tape the market-data
+# workflow publishes. Runs here because Chronos needs PyTorch and its
+# weights from the Hugging Face hub; the report is published to the
+# `forecast-bench` branch (report.txt + predictions JSON).
+name: Forecast bench
+
+on:
+  workflow_dispatch:
+    inputs:
+      models:
+        description: "Comma-separated: drift, arima, ets, theta, lgbm, chronos"
+        type: string
+        default: "drift,lgbm,chronos"
+      symbol:
+        description: "Coin to predict"
+        type: string
+        default: "BTCUSD"
+      horizon:
+        description: "Days ahead each prediction is for"
+        type: string
+        default: "7"
+
+permissions:
+  contents: write
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        # the CPU build of PyTorch keeps the download small
+        run: |
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -e ".[forecast,chronos]"
+
+      - name: Fetch the tape
+        run: |
+          git fetch --depth 1 origin market-data
+          mkdir -p data
+          for f in $(git ls-tree --name-only origin/market-data | grep '\.csv$'); do
+            git show "origin/market-data:$f" > "data/$f"
+          done
+          ls data | wc -l
+
+      - name: Bench
+        run: |
+          mkdir -p out
+          cryptoarena forecast --data data --symbol "${{ inputs.symbol }}" \
+            --models "${{ inputs.models }}" --horizon "${{ inputs.horizon }}" \
+            --out out/forecast.json | tee out/report.txt
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          cd out
+          git init -q -b forecast-bench
+          git config user.name "forecast-bench[bot]"
+          git config user.email "forecast-bench@users.noreply.github.com"
+          git add -A
+          git commit -q -m "forecast bench $(date -u +'%Y-%m-%dT%H:%MZ') ${{ inputs.symbol }} ${{ inputs.models }}"
+          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}" forecast-bench
