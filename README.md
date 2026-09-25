@@ -846,6 +846,9 @@ BTCUSDT=BTC/USDT,...` trocam isso.
 
 ### Rodando sozinha no GitHub Actions
 
+Hoje a colônia simula um depósito de **£1.000 dividido pelos 8 fundadores (£125 cada)**,
+refundada em 25/09/2026; o input `budget` do workflow só vale na fundação.
+
 `.github/workflows/live-colony.yml` faz o ciclo de hora em hora sem
 servidor nenhum: restaura o journal da branch `colony-live`, roda
 `live --once`, e publica o journal atualizado de volta (um único commit,
