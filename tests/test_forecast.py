@@ -68,3 +68,51 @@ def test_drift_follows_the_long_run_and_the_lag_features_look_back_only():
     X = _lag_features(r, 5)
     assert X[10, :5].tolist() == [11, 10, 9, 8, 7]                 # today, then back
     assert X[10, 5] == pytest.approx(sum(range(5, 12)))            # the last 7 days
+
+
+def stock_frames(closes, lead="SPY"):
+    """Daily bars on weekdays only, like the Nasdaq data."""
+    days = pd.bdate_range("2022-01-03", periods=len(closes))
+    ts = (days.astype("int64") // 10**9).to_numpy()
+    c = np.asarray(closes, float)
+    return {lead: pd.DataFrame({"timestamp": ts, "open": c * 0.99, "high": c * 1.01,
+                                "low": c * 0.98, "close": c, "volume": 1000.0})}
+
+
+class OhlcvSpy:
+    name, wants_ohlcv = "ohlcv spy", True
+
+    def __init__(self):
+        self.shapes = []
+
+    def predict(self, contexts, horizon):
+        for df in contexts:
+            assert list(df.columns) == ["timestamps", "open", "high", "low", "close", "volume"]
+            assert (df["timestamps"].dt.weekday < 5).all()
+            self.shapes.append(len(df))
+        return np.ones(len(contexts))
+
+
+def test_a_daily_stock_tape_trades_every_bar_and_serves_candles():
+    closes = 100 * np.exp(np.cumsum(np.random.default_rng(3).normal(0.0005, 0.01, 400)))
+    tape = Tape.from_frames(stock_frames(closes))
+    assert tape.bars_per_day == 1 and tape.lead_symbol == "SPY"
+    daily = daily_closes(tape)
+    assert len(daily.close) == 400 and daily.ohlcv.shape == (400, 5)
+    assert daily.ohlcv[10, 1] == pytest.approx(closes[10] * 1.01)
+    spy = OhlcvSpy()
+    preds = walk_forward(daily, spy, start=252, horizon=5, context_days=100)
+    assert spy.shapes == [100] * (400 - 252)                 # the last 100 sessions, no more
+    v = evaluate(tape, daily, preds, 252, 5, name="always in", fee=0.0005)
+    hold, trend = benchmarks(tape, daily, 252, fee=0.0005)
+    assert hold.name == "hold SPY" and trend.name == "SPY, 20-day trend exit"
+    assert v.trades == 1 and v.in_market == 1.0              # bought once, held
+    assert v.cagr == pytest.approx(hold.cagr, abs=0.01)      # minus one fee
+
+
+def test_hourly_crypto_days_aggregate_their_candles():
+    path = np.linspace(100, 130, 40)
+    tape = tape_from_daily(path)
+    daily = daily_closes(tape)
+    assert tape.bars_per_day == 24 and daily.ohlcv.shape[1] == 5
+    assert daily.ohlcv[5, 4] == pytest.approx(24.0)          # a day's volume, summed

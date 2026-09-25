@@ -126,3 +126,65 @@ class ChronosModel:
                                                     quantile_levels=[0.5])
         median = quantiles[:, horizon - 1, 0].numpy()
         return np.log(median / np.array([c[-1] for c in contexts]))
+
+
+class KronosModel:
+    """Kronos (github.com/shiyu-coder/Kronos, AAAI 2026): a foundation
+    model pre-trained on K-lines from 45+ exchanges, zero-shot here. It
+    reads the day's open, high, low, close and volume and samples future
+    candles; the forecast is the mean of `samples` paths. Needs PyTorch,
+    the Hugging Face hub, and the Kronos repository on the path
+    (`KRONOS_PATH`, default ./Kronos) since it is not on PyPI."""
+
+    wants_ohlcv = True
+
+    def __init__(self, model_id: str = "NeoQuasar/Kronos-small",
+                 tokenizer_id: str = "NeoQuasar/Kronos-Tokenizer-base",
+                 context_days: int = 512, samples: int = 5, seed: int = 7):
+        self.model_id, self.tokenizer_id = model_id, tokenizer_id
+        self.context_days, self.samples, self.seed = context_days, samples, seed
+        self.name = f"Kronos {model_id.split('/')[-1].replace('Kronos-', '')}"
+        self._predictor = None
+
+    def _load(self):
+        import os
+        import sys
+
+        import torch
+        path = os.environ.get("KRONOS_PATH", "Kronos")
+        if path not in sys.path:
+            sys.path.insert(0, path)
+        from model import Kronos, KronosPredictor, KronosTokenizer
+        torch.manual_seed(self.seed)
+        tok = KronosTokenizer.from_pretrained(self.tokenizer_id)
+        mdl = Kronos.from_pretrained(self.model_id)
+        self._predictor = KronosPredictor(mdl, tok, device="cpu", max_context=self.context_days)
+
+    @staticmethod
+    def _future(ts: pd.Series, horizon: int) -> pd.Series:
+        last = ts.iloc[-1]
+        weekends = (ts.dt.weekday >= 5).any()          # crypto trades every day, stocks don't
+        idx = (pd.date_range(last + pd.Timedelta(days=1), periods=horizon, freq="D") if weekends
+               else pd.bdate_range(last + pd.Timedelta(days=1), periods=horizon))
+        return pd.Series(idx)
+
+    def predict(self, contexts, horizon):
+        import torch
+        if self._predictor is None:
+            self._load()
+        out = np.zeros(len(contexts))
+        groups: dict[int, list[int]] = {}
+        for k, df in enumerate(contexts):
+            groups.setdefault(len(df), []).append(k)      # predict_batch wants equal lengths
+        cols = ["open", "high", "low", "close", "volume"]
+        for _, ks in sorted(groups.items()):
+            torch.manual_seed(self.seed)
+            dfs = [contexts[k][cols].reset_index(drop=True) for k in ks]
+            xts = [contexts[k]["timestamps"].reset_index(drop=True) for k in ks]
+            yts = [self._future(x, horizon) for x in xts]
+            preds = self._predictor.predict_batch(dfs, xts, yts, pred_len=horizon, T=1.0,
+                                                  top_p=0.9, sample_count=self.samples,
+                                                  verbose=False)
+            for k, df, p in zip(ks, dfs, preds):
+                out[k] = float(np.log(p["close"].iloc[-1] / df["close"].iloc[-1]))
+        return out

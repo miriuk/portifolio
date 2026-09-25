@@ -400,7 +400,7 @@ preço do futuro.
   Chronos-Bolt, modelo pré-treinado em milhões de séries, sem treino
   nenhum aqui. Precisa de PyTorch e do Hugging Face, então roda no
   workflow **Forecast bench** (Actions), que publica o relatório na
-  branch `forecast-bench`.
+  branch `forecast-bench-crypto` (ou `forecast-bench-world`).
 - `drift`: a linha sem habilidade nenhuma, a média do retorno diário do
   último ano vezes 7.
 

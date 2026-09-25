@@ -34,27 +34,48 @@ KINDS = ("coin", "market", "both", "btc")
 
 @dataclass
 class Tape:
+    """Aligned bars of several assets. Hourly crypto (24 bars a day, the
+    bar that opens 23:00 UTC closes the day) or daily stock bars (every
+    bar closes a day). `lead` is the asset the "btc" signals follow and
+    single-asset tests trade: BTC by default, SPY or any other on request."""
+
     symbols: list[str]
     ts: np.ndarray            # T unix seconds
     close: np.ndarray         # T x N, NaN before a coin is listed
     open: np.ndarray
+    high: np.ndarray | None = None
+    low: np.ndarray | None = None
+    volume: np.ndarray | None = None
+    lead_symbol: str = "BTCUSD"
+    bars_per_day: int = 24
 
     @classmethod
-    def from_frames(cls, tape: dict[str, pd.DataFrame]) -> "Tape":
+    def from_frames(cls, tape: dict[str, pd.DataFrame], lead: str | None = None) -> "Tape":
         syms = list(tape)
         ts = tape[syms[0]]["timestamp"].to_numpy().astype(np.int64)
-        close = np.column_stack([tape[s]["close"].to_numpy(float) for s in syms])
-        opn = np.column_stack([tape[s]["open"].to_numpy(float) for s in syms])
-        return cls(syms, ts, close, opn)
+
+        def col(name):
+            return np.column_stack([tape[s][name].to_numpy(float) for s in syms])
+        step = float(np.median(np.diff(ts))) if len(ts) > 1 else 3600.0
+        lead = lead or ("BTCUSD" if "BTCUSD" in syms else syms[0])
+        return cls(syms, ts, col("close"), col("open"), col("high"), col("low"), col("volume"),
+                   lead_symbol=lead, bars_per_day=1 if step >= 86400 else 24)
 
     @property
     def btc(self) -> int:
-        return self.symbols.index("BTCUSD")
+        """The lead asset's column (BTC unless another lead was chosen)."""
+        return self.symbols.index(self.lead_symbol)
+
+    def day_closes(self) -> np.ndarray:
+        """Indices of the bars that close a day."""
+        if self.bars_per_day == 1:
+            return np.arange(len(self.ts))
+        return np.where((self.ts % 86400) == 82800)[0]
 
 
 def signal(tape: Tape, kind: str, days: int) -> np.ndarray:
     """T x N booleans: may this coin be held at this bar?"""
-    n = days * 24
+    n = days * tape.bars_per_day
     c = tape.close
     mom = np.full_like(c, np.nan)
     if len(c) > n:
@@ -94,7 +115,8 @@ class Run:
 def simulate(tape: Tape, sig: np.ndarray, start: int, end: int, universe: list[int],
              fee: float = 0.0026) -> Run:
     idx = np.array(universe)
-    decide = (tape.ts % 86400) == 82800           # the bar that opened 23:00 UTC closes the day
+    decide = np.zeros(len(tape.ts), dtype=bool)
+    decide[tape.day_closes()] = True              # once a day, at the close
     cash, units = 1.0, np.zeros(tape.close.shape[1])
     fees, trades, invested = 0.0, 0, 0
     curve = np.empty(end - start + 1)
@@ -124,9 +146,9 @@ def simulate(tape: Tape, sig: np.ndarray, start: int, end: int, universe: list[i
 def windows(tape: Tape, frames: dict[str, pd.DataFrame], days: int = 30, stride_days: int = 10,
             warmup_bars: int = 720) -> list[tuple[int, int, list[int]]]:
     """The colony backtest's windows: (first bar, last bar, coins listed throughout)."""
-    wbars = warmup_bars + days * 24
+    wbars = warmup_bars + days * tape.bars_per_day
     out = []
-    for s0 in range(0, len(tape.ts) - wbars + 1, stride_days * 24):
+    for s0 in range(0, len(tape.ts) - wbars + 1, stride_days * tape.bars_per_day):
         present = window_symbols(frames, s0, wbars)
         if len(present) >= 2:
             out.append((s0 + warmup_bars, s0 + wbars - 1,

@@ -114,50 +114,70 @@ def _call(args) -> None:
         journal.close()
 
 
-FORECASTERS = {
-    "drift": lambda: __import__("cryptoarena.forecast.models", fromlist=["Drift"]).Drift(),
-    "arima": lambda: __import__("cryptoarena.forecast.models", fromlist=["x"]).StatsModel("AutoARIMA"),
-    "ets": lambda: __import__("cryptoarena.forecast.models", fromlist=["x"]).StatsModel("AutoETS"),
-    "theta": lambda: __import__("cryptoarena.forecast.models", fromlist=["x"]).StatsModel("AutoTheta"),
-    "lgbm": lambda: __import__("cryptoarena.forecast.models", fromlist=["x"]).BoostedLags(),
-    "chronos": lambda: __import__("cryptoarena.forecast.models", fromlist=["x"]).ChronosModel(),
-}
+def _forecasters() -> dict:
+    """name -> factory(stocks: bool): the models the forecast bench can run."""
+    from .forecast import models as m
+    return {
+        "drift": lambda stocks: m.Drift(252 if stocks else 365),
+        "arima": lambda stocks: m.StatsModel("AutoARIMA"),
+        "ets": lambda stocks: m.StatsModel("AutoETS"),
+        "theta": lambda stocks: m.StatsModel("AutoTheta"),
+        "lgbm": lambda stocks: m.BoostedLags(min_train=250 if stocks else 300),
+        "chronos": lambda stocks: m.ChronosModel(),
+        "kronos": lambda stocks: m.KronosModel(),
+    }
+
+
+FORECASTERS = ("drift", "arima", "ets", "theta", "lgbm", "chronos", "kronos")
 
 
 def _forecast(args) -> None:
-    """Price-prediction models against holding BTC, walk-forward, daily."""
+    """Price-prediction models against holding the asset, walk-forward, daily."""
     import json
     import time as _time
 
+    import pandas as pd
+
     from .arena.backtest import load_tape
     from .arena.trend_hold import Tape
-    from .forecast import benchmarks, daily_closes, evaluate, format_verdicts, walk_forward
+    from .forecast import (benchmarks, daily_closes, evaluate, format_verdicts, summarise,
+                           walk_forward)
 
     frames = load_tape(args.data, align=False)
-    tape = Tape.from_frames(frames)
-    daily = daily_closes(tape, args.symbol)
-    start = args.min_history
-    print(f"{args.symbol}: {len(daily.close)} daily closes, predicting from "
-          f"{__import__('pandas').Timestamp(daily.ts[start], unit='s'):%Y-%m-%d}, "
-          f"horizon {args.horizon} days")
-    rows = benchmarks(tape, daily, start)
-    out = {}
-    for key in args.models.split(","):
-        model = FORECASTERS[key]()
-        t = _time.time()
-        preds = walk_forward(daily, model, start, args.horizon,
-                             context_days=getattr(model, "context_days", None) or args.context)
-        v = evaluate(tape, daily, preds, start, args.horizon, name=model.name)
-        rows.append(v)
-        out[key] = {"preds": [None if p != p else float(p) for p in preds]}
-        print(f"  {model.name}: {_time.time() - t:.0f}s", flush=True)
-    print()
-    print(format_verdicts(rows))
+    symbols = list(frames) if args.symbol == "all" else args.symbol.split(",")
+    report = {}
+    for sym in symbols:
+        tape = Tape.from_frames(frames, lead=sym)
+        stocks = tape.bars_per_day == 1
+        horizon = args.horizon or (5 if stocks else 7)
+        start = args.min_history or (252 if stocks else 365)
+        fee = args.fee if args.fee is not None else (0.0005 if stocks else 0.0026)
+        daily = daily_closes(tape)
+        if len(daily.close) < start + 60:
+            print(f"{sym}: {len(daily.close)} days, too short; skipped")
+            continue
+        print(f"{sym}: {len(daily.close)} daily closes, predicting from "
+              f"{pd.Timestamp(daily.ts[start], unit='s'):%Y-%m-%d}, horizon {horizon} "
+              f"{'trading ' if stocks else ''}days, fee {fee:.2%}", flush=True)
+        rows = benchmarks(tape, daily, start, fee=fee)
+        preds_out = {}
+        for key in args.models.split(","):
+            model = _forecasters()[key](stocks)
+            t = _time.time()
+            preds = walk_forward(daily, model, start, horizon,
+                                 context_days=getattr(model, "context_days", None) or args.context)
+            rows.append(evaluate(tape, daily, preds, start, horizon, name=model.name, fee=fee))
+            preds_out[key] = [None if p != p else float(p) for p in preds]
+            print(f"  {model.name}: {_time.time() - t:.0f}s", flush=True)
+        print(format_verdicts(rows), "\n", flush=True)
+        report[sym] = {"horizon": horizon, "start": start, "fee": fee,
+                       "ts": [int(x) for x in daily.ts],
+                       "verdicts": [v.__dict__ for v in rows], "preds": preds_out}
+    if len(report) > 1:
+        print(summarise(report))
     if args.out:
         with open(args.out, "w") as fh:
-            json.dump({"symbol": args.symbol, "horizon": args.horizon, "start": start,
-                       "ts": [int(x) for x in daily.ts],
-                       "verdicts": [v.__dict__ for v in rows], "models": out}, fh)
+            json.dump(report, fh)
 
 
 _OVERRIDES = {"budget": "budget", "target": "daily_target", "death": "death_below",
@@ -277,12 +297,16 @@ def main() -> None:
 
     fc = sub.add_parser("forecast", help="price-prediction models against holding BTC")
     fc.add_argument("--data", required=True, help="directory of hourly CSVs (the market-data branch)")
-    fc.add_argument("--symbol", default="BTCUSD")
+    fc.add_argument("--symbol", default="BTCUSD",
+                    help="the asset to predict, a comma list, or 'all' (every CSV in --data)")
     fc.add_argument("--models", default="drift,arima,ets,theta,lgbm",
                     help=f"comma-separated: {', '.join(FORECASTERS)}")
-    fc.add_argument("--horizon", type=int, default=7, help="days ahead each prediction is for")
-    fc.add_argument("--min-history", type=int, default=365,
-                    help="days of history before the first prediction")
+    fc.add_argument("--horizon", type=int, default=None,
+                    help="days ahead each prediction is for (7 for crypto, 5 trading days for stocks)")
+    fc.add_argument("--min-history", type=int, default=None,
+                    help="days of history before the first prediction (365 crypto, 252 stocks)")
+    fc.add_argument("--fee", type=float, default=None,
+                    help="per side (0.26%% Kraken for crypto, 0.05%% for stocks)")
     fc.add_argument("--context", type=int, default=730,
                     help="days of closes each prediction sees (models may use fewer)")
     fc.add_argument("--out", default=None, help="write predictions and verdicts as JSON")
