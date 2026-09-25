@@ -8,23 +8,30 @@
 # is one colony day; a colony week is five trading days.
 #
 # "Run workflow" (with reset) founds a fresh colony.
+#
+# After each tick the colony's holdings are mirrored onto Trading 212's
+# PRACTICE account (virtual money; broker/mirror.py), when the repository
+# has the secrets T212_API_KEY and T212_API_SECRET of a practice-account
+# API key. The variable T212_PAUSE=true stops the mirror.
 name: Live colony (stocks)
 
 on:
-  # Paused: the stocks floor is on hold while the crypto floor gets all the
-  # attention. "Run workflow" still ticks it by hand; to resume the clock,
-  # restore the schedule (Nasdaq publishes the day's row a few hours after
-  # the close: not yet at 23:50 UTC, there by 01:30 UTC; Tue-Sat 01:30 UTC
-  # picks up Mon-Fri, and a 05:30 retry is a no-op when nothing closed):
-  #   schedule:
-  #     - cron: "30 1 * * 2-6"
-  #     - cron: "30 5 * * 2-6"
+  # Nasdaq publishes the day's row a few hours after the close: not yet at
+  # 23:50 UTC, there by 01:30 UTC. Tue-Sat 01:30 UTC picks up Mon-Fri, and
+  # the 05:30 retry is a no-op when nothing new closed.
+  schedule:
+    - cron: "30 1 * * 2-6"
+    - cron: "30 5 * * 2-6"
   workflow_dispatch:
     inputs:
       reset:
         description: "Start a fresh colony (discard the saved state)"
         type: boolean
         default: false
+      deposit_gbp:
+        description: "Pounds to found a fresh colony with, split across the founders; ignored without reset"
+        type: string
+        default: "1000"
 
 permissions:
   contents: write
@@ -65,7 +72,8 @@ jobs:
           fi
 
       - name: Tick
-        run: cryptoarena live --floor stocks --once --db "$COLONY_DB"
+        # the deposit only matters at the founding: a resumed colony keeps its budget
+        run: cryptoarena live --floor stocks --once --db "$COLONY_DB" --deposit-gbp "${{ inputs.deposit_gbp || '1000' }}"
 
       - name: Status
         run: cryptoarena live --status --db "$COLONY_DB" | tee live/status.json
@@ -81,8 +89,9 @@ jobs:
           {
             echo "# Live colony"
             echo
-            echo "Updated $(date -u +'%Y-%m-%d %H:%M UTC') by the hourly job."
-            echo "Paper trading on real Kraken prices. Read \`colony.db\` with the dashboard:"
+            echo "Updated $(date -u +'%Y-%m-%d %H:%M UTC') by the nightly job."
+            echo "Paper trading on Nasdaq's daily bars, mirrored to a Trading 212 practice account."
+            echo "Read \`colony.db\` with the dashboard:"
             echo
             echo '```'
             echo "CRYPTOARENA_DB_URL=https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${COLONY_BRANCH}/colony.db"
@@ -100,3 +109,16 @@ jobs:
           git commit -q -m "colony tick $(date -u +'%Y-%m-%dT%H:%MZ')"
           # one commit, replaced every hour: the history lives inside the journal
           git push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}" "$COLONY_BRANCH"
+
+      - name: Mirror to the Trading 212 practice account
+        continue-on-error: true           # the colony is already saved; the mirror catches up next run
+        env:
+          T212_API_KEY: ${{ secrets.T212_API_KEY }}
+          T212_API_SECRET: ${{ secrets.T212_API_SECRET }}
+          T212_PAUSE: ${{ vars.T212_PAUSE }}
+        run: |
+          if [ -z "$T212_API_KEY" ] || [ -z "$T212_API_SECRET" ]; then
+            echo "No practice-account key (secrets T212_API_KEY / T212_API_SECRET): the colony stays on paper only."
+            exit 0
+          fi
+          cryptoarena t212 mirror --floor stocks --db "$COLONY_DB" --execute

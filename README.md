@@ -580,6 +580,46 @@ cryptoarena qlib --data data/global --universe etf --benchmark ACWI --topk 5 --n
 cryptoarena forecast --data data/global/etf --symbol all --every 5
 ```
 
+### O andar de ações na conta de prática da Trading 212
+
+Desde 25/09/2026 o andar que roda é o de **ações**: um depósito simulado
+de **£1.000**, convertido em dólares pelo câmbio do dia da fundação
+(Banco Central Europeu) e dividido pelos 9 especialistas
+(`live --floor stocks --deposit-gbp 1000`). Toda noite, depois do
+fechamento em Nova York, o workflow **Live colony (stocks)** alimenta o
+pregão que fechou e, com uma chave configurada, **espelha a carteira dos
+agentes na conta de prática da Trading 212** (dinheiro virtual, preços e
+execuções reais da corretora).
+
+- `broker/trading212.py` fala **só** com `demo.trading212.com`: não
+  existe opção, variável ou argumento que aponte para uma conta real.
+- `broker/mirror.py` é uma **reconciliação**, não uma cópia de ordens:
+  lê as posições e as ordens ainda pendentes e manda só a diferença para
+  a conta ter as mesmas ações que os agentes. Rodar duas vezes, ou depois
+  de um dia perdido, nunca dobra uma compra (a ordem a mercado da
+  Trading 212 não é idempotente). Vende antes de comprar, nunca mais do
+  que a conta pode vender, só mexe nos símbolos do andar, e para de
+  mandar ordens se a resposta de uma for incerta.
+- SPY e QQQ são fundos americanos que a Trading 212 não vende a contas
+  do Reino Unido: o que os agentes têm deles fica só no papel, e o
+  espelho avisa.
+- As ordens são mandadas de madrugada e executam na abertura seguinte,
+  então a conta de prática compra um pregão depois do papel.
+
+Para conectar: no app da Trading 212, mude para a conta **Practice**,
+crie uma chave de API (com permissão de conta, portfólio, metadados e
+ordens) e guarde-a em **Settings → Secrets and variables → Actions**
+do repositório como `T212_API_KEY` e `T212_API_SECRET`. Nunca num
+arquivo nem no chat. A variável `T212_PAUSE=true` para o espelho. Sem
+a chave, a colônia segue só no papel. À mão:
+
+```bash
+export T212_API_KEY=... T212_API_SECRET=...     # chave da conta Practice
+cryptoarena t212 status                         # confere a conexão
+cryptoarena t212 mirror --db live/stocks.db     # lista o que mandaria
+cryptoarena t212 mirror --db live/stocks.db --execute
+```
+
 ### Pronto para dinheiro de verdade?
 
 Cada tick a colônia pergunta à Kraken o **menor pedido aceito** por
@@ -846,8 +886,11 @@ BTCUSDT=BTC/USDT,...` trocam isso.
 
 ### Rodando sozinha no GitHub Actions
 
-Hoje a colônia simula um depósito de **£1.000 dividido pelos 8 fundadores (£125 cada)**,
-refundada em 25/09/2026; o input `budget` do workflow só vale na fundação.
+**Pausada em 25/09/2026.** Os cinco anos de backtest deixam o retorno da colônia
+perto de zero contra segurar BTC, e a atenção passou para o andar de ações (abaixo).
+O journal continua na branch `colony-live` (a última fundação simulava £1.000,
+£125 por fundador); "Run workflow" ainda tica à mão e devolver o `schedule`
+religa o relógio.
 
 `.github/workflows/live-colony.yml` faz o ciclo de hora em hora sem
 servidor nenhum: restaura o journal da branch `colony-live`, roda

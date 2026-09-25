@@ -55,9 +55,18 @@ def _live(args) -> None:
         if args.timeframe:
             feed_kw["timeframe"] = args.timeframe
         feed = floor.make_feed(**feed_kw)
+        founding = journal.load_state("live_colony") is None
+        if founding and args.deposit_gbp:
+            # a deposit in pounds, split across the founders at today's rate
+            # (the floors trade in dollars): only the founding reads it
+            from .broker.fx import usd_per_gbp
+            rate = usd_per_gbp()
+            n = len(build_agents(1.0, False, "", floor=floor.name))
+            args.budget = round(args.deposit_gbp * rate / n, 2)
+            print(f"deposit £{args.deposit_gbp:,.2f} at {rate:.4f} USD/GBP: "
+                  f"{args.budget:,.2f} per founder ({n} founders)")
         cfg = floor.config(days=args.days, **_overrides(args))
         founders = build_agents(cfg.budget, False, "", floor=floor.name)
-        founding = journal.load_state("live_colony") is None
         colony = LiveColony.open(journal, founders, cfg, feed,
                                  warmup=args.warmup or floor.warmup, sources=floor.sources)
         if args.once:
@@ -203,6 +212,35 @@ def _qlib(args) -> None:
             json.dump(rep, fh)
 
 
+def _t212(args) -> None:
+    """Trading 212's practice account: connection check, or mirror the colony."""
+    import os
+
+    from .broker.mirror import colony_holdings, mirror, report
+    from .broker.trading212 import PracticeAccount
+    from .floors import get_floor
+
+    account = PracticeAccount.from_env()
+    if args.action == "status":
+        s = account.account_summary()
+        cash = (s.get("cash") or {}).get("availableToTrade")
+        print(f"Trading 212 practice account: {s.get('currency')}, available {cash}, "
+              f"total {s.get('totalValue')}")
+        return
+    floor = get_floor(args.floor)
+    journal = TradeJournal(args.db or floor.default_db)
+    try:
+        state = journal.load_state("live_colony")
+    finally:
+        journal.close()
+    if state is None:
+        raise SystemExit("no colony to mirror")
+    target = colony_holdings(state)
+    universe = list(state.get("symbols") or target)
+    paused = os.environ.get("T212_PAUSE", "").lower() in ("1", "true", "yes")
+    print(report(mirror(account, target, universe, execute=args.execute, paused=paused)))
+
+
 _OVERRIDES = {"budget": "budget", "target": "daily_target", "death": "death_below",
               "cost": "daily_cost", "clone_at": "clone_at", "min_child": "min_child_budget",
               "pressure": "pressure", "max_pop": "max_population", "seed": "seed",
@@ -306,6 +344,9 @@ def main() -> None:
                         ("--fee", "taker fee per side (crypto 0.26%%, stocks 0.05%%)"), ("--pressure", "after a miss (0)")]:
         live.add_argument(flag, type=float, default=None, help=help_)
     live.add_argument("--learn", type=int, default=None, help="1 = nightly reflection nudges params")
+    live.add_argument("--deposit-gbp", type=float, default=None,
+                      help="found the colony with this many pounds, split across the founders "
+                           "at today's USD/GBP rate (ignored when resuming)")
     live.add_argument("--max-pop", type=int, default=None)
     live.add_argument("--seed", type=int, default=None)
 
@@ -348,6 +389,14 @@ def main() -> None:
     ql.add_argument("--n-drop", type=int, default=2)
     ql.add_argument("--fee", type=float, default=0.0005)
     ql.add_argument("--out", default=None)
+
+    t2 = sub.add_parser("t212", help="Trading 212 practice account (virtual money): check the "
+                                     "connection, or mirror a colony's holdings")
+    t2.add_argument("action", choices=["status", "mirror"])
+    t2.add_argument("--floor", default="stocks", choices=["crypto", "stocks"])
+    t2.add_argument("--db", default=None, help="the colony journal (default: the floor's)")
+    t2.add_argument("--execute", action="store_true",
+                    help="send the orders (without it the run lists what it would send)")
 
     bt = sub.add_parser("backtest", help="walk-forward survival colonies on real candles")
     bt.add_argument("--floor", default="crypto", choices=["crypto", "stocks"])
@@ -420,6 +469,8 @@ def main() -> None:
         _forecast(args)
     elif args.command == "qlib":
         _qlib(args)
+    elif args.command == "t212":
+        _t212(args)
     elif args.command == "backtest":
         from .arena.backtest import (format_by_year, format_summary, load_sentiment, load_tape,
                                      run_backtest)

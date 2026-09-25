@@ -12,8 +12,12 @@
 name: Live colony
 
 on:
-  schedule:
-    - cron: "6 * * * *"          # a few minutes past the hour: the bar has closed by then
+  # Paused (2026-09-25): five years of backtests put the colony's return
+  # near zero against holding BTC, so the attention moved to the stocks
+  # floor. The journal stays on `colony-live`; "Run workflow" still ticks it
+  # by hand, and restoring the schedule resumes the clock:
+  #   schedule:
+  #     - cron: "6 * * * *"      # a few minutes past the hour: the bar has closed by then
   workflow_dispatch:
     inputs:
       reset:
