@@ -1,0 +1,7 @@
+BTCUSD: 1900 daily closes, predicting from 2022-07-12, horizon 1 days
+  Chronos chronos-bolt-small: 19s
+
+model                      calls   hit  base     IC    CAGR max fall in mkt trades
+hold BTC                       —     —     —      —  +42.2%      54%   100%      0
+BTC, 28-day trend exit         —     —     —      —  +25.6%      42%    57%    141
+Chronos chronos-bolt-small  100%   49%   50% -0.023   -2.0%      52%    66%    216
