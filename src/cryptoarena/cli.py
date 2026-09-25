@@ -149,7 +149,7 @@ def _forecast(args) -> None:
                              context_days=getattr(model, "context_days", None) or args.context)
         v = evaluate(tape, daily, preds, start, args.horizon, name=model.name)
         rows.append(v)
-        out[key] = {"preds": [None if p != p else round(float(p), 6) for p in preds]}
+        out[key] = {"preds": [None if p != p else float(p) for p in preds]}
         print(f"  {model.name}: {_time.time() - t:.0f}s", flush=True)
     print()
     print(format_verdicts(rows))

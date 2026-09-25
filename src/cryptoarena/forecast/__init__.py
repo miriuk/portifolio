@@ -6,9 +6,11 @@ the daily closes up to that day and predicts the return over the next
 and sits in cash otherwise, traded by the same simulator and fees as
 `arena/trend_hold.py`. It is judged on:
 
-- hit rate: the predicted direction against the realised one, next to
-  the base rate (how often BTC simply rose over `horizon` days), since a
-  model that always says "up" already scores that;
+- hit rate: the predicted direction against the realised one, over the
+  days the model took a side (a prediction of exactly zero, as a random
+  walk gives, is no call), next to the base rate (how often BTC simply
+  rose over `horizon` days), since a model that always says "up" already
+  scores that;
 - IC: the rank correlation between prediction and realised return;
 - the strategy's growth, worst fall and time in the market, against
   holding BTC and against BTC with a 28-day trend exit over the same days.
@@ -82,6 +84,7 @@ class Verdict:
     days: int
     hit_rate: float
     base_rate: float
+    calls: float              # share of days the model took a side
     ic: float
     cagr: float
     max_drawdown: float
@@ -98,7 +101,9 @@ def evaluate(tape: Tape, daily: Daily, preds: np.ndarray, start: int, horizon: i
     realised[:n - horizon] = np.log(daily.close[horizon:] / daily.close[:n - horizon])
     judged = [d for d in range(start, n - horizon) if not np.isnan(preds[d])]
     p, r = preds[judged], realised[judged]
-    hit = float(np.mean(np.sign(p) == np.sign(r))) if judged else float("nan")
+    took = p != 0
+    hit = float(np.mean(np.sign(p[took]) == np.sign(r[took]))) if took.any() else float("nan")
+    calls = float(took.mean()) if judged else float("nan")
     ic = float(pd.Series(p).corr(pd.Series(r), method="spearman")) if len(judged) > 2 else float("nan")
     sig = np.zeros_like(tape.close, dtype=bool)
     for d in range(start, n):
@@ -106,7 +111,7 @@ def evaluate(tape: Tape, daily: Daily, preds: np.ndarray, start: int, horizon: i
     t0, t1 = int(daily.bar[start]), len(tape.ts) - 1
     run = simulate(tape, sig, t0, t1, [btc], fee=fee)
     years = (tape.ts[t1] - tape.ts[t0]) / (365.25 * 86400)
-    return Verdict(name, len(judged), hit, float(np.mean(r > 0)) if judged else float("nan"), ic,
+    return Verdict(name, len(judged), hit, float(np.mean(r > 0)) if judged else float("nan"), calls, ic,
                    _cagr(run.curve, years), run.max_drawdown, run.in_market, run.trades)
 
 
@@ -117,19 +122,20 @@ def benchmarks(tape: Tape, daily: Daily, start: int, fee: float = 0.0026) -> lis
     hold = tape.close[t0:t1 + 1, tape.btc] / tape.close[t0, tape.btc]
     trend = simulate(tape, signal(tape, "btc", 28), t0, t1, [tape.btc], fee=fee)
     nan = float("nan")
-    return [Verdict("hold BTC", 0, nan, nan, nan, _cagr(hold, years), _drawdown(hold), 1.0, 0),
-            Verdict("BTC, 28-day trend exit", 0, nan, nan, nan, _cagr(trend.curve, years),
+    return [Verdict("hold BTC", 0, nan, nan, nan, nan, _cagr(hold, years), _drawdown(hold), 1.0, 0),
+            Verdict("BTC, 28-day trend exit", 0, nan, nan, nan, nan, _cagr(trend.curve, years),
                     trend.max_drawdown, trend.in_market, trend.trades)]
 
 
 def format_verdicts(rows: list[Verdict]) -> str:
     def pct(x, signed=True):
         return "—" if x != x else (f"{x:+.1%}" if signed else f"{x:.0%}")
-    lines = [f"{'model':<26} {'hit':>5} {'base':>5} {'IC':>6} {'CAGR':>7} {'max fall':>8} "
+    lines = [f"{'model':<26} {'calls':>5} {'hit':>5} {'base':>5} {'IC':>6} {'CAGR':>7} {'max fall':>8} "
              f"{'in mkt':>6} {'trades':>6}"]
     for v in rows:
         ic = "—" if v.ic != v.ic else f"{v.ic:+.3f}"
-        lines.append(f"{v.name:<26} {pct(v.hit_rate, False):>5} {pct(v.base_rate, False):>5} "
+        lines.append(f"{v.name:<26} {pct(v.calls, False):>5} {pct(v.hit_rate, False):>5} "
+                     f"{pct(v.base_rate, False):>5} "
                      f"{ic:>6} {pct(v.cagr):>7} {pct(v.max_drawdown, False):>8} "
                      f"{pct(v.in_market, False):>6} {v.trades:>6}")
     return "\n".join(lines)

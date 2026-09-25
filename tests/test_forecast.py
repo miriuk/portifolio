@@ -54,6 +54,9 @@ def test_a_model_that_knows_the_future_would_be_caught_by_the_score():
     assert v.hit_rate == 1.0 and v.ic > 0.99
     noise = evaluate(tape, daily, rng.normal(0, 1, n), start=50, horizon=h, name="noise")
     assert abs(noise.ic) < 0.2 and 0.3 < noise.hit_rate < 0.7
+    flat = np.where(np.arange(n) % 2 == 0, 0.0, oracle)          # no view on even days
+    half = evaluate(tape, daily, flat, start=50, horizon=h, name="half")
+    assert half.hit_rate == 1.0 and 0.45 < half.calls < 0.55      # a zero is no call, not a miss
     hold, trend = benchmarks(tape, daily, 50)
     assert v.cagr > hold.cagr and v.cagr > noise.cagr
 
