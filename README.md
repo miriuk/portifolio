@@ -453,6 +453,133 @@ cryptoarena forecast --data data --models drift,arima,ets,theta,lgbm --horizon 7
 # o Chronos: Actions → Forecast bench → Run workflow (models: chronos)
 ```
 
+### Ações do mundo: os projetos mais completos, instalados e testados
+
+Previsão falhou no cripto; a pergunta seguinte foi se ações são
+diferentes. O universo (`market/universe.py`, workflow **Global data**,
+branch `global-data`) tem dez anos de barras diárias da API pública da
+Nasdaq: **27 ETFs de índices** (mundo, regiões, 20 países, títulos do
+Tesouro americano e ouro) e **as 100 maiores empresas americanas** (uma
+lista recente do S&P 100). Os preços vêm ajustados por desdobramento,
+mas não por dividendos nem por cisões: a cisão da Honeywell em
+29/06/2026 aparecia como uma queda de 51% e está registrada e corrigida
+em `universe.py`.
+
+**1. Prever o índice (séries temporais).** O mesmo banco de testes do
+BTC, agora em barras diárias (`cryptoarena forecast --symbol all`), com
+uma previsão por semana para a semana seguinte (sem sobreposição: cada
+previsão é uma observação independente), set/2017 a set/2026, 0,05% por
+lado:
+
+| Modelo, nos 27 índices | acerto − base | IC médio | ganha de segurar |
+|---|---|---|---|
+| drift (sem habilidade) | −1,6 pts | −0,020 | 6 de 27 |
+| AutoARIMA (statsforecast) | −2,3 pts | −0,004 | 8 de 27 |
+| AutoTheta | −3,0 pts | −0,024 | 4 de 27 |
+| AutoETS | −3,8 pts | −0,013 | 3 de 27 |
+| LightGBM sobre retornos defasados | −4,5 pts | −0,029 | 3 de 27 |
+| Chronos-Bolt small | −1,4 pts | +0,002 | 5 de 27 |
+| [Kronos](https://github.com/shiyu-coder/Kronos) small, 8 índices principais | −8,8 pts | +0,058 | 0 de 8 |
+
+O índice sobe em ~59% das semanas; nenhum modelo acerta mais do que
+quem sempre diz "sobe".
+
+O Kronos é o único com IC positivo em todos os índices, e merece um
+olhar mais de perto. Ele foi pré-treinado com velas de 45 bolsas até
+junho de 2024, então só o período depois disso é um teste limpo; nele
+o IC médio sobe para +0,15 (112 semanas por índice, t entre 1,0 e 2,2,
+com índices que andam quase juntos). Mas as previsões dele têm
+correlação de 0,83 com uma regra de uma linha, "quanto mais o preço
+está acima da média do último ano, mais cai na semana seguinte", e
+essa regra tem IC ainda maior no mesmo período (+0,17) e quase nenhum
+antes (+0,04). O Kronos aprendeu a apostar em volta à média, o que deu
+certo no vaivém de 2024–2026; operando pelo sinal ele perde de segurar
+nos 8 índices, porque num mercado que sobe ele passa a maior parte do
+tempo prevendo queda. A saída pela tendência de 20 pregões repete o
+cripto: queda máxima menor em 25 dos 27 índices (mediana 42% → 30%),
+retorno menor em 22 (mediana 4,7% → 1,7% ao ano).
+
+**2. Ranquear ações (a abordagem do [Microsoft Qlib](https://github.com/microsoft/qlib)).**
+O Qlib, a plataforma aberta mais completa de investimento quantitativo,
+não tenta adivinhar se o mercado sobe: todo dia ele ranqueia as ações
+umas contra as outras com 158 indicadores técnicos (Alpha158) e a
+carteira segura as melhores colocadas, trocando poucas por dia
+(TopkDropout). `forecast/qlib_bench.py` (`cryptoarena qlib`) escreve os
+nossos dados no formato binário do Qlib e roda quatro modelos **com os
+parâmetros exatos dos arquivos de benchmark publicados pelo Qlib**,
+retreinados todo ano só com o passado (teste 2020 a set/2026), mais o
+momentum de 12 meses (o sinal mais forte da literatura) sem
+aprendizado de máquina nenhum:
+
+| | IC | ao ano | vs índice | pior queda |
+|---|---|---|---|---|
+| *Publicado pelo Qlib, China CSI300, 2017–2020* | *0,040 a 0,052* | | *+6,9 a +11,6 pts* | |
+| **100 maiores empresas dos EUA, top 10** | | | | |
+| LightGBM | −0,003 | +5,6% | −7,2 pts | 39% |
+| DoubleEnsemble | +0,003 | +11,5% | −1,3 pts | 43% |
+| XGBoost | −0,002 | +12,7% | +0,1 pts | 41% |
+| Linear | +0,006 | +14,6% | +2,1 pts | 37% |
+| momentum 12-1 | +0,024 | +32,2% | +17,6 pts | 34% |
+| segurar SPY | | +13,8% | | 34% |
+| **27 índices do mundo, top 5** | | | | |
+| LightGBM | +0,011 | +6,9% | −3,7 pts | 35% |
+| DoubleEnsemble | +0,007 | +5,7% | −5,0 pts | 31% |
+| XGBoost | +0,002 | +1,0% | −8,9 pts | 42% |
+| Linear | +0,011 | +8,9% | −1,8 pts | 29% |
+| momentum 12-1 | +0,024 | +12,0% | +0,9 pts | 31% |
+| segurar ACWI (mundo) | | +11,1% | | 34% |
+
+- **Os modelos do Qlib não acham nada aqui.** O IC que na China chega a
+  0,04–0,05 fica entre −0,003 e +0,011: o ranking dos modelos quase não
+  se relaciona com o que as ações fizeram depois. Os retornos ficam
+  espalhados em volta do índice, para os dois lados. Trocar duas ações
+  por dia custa sozinho ~5 pontos por ano a 0,05% por lado.
+- **O momentum nas 100 empresas não deve ser levado ao pé da letra.** A
+  lista é a de hoje: ela já contém quem subiu até o topo (Nvidia,
+  Palantir, Broadcom, Eli Lilly…) e nenhuma empresa que caiu dele, e o
+  momentum é exatamente o sinal que mais lucra com esse viés (+92% em
+  2020, +62% em 2024). Nos índices do mundo, que existem desde antes do
+  teste e não têm esse viés, o mesmo momentum rendeu +0,9 ponto por ano.
+- **O mercado chinês é outro mercado.** Onde o Qlib foi publicado, o
+  pregão é dominado por pessoas físicas; as maiores empresas americanas
+  e os índices mundiais estão entre os preços mais disputados do
+  planeta.
+
+**3. O que já se sabe (e reforça).**
+
+- [Gu, Kelly e Xiu (2020)](https://academic.oup.com/rfs/article/33/5/2223/5758276):
+  aprendizado de máquina acha previsibilidade entre ações americanas,
+  com momentum, liquidez e volatilidade como sinais dominantes.
+- [Avramov, Cheng e Metzker (2023)](https://pubsonline.informs.org/doi/abs/10.1287/mnsc.2022.4449):
+  esse lucro vem de ações difíceis de negociar; tirando as muito
+  pequenas, as em dificuldade e os períodos de alta volatilidade ele
+  cai bastante, e piora com custos, porque esses modelos giram muito.
+- [McLean e Pontiff (2016)](https://onlinelibrary.wiley.com/doi/abs/10.1111/jofi.12365):
+  97 anomalias publicadas rendem 26% menos fora da amostra e 58% menos
+  depois de publicadas.
+- [FinRL](https://github.com/AI4Finance-Foundation/FinRL) (aprendizado
+  por reforço): lido, não rodado. O exemplo oficial treina cinco agentes
+  em 2014–2025 e testa em onze semanas (jan–mar/2026), sem semente fixa;
+  um resultado assim não distingue habilidade de sorte.
+- [Stock-Prediction-Models](https://github.com/huseinzol05/Stock-Prediction-Models)
+  (30 modelos, parado desde 2021): anuncia "LSTM com 95,7% de
+  acurácia". A métrica é 1 − o erro percentual sobre o nível do preço
+  em 30 dias; uma linha reta que repete o último fechamento marca 95,1%
+  (mediana) na mesma Alphabet dos notebooks.
+- [Machine Learning for Trading](https://github.com/stefan-jansen/machine-learning-for-trading)
+  (Stefan Jansen, atualizado em 2026): o livro-referência trata o
+  backtest como tentativa de falsificação e dedica capítulos a
+  sobreajuste e testes múltiplos (Deflated Sharpe Ratio, White's Reality
+  Check), que é o que este projeto vem fazendo à mão.
+
+```bash
+pip install -e ".[qlib,forecast]"
+# com a branch global-data em data/global (stocks/ e etf/):
+cryptoarena qlib --data data/global --universe stocks --benchmark SPY
+cryptoarena qlib --data data/global --universe etf --benchmark ACWI --topk 5 --n-drop 1
+cryptoarena forecast --data data/global/etf --symbol all --every 5
+```
+
 ### Pronto para dinheiro de verdade?
 
 Cada tick a colônia pergunta à Kraken o **menor pedido aceito** por
