@@ -322,6 +322,63 @@ O que os cinco anos decidiram:
   colônia que já roda (£ novas, fita compartilhada, "nascido hoje"); quem
   sai é aposentado (evento `retired`, posições avaliadas no último preço).
 
+### A linha que a colônia precisa bater: segurar com saída pela tendência
+
+Uma colônia que rende +0,44% por mês contra +0,94% de segurar não é
+investimento. A pergunta seguinte foi se o que ela tem de bom (perder
+menos nos anos de queda) vale sozinho, sem a colônia: **segurar as
+moedas e ir para caixa quando a tendência vira**
+(`arena/trend_hold.py`). Uma vez por dia cada moeda é checada; compra
+quando o sinal liga, vende tudo quando desliga, deixa correr no meio,
+0,26% de taxa em cada lado. As regras foram fixadas antes de olhar o
+resultado; os prazos de 14, 56 e 100 dias servem só de teste de
+robustez.
+
+Mesmas 184 janelas de 30 dias da colônia:
+
+| Estratégia | média | mediana | pior janela | 2022 | 2024 |
+|---|---|---|---|---|---|
+| colônia (fundadores atuais) | +0,44% | −1,33% | | −0,7% | +1,9% |
+| segurar as moedas, sem taxa | +0,94% | −2,74% | −43,5% | −5,0% | +9,8% |
+| moeda em alta de 28 dias | +1,27% | −3,01% | −22,8% | −1,6% | +6,7% |
+| BTC em alta de 28 dias → todas | +1,71% | −0,33% | −34,4% | −2,1% | +6,3% |
+| **as duas condições** | **+2,07%** | −0,76% | −23,9% | −0,2% | +5,9% |
+| segurar só BTC | +2,04% | +0,76% | −30,1% | | |
+| só BTC, em alta de 28 dias | +1,51% | −0,33% | −25,2% | −3,3% | +4,0% |
+
+Cinco anos seguidos, começando em datas diferentes (retorno ao ano /
+pior queda do pico):
+
+| Início | segurar BTC | segurar as moedas | BTC + tendência | moedas + as duas condições |
+|---|---|---|---|---|
+| out/2021 | +5,8% / 77% | −14,7% / 83% | +11,2% / 49% | +16,0% / 58% |
+| out/2022 | +44,8% / 54% | +8,8% / 75% | +27,2% / 42% | +18,9% / 63% |
+| out/2023 | +46,7% / 54% | +14,6% / 80% | +22,7% / 42% | +23,5% / 62% |
+| abr/2024 | +7,2% / 54% | −19,8% / 76% | −7,7% / 42% | −12,0% / 62% |
+| abr/2025 | +1,6% / 54% | −16,2% / 73% | −1,0% / 29% | −7,9% / 48% |
+
+O que isso diz:
+
+- **A saída pela tendência faz o que promete: corta as quedas.** Pior
+  janela de −43% para −24%; queda máxima do BTC de 54–77% para 29–49%.
+- **Ela não acrescenta retorno de forma confiável.** Nas janelas que
+  não se sobrepõem, a diferença para segurar tem estatística t abaixo
+  de 1 em todas as variantes: indistinguível de sorte. Num começo perto
+  do topo (2021) ela brilha; num começo antes de uma alta (2022–2023)
+  ela entrega metade do BTC puro.
+- **O que mais pesa é o quê, não o quando.** A cesta de 24 moedas
+  perdeu dinheiro na maioria dos começos; só BTC ganhou de tudo na
+  maior parte deles, inclusive da colônia. O universo largo da colônia
+  é um peso, não uma vantagem.
+- **Nenhuma variante é suave.** Mesmo com a saída, quedas de 40–60%
+  continuam acontecendo. É cripto.
+
+Ressalvas: as 24 moedas são as grandes de hoje (quem morreu no caminho,
+como LUNA e FTT, não está na fita, o que favorece "segurar as moedas");
+a taxa é a da Kraken e não inclui spread; no Reino Unido cada venda é
+um evento de imposto sobre ganho de capital, e a saída pela tendência
+vende muito mais que segurar.
+
 ### Pronto para dinheiro de verdade?
 
 Cada tick a colônia pergunta à Kraken o **menor pedido aceito** por
