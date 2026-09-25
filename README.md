@@ -379,6 +379,80 @@ a taxa é a da Kraken e não inclui spread; no Reino Unido cada venda é
 um evento de imposto sobre ganho de capital, e a saída pela tendência
 vende muito mais que segurar.
 
+### Modelos de previsão do GitHub contra segurar BTC
+
+Muitos repositórios prometem prever o preço de cripto. Quatro famílias
+foram instaladas e postas no mesmo teste (`cryptoarena forecast`,
+`forecast/`): a cada dia, no fechamento, o modelo vê **só os fechamentos
+até aquele dia** e prevê o retorno do BTC nos próximos 7 dias; com a
+previsão positiva segura BTC, senão fica em caixa, com o simulador e as
+taxas de `trend_hold`. Um teste garante que nenhum modelo recebe um
+preço do futuro.
+
+- [Nixtla/statsforecast](https://github.com/Nixtla/statsforecast):
+  AutoARIMA, AutoETS e AutoTheta sobre o log do preço.
+- [StephanAkkerman/crypto-forecasting-benchmark](https://github.com/StephanAkkerman/crypto-forecasting-benchmark):
+  o setup de aprendizado de máquina do artigo (gradient boosting sobre
+  retornos defasados), com LightGBM, retreinado a cada 30 dias só com o
+  passado. O repositório fixa Python 3.9 e bibliotecas de 2023, então o
+  método foi reproduzido com as versões atuais.
+- [amazon-science/chronos-forecasting](https://github.com/amazon-science/chronos-forecasting):
+  Chronos-Bolt, modelo pré-treinado em milhões de séries, sem treino
+  nenhum aqui. Precisa de PyTorch e do Hugging Face, então roda no
+  workflow **Forecast bench** (Actions), que publica o relatório na
+  branch `forecast-bench`.
+- `drift`: a linha sem habilidade nenhuma, a média do retorno diário do
+  último ano vezes 7.
+
+Jul/2022 a set/2026, 1.535 previsões. "Acerto" é a direção certa nos
+dias em que o modelo tomou lado; a "base" é quantas vezes o BTC
+simplesmente subiu em 7 dias (quem sempre diz "sobe" acerta isso). IC é
+a correlação de postos entre previsto e realizado:
+
+| Modelo | acerto (base 53%) | IC | ao ano | pior queda | operações |
+|---|---|---|---|---|---|
+| segurar BTC | | | +42,2% | 54% | 0 |
+| BTC com saída pela tendência de 28 dias | | | +25,6% | 42% | 141 |
+| drift (sem habilidade) | 53% | +0,01 | +34,7% | 32% | 4 |
+| AutoARIMA (tomou lado em 48% dos dias) | 54% | +0,01 | +12,3% | 44% | 52 |
+| AutoTheta | 50% | −0,01 | +8,1% | 58% | 95 |
+| LightGBM sobre retornos defasados | 48% | −0,06 | +4,6% | 57% | 290 |
+| Chronos-Bolt small | 51% | −0,03 | +4,0% | 54% | 148 |
+| AutoETS | 52% | −0,05 | −14,8% | 62% | 619 |
+
+Com horizonte de 1 dia, o que a maioria desses repositórios usa, fica
+pior: acerto de 48% a 52% contra base de 50%, e as taxas de quem gira
+muito pesam (LightGBM −42,5% ao ano com 730 operações; Chronos −2,0%).
+
+- **Nenhum modelo prevê melhor que a moeda ao ar.** Todo acerto fica a
+  até 5 pontos da base, e todo IC fica entre −0,06 e +0,02, dentro do
+  ruído (com ~220 semanas independentes, o erro padrão do IC é ~0,07).
+- **Todos perdem para segurar BTC e para a saída pela tendência.** Os
+  que operam mais perdem mais: a taxa é o único efeito que aparece com
+  clareza.
+- **O modelo mais moderno não ajuda.** O Chronos, pré-treinado e
+  premiado em benchmarks de previsão genérica, faz o mesmo que os
+  outros no BTC: o que ele sabe prever (sazonalidade, tendência suave)
+  não existe numa série que se comporta como passeio aleatório.
+- **O único que "funcionou" não prevê nada.** O drift fica comprado
+  enquanto o último ano foi positivo; operou 4 vezes e teve a menor
+  queda. É a saída pela tendência com um prazo longo, a mesma lição da
+  seção anterior, e com 4 decisões ninguém distingue isso de sorte.
+
+O quinto repositório lido,
+[SC4RECOIN/LSTM-Crypto-Price-Prediction](https://github.com/SC4RECOIN/LSTM-Crypto-Price-Prediction),
+anuncia quase 80% de acerto numa LSTM. O `lstm.py` embaralha as amostras
+antes de separar treino e validação, então a validação vê dias vizinhos
+dos de treino e os 80% não medem previsão. O próprio README mostra o
+teste honesto, em dados que o modelo não viu: carteira −11,26% contra
++6,51% de segurar. Por isso ele não entrou no teste.
+
+```bash
+pip install -e ".[forecast]"
+cryptoarena forecast --data data --models drift,arima,ets,theta,lgbm --horizon 7
+# o Chronos: Actions → Forecast bench → Run workflow (models: chronos)
+```
+
 ### Pronto para dinheiro de verdade?
 
 Cada tick a colônia pergunta à Kraken o **menor pedido aceito** por
