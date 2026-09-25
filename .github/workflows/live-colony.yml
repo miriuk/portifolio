@@ -24,6 +24,18 @@ on:
         description: "Budget per agent for a fresh colony (quote units); ignored without reset"
         type: string
         default: "80"
+      post_text:
+        description: "File a source's post by hand: its text (a call on a coin)"
+        type: string
+        default: ""
+      post_url:
+        description: "…and its link (x.com/<handle>/status/<id>)"
+        type: string
+        default: ""
+      post_source:
+        description: "…from which handle"
+        type: string
+        default: "leshka_eth"
 
 permissions:
   contents: write
@@ -61,9 +73,21 @@ jobs:
             echo "no saved colony — founding a new one"
           fi
 
+      - name: File a post by hand
+        if: ${{ inputs.post_text != '' && !inputs.reset }}
+        env:
+          POST_TEXT: ${{ inputs.post_text }}
+          POST_URL: ${{ inputs.post_url }}
+          POST_SOURCE: ${{ inputs.post_source }}
+        run: cryptoarena call --db "$COLONY_DB" --source "$POST_SOURCE" --url "$POST_URL" --text "$POST_TEXT"
+
       - name: Tick
         # the budget only matters at the founding: a resumed colony keeps the
-        # one saved in its state
+        # one saved in its state. X_BEARER_TOKEN (a repository secret) lets the
+        # colony read its sources' posts itself; without it, posts are filed
+        # by hand through the "post" inputs above.
+        env:
+          X_BEARER_TOKEN: ${{ secrets.X_BEARER_TOKEN }}
         run: cryptoarena live --once --db "$COLONY_DB" --exchange kraken --budget "${{ inputs.budget || '80' }}"
 
       - name: Status

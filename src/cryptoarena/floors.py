@@ -16,6 +16,7 @@ from typing import Callable
 from .agents.rules import (BreakoutAgent, BuyAndHoldAgent, MeanReversionAgent, MomentumAgent,
                            RegimeSwitchAgent, TrendFollowerAgent, VolTargetAgent)
 from .arena.survival import SurvivalConfig
+from .market.sources import Source
 
 REPO = "miriuk/portifolio"
 
@@ -34,6 +35,7 @@ class Floor:
     warmup: int = 700
     backtest_days: int = 30
     backtest_stride: int = 10
+    sources: list = field(default_factory=list)    # accounts whose calls the colony judges
 
     @property
     def live_url(self) -> str:
@@ -92,6 +94,15 @@ def stock_founders(cash: float) -> list:
     ]
 
 
+# Who the crypto floor listens to. Each starts with a small prior and earns
+# (or loses) trust call by call in the colony's own ledger — see
+# market/sources.py. Add a handle here and the hourly job starts reading it
+# (with X_BEARER_TOKEN) or accepting its posts by hand.
+CRYPTO_SOURCES = [
+    Source("leshka_eth", "Leshka.eth", prior=0.25, horizon_days=7, min_resolved=10),
+]
+
+
 def _crypto_feed(exchange_id: str = "kraken", symbols: dict | None = None,
                  timeframe: str = "1h"):
     from .market.live import LiveFeed, majors_symbols
@@ -112,6 +123,7 @@ FLOORS: dict[str, Floor] = {
         make_feed=_crypto_feed,
         default_db="live/colony.db", state_branch="colony-live", data_dir="data",
         warmup=700, backtest_days=30, backtest_stride=10,
+        sources=CRYPTO_SOURCES,
     ),
     "stocks": Floor(
         name="stocks", label="Stocks",

@@ -42,7 +42,8 @@ def _live(args) -> None:
                 return
             feed = _StaticFeed(saved.get("timeframe", "1h"), saved.get("exchange", ""),
                                saved.get("symbols", []))
-            colony = LiveColony.open(journal, [], SurvivalConfig(), feed, verbose=False)
+            colony = LiveColony.open(journal, [], SurvivalConfig(), feed, verbose=False,
+                                     sources=floor.sources)
             print(json.dumps(colony.status(), indent=2))
             return
         symbols = None
@@ -58,7 +59,7 @@ def _live(args) -> None:
         founders = build_agents(cfg.budget, False, "", floor=floor.name)
         founding = journal.load_state("live_colony") is None
         colony = LiveColony.open(journal, founders, cfg, feed,
-                                 warmup=args.warmup or floor.warmup)
+                                 warmup=args.warmup or floor.warmup, sources=floor.sources)
         if args.once:
             n = 1 if founding else colony.run_once()
             if hasattr(feed, "min_costs"):              # real-money readiness, refreshed each tick
@@ -70,6 +71,45 @@ def _live(args) -> None:
                   f"{s['alive']} alive ({s['interns']} interns), colony {s['colony_equity']:.2f}")
         else:
             colony.run_forever(args.days)
+    finally:
+        journal.close()
+
+
+def _call(args) -> None:
+    """File a source's post by hand into the running colony's ledger."""
+    from datetime import datetime, timezone
+
+    from .arena.live_colony import LiveColony
+    from .arena.survival import SurvivalConfig
+    from .floors import get_floor
+    from .market.sources import Post, post_id_from_url
+
+    floor = get_floor(args.floor)
+    args.db = args.db or floor.default_db
+    journal = TradeJournal(args.db)
+    try:
+        saved = journal.load_state("live_colony")
+        if saved is None:
+            raise SystemExit(f"no live colony in {args.db}: found one first (cryptoarena live)")
+        feed = _StaticFeed(saved.get("timeframe", "1h"), saved.get("exchange", ""),
+                           saved.get("symbols", []))
+        colony = LiveColony.open(journal, [], SurvivalConfig(), feed, verbose=True,
+                                 sources=floor.sources)
+        ts = (int(datetime.fromisoformat(args.at.replace("Z", "+00:00")).timestamp())
+              if args.at else int(datetime.now(timezone.utc).timestamp()))
+        post_id = post_id_from_url(args.url) or f"manual-{ts}"
+        source = args.source.lstrip("@")
+        filed = colony.ingest([Post(source, post_id, ts, args.text, args.url or "")])
+        if filed:
+            print(f"filed {filed} call(s) from @{source}")
+        else:
+            print(f"no call in that post (no coin the colony trades, or no lean either way)")
+        summary = {s["handle"]: s for s in colony.sources_summary()}.get(source)
+        if summary:
+            print(f"@{source}: trust {summary['trust']:+.2f}, {summary['calls']} calls, "
+                  f"{summary['resolved']} judged"
+                  + (f", hit rate {summary['hit_rate']:.0%}" if summary['hit_rate'] is not None
+                     else ""))
     finally:
         journal.close()
 
@@ -180,6 +220,15 @@ def main() -> None:
     live.add_argument("--max-pop", type=int, default=None)
     live.add_argument("--seed", type=int, default=None)
 
+    call = sub.add_parser("call", help="file a source's post (a call on a coin) by hand")
+    call.add_argument("--floor", default="crypto", choices=["crypto", "stocks"])
+    call.add_argument("--db", default=None, help="journal path (default: the floor's)")
+    call.add_argument("--source", required=True, help="the X handle, e.g. leshka_eth")
+    call.add_argument("--text", required=True, help="the post's text")
+    call.add_argument("--url", default="", help="the post's link (its id keeps it from "
+                                                "being filed twice)")
+    call.add_argument("--at", default=None, help="when it was posted, ISO 8601 (default: now)")
+
     bt = sub.add_parser("backtest", help="walk-forward survival colonies on real candles")
     bt.add_argument("--floor", default="crypto", choices=["crypto", "stocks"])
     bt.add_argument("--data", default=None, help="directory of ReplayMarket CSVs (default: the floor's)")
@@ -245,6 +294,8 @@ def main() -> None:
             journal.close()
     elif args.command == "live":
         _live(args)
+    elif args.command == "call":
+        _call(args)
     elif args.command == "backtest":
         from .arena.backtest import (format_by_year, format_summary, load_sentiment, load_tape,
                                      run_backtest)

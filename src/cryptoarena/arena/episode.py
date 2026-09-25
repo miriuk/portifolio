@@ -77,12 +77,15 @@ def run_episode(
         journal.record_market(episode, record_step_offset + step, prices, regimes)
         sentiment = (market.sentiment_at(candles[0].timestamp)
                      if candles and hasattr(market, "sentiment_at") else None)
+        signals = (market.signals_at(candles[0].timestamp)
+                   if candles and hasattr(market, "signals_at") else {}) or {}
 
         for agent in agents:
             agent.observe(candles)
             rm = risk[agent.agent_id]
             view = MarketView(candles=latest, history=agent.history,
-                              prices=prices, step=step_offset + step, sentiment=sentiment)
+                              prices=prices, step=step_offset + step, sentiment=sentiment,
+                              signals=signals)
 
             equity = agent.wallet.equity(prices)
             result.equity_curves[agent.agent_id].append(equity)

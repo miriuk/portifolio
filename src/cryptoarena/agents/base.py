@@ -21,6 +21,7 @@ class MarketView:
     step: int
     regimes: dict[str, str] = field(default_factory=dict)  # hidden by default
     sentiment: float | None = None                   # Crypto Fear & Greed, 0 (fear) .. 100 (greed)
+    signals: dict[str, float] = field(default_factory=dict)  # per symbol, the sources' lean in [-1, 1]
 
 
 class TradingAgent(ABC):

@@ -344,9 +344,56 @@ desligado); a colônia ao vivo lê o índice a cada tick e o backtest lê o
 CSV. Na fita, quanto mais apertado o portão, menos a colônia perde
 (sem portão −1,5% por janela; 60 → −1,4%; 45 → −1,1%; 30 → −0,8%), mas
 30 ou 45 significam "quase nunca compre" num ano de queda, e numa alta
-o índice passa meses acima de 60. O default é **60**: sem compras novas
-em ganância ou ganância extrema, a leitura clássica, e a única que não
-está ajustada a este ano.
+o índice passa meses acima de 60. Em 13 meses o default foi **60**; os
+cinco anos (acima) o desligaram: hoje o portão vem em **0**, a leitura
+continua no dashboard.
+
+### As fontes: quem a colônia escuta
+
+Uma **fonte** é uma conta no X cujos posts às vezes cravam uma moeda
+("$SOL pronta pra subir", "shortando ETH aqui"). A colônia não acredita
+em ninguém pelo número de seguidores: ela **anota cada chamada** (moeda,
+direção, hora, preço naquele momento), espera o horizonte da fonte
+(7 dias por padrão) e **julga** — a moeda andou para o lado que a fonte
+disse? O placar fica no journal (`source_calls`) e a **confiança** da
+fonte sai só dele:
+
+```
+confiança = prior (0,25)            enquanto menos de 10 chamadas foram julgadas
+confiança = 2 × acertos − 1         depois, misturada aos poucos conforme o placar cresce
+```
+
+Quem acerta 70% puxa a colônia com confiança 0,4; quem acerta 50% é
+ruído (0); quem costuma errar fica **negativo** e a colônia passa a fazer
+o contrário. A soma das chamadas abertas por moeda, pesada pela
+confiança, chega aos agentes como `MarketView.signals` (−1 … 1). Todo
+agente de regra tem `signal_bias` (1 = ouve, 0 = surdo): uma moeda que
+uma fonte confiável cravou comprada sobe na fila do `rank_top` (sinal 1
+vale 10 pontos de momento), uma que ela cravou vendida **não é comprada**
+enquanto a chamada estiver de pé (sinal abaixo de −0,5). Com o prior de
+0,25 a inclinação é leve — a fonte precisa provar antes de mandar.
+
+A primeira fonte do andar cripto é
+[@leshka_eth](https://x.com/leshka_eth) (`floors.py`, `CRYPTO_SOURCES`).
+Os posts chegam de dois jeitos:
+
+- **Pela API do X** — pagamento por uso, cerca de meio centavo de dólar
+  por post lido. Um *Bearer token* de app do X no secret `X_BEARER_TOKEN`
+  do repositório faz o job de hora em hora ler os posts novos da conta
+  (só os novos: a colônia guarda o último id lido).
+- **À mão** — sem token, em **Actions → Live colony → Run workflow**
+  preencha `post_text`, `post_url` e `post_source`; ou localmente
+  `cryptoarena call --source leshka_eth --url https://x.com/… --text "…"`.
+  O id do link impede que o mesmo post conte duas vezes.
+
+O parser é de palavras: reconhece as 24 moedas por ticker (`$SOL`,
+`SOL` em maiúsculas — `near` em minúsculas não é NEAR) ou nome
+(bitcoin, solana) e a direção pelo vocabulário (long/buy/bottom/🚀 contra
+short/sell/top/📉). Um post que não nomeia moeda, ou não pende para lado
+nenhum, não vira chamada — só se julga o que dá para julgar. O
+`status.json` e o dashboard mostram, por fonte, chamadas, julgadas,
+taxa de acerto, resultado médio e confiança, e a inclinação atual por
+moeda.
 
 ## O andar (mundo isométrico)
 
@@ -546,8 +593,10 @@ servidor nenhum: restaura o journal da branch `colony-live`, roda
 `live --once`, e publica o journal atualizado de volta (um único commit,
 substituído a cada hora). O GitHub só agenda workflows que estão na
 branch padrão — depois do merge na `main` ela começa a bater o ponto; em
-**Actions → Live colony → Run workflow** dá para disparar na hora (e
-`reset` funda uma colônia nova).
+**Actions → Live colony → Run workflow** dá para disparar na hora (`reset`
+funda uma colônia nova; `post_text`/`post_url`/`post_source` arquivam
+um post de uma fonte à mão). O secret opcional `X_BEARER_TOKEN` deixa o
+job ler as fontes sozinho pela API do X.
 
 O dashboard lê esse journal direto do GitHub: no Streamlit Cloud, em
 *Secrets*, coloque

@@ -4,6 +4,12 @@ from ..market.exchange import Order
 from .base import MarketView, TradingAgent
 
 
+# What a fully trusted source is worth in the ranking: a signal of 1.0 reads
+# like 10 points of extra momentum, and a signal below -0.5 vetoes the buy.
+SIGNAL_TILT = 0.10
+SIGNAL_VETO = 0.5
+
+
 class ParamAgent(TradingAgent):
     """Rule agent with numeric parameters that evolution can mutate and
     that reflection lessons can nudge directly."""
@@ -85,7 +91,10 @@ class ParamAgent(TradingAgent):
         wide universe two more disciplines apply: at most `max_buys` new
         positions per bar (the strongest trend wins) and no new buys once
         `max_exposure` of equity is already invested. `greed_gate` (0 = off)
-        vetoes new buys while the Crypto Fear & Greed index is above it."""
+        vetoes new buys while the Crypto Fear & Greed index is above it.
+        `signal_bias` (0 = deaf) scales what the sources say: a coin a
+        trusted source calls long ranks higher, one it calls short is not
+        bought while the call stands."""
         orders = self._protective_exits(view)
         stopped = {o.symbol for o in orders}
         buys: list[Order] = []
@@ -101,16 +110,22 @@ class ParamAgent(TradingAgent):
         greed = float(self.params.get("greed_gate", 0) or 0)
         if buys and greed and view.sentiment is not None and view.sentiment > greed:
             buys = []                            # no new longs while the crowd is greedy
+        bias = float(self.params.get("signal_bias", 0) or 0)
+        lean = {sym: bias * v for sym, v in (view.signals or {}).items()} if bias else {}
+        if buys and lean:
+            buys = [o for o in buys if lean.get(o.symbol, 0.0) > -SIGNAL_VETO]
         top = int(self.params.get("rank_top", 0) or 0)
         if top and buys:
             bars = int(self.params.get("trend_filter", 0) or 168)
-            ranked = sorted(((self.momentum(sym, bars) or -9.0), sym) for sym in view.candles)
+            ranked = sorted(((self.momentum(sym, bars) or -9.0) + SIGNAL_TILT * lean.get(sym, 0.0),
+                             sym) for sym in view.candles)
             leaders = {sym for _, sym in ranked[-top:]}
             buys = [o for o in buys if o.symbol in leaders]
         max_buys = int(self.params.get("max_buys", 0) or 0)
         if max_buys and len(buys) > max_buys:
             lookback = int(self.params.get("lookback", 168) or 168)
-            buys.sort(key=lambda o: -(self.momentum(o.symbol, lookback) or 0.0))
+            buys.sort(key=lambda o: -((self.momentum(o.symbol, lookback) or 0.0)
+                                      + SIGNAL_TILT * lean.get(o.symbol, 0.0)))
             buys = buys[:max_buys]
         cap = float(self.params.get("max_exposure", 0.0) or 0.0)
         if cap and buys and self.wallet.exposure(view.prices) >= cap:
@@ -179,7 +194,7 @@ class MomentumAgent(ParamAgent):
     DEFAULTS = {"lookback": 168, "entry_threshold": 0.05, "exit_threshold": -0.03,
                 "order_frac": 0.30, "cooldown": 24,
                 "stop_trail": 0.0, "trend_filter": 672,
-                "max_buys": 1, "max_exposure": 0.6, "market_gate": 672, "rank_top": 6, "greed_gate": 0}
+                "max_buys": 1, "max_exposure": 0.6, "market_gate": 672, "rank_top": 6, "greed_gate": 0, "signal_bias": 1.0}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -212,7 +227,7 @@ class MeanReversionAgent(ParamAgent):
     DEFAULTS = {"lookback": 168, "entry_threshold": 0.08, "exit_gain": 0.04,
                 "order_frac": 0.15, "cooldown": 24,
                 "stop_trail": 0.06, "trend_filter": 672,
-                "max_buys": 1, "max_exposure": 0.6, "market_gate": 672, "rank_top": 6, "greed_gate": 0}
+                "max_buys": 1, "max_exposure": 0.6, "market_gate": 672, "rank_top": 6, "greed_gate": 0, "signal_bias": 1.0}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -249,7 +264,7 @@ class RegimeSwitchAgent(ParamAgent):
     DEFAULTS = {"lookback": 168, "trend_threshold": 0.06, "entry_threshold": 0.03,
                 "vol_panic": 0.03, "order_frac": 0.15, "cooldown": 24,
                 "stop_trail": 0.0, "trend_filter": 672,
-                "max_buys": 1, "max_exposure": 0.6, "market_gate": 672, "rank_top": 6, "greed_gate": 0}
+                "max_buys": 1, "max_exposure": 0.6, "market_gate": 672, "rank_top": 6, "greed_gate": 0, "signal_bias": 1.0}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -308,7 +323,7 @@ class VolTargetAgent(ParamAgent):
     DEFAULTS = {"lookback": 168, "entry_threshold": 0.04, "target_vol": 0.01,
                 "vol_exit": 0.04, "order_frac": 0.30, "cooldown": 24,
                 "stop_trail": 0.0, "trend_filter": 672,
-                "max_buys": 1, "max_exposure": 0.6, "market_gate": 672, "rank_top": 6, "greed_gate": 0}
+                "max_buys": 1, "max_exposure": 0.6, "market_gate": 672, "rank_top": 6, "greed_gate": 0, "signal_bias": 1.0}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -349,7 +364,7 @@ class BreakoutAgent(ParamAgent):
     DEFAULTS = {"lookback": 168, "entry_threshold": 0.005, "trail_pct": 0.08,
                 "order_frac": 0.30, "cooldown": 24,
                 "stop_trail": 0.0, "trend_filter": 672,
-                "max_buys": 1, "max_exposure": 0.6, "market_gate": 672, "rank_top": 6, "greed_gate": 0}
+                "max_buys": 1, "max_exposure": 0.6, "market_gate": 672, "rank_top": 6, "greed_gate": 0, "signal_bias": 1.0}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -391,7 +406,7 @@ class TrendFollowerAgent(ParamAgent):
 
     DEFAULTS = {"fast": 72, "slow": 240, "order_frac": 0.30, "cooldown": 12,
                 "exit_buffer": 0.02, "stop_trail": 0.0, "trend_filter": 672,
-                "max_buys": 1, "max_exposure": 0.6, "market_gate": 672, "rank_top": 6, "greed_gate": 0}
+                "max_buys": 1, "max_exposure": 0.6, "market_gate": 672, "rank_top": 6, "greed_gate": 0, "signal_bias": 1.0}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -430,7 +445,7 @@ class RotationAgent(ParamAgent):
     DEFAULTS = {"lookback": 336, "top": 3, "rebalance": 168, "entry_threshold": 0.0,
                 "order_frac": 0.30, "cooldown": 168,
                 "stop_trail": 0.10, "trend_filter": 672,
-                "max_buys": 3, "max_exposure": 0.9, "market_gate": 672, "rank_top": 0, "greed_gate": 0}
+                "max_buys": 3, "max_exposure": 0.9, "market_gate": 672, "rank_top": 0, "greed_gate": 0, "signal_bias": 1.0}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -466,7 +481,7 @@ class PullbackAgent(ParamAgent):
     DEFAULTS = {"lookback": 168, "entry_threshold": 0.08, "exit_gain": 0.06,
                 "order_frac": 0.30, "cooldown": 24,
                 "stop_trail": 0.08, "trend_filter": 672,
-                "max_buys": 1, "max_exposure": 0.6, "market_gate": 672, "rank_top": 6, "greed_gate": 0}
+                "max_buys": 1, "max_exposure": 0.6, "market_gate": 672, "rank_top": 6, "greed_gate": 0, "signal_bias": 1.0}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -513,7 +528,7 @@ class BearAgent(ParamAgent):
                 "take_profit": 0.12, "max_shorts": 2, "weather_min": 0.0, "fear_max": 0,
                 "order_frac": 0.30, "cooldown": 24,
                 "stop_trail": 0.08, "trend_filter": 672,
-                "max_buys": 0, "max_exposure": 0.0, "market_gate": 672, "rank_top": 0, "greed_gate": 0}
+                "max_buys": 0, "max_exposure": 0.0, "market_gate": 672, "rank_top": 0, "greed_gate": 0, "signal_bias": 1.0}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

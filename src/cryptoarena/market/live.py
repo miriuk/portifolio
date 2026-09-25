@@ -78,6 +78,21 @@ def fetch_fear_and_greed(url: str = FNG_URL, timeout: int = 15) -> int | None:
     return int(rows[0]["value"]) if rows else None
 
 
+def _x_posts(handle: str, since_id: str | None = None, user_id: str | None = None):
+    """The X API when `X_BEARER_TOKEN` is set; nothing (and a note, once)
+    when it is not — the sources are then fed by hand."""
+    import os
+
+    from .sources import fetch_x_posts
+    bearer = os.environ.get("X_BEARER_TOKEN")
+    if not bearer:
+        if not getattr(_x_posts, "warned", False):
+            print("[sources] no X_BEARER_TOKEN: posts are filed by hand (cryptoarena call)")
+            _x_posts.warned = True
+        return user_id, []
+    return fetch_x_posts(handle, bearer, since_id=since_id, user_id=user_id)
+
+
 class LiveFeed:
     """Real OHLCV candles via CCXT, with the next_candles() interface.
 
@@ -90,7 +105,8 @@ class LiveFeed:
                  symbols: dict[str, str] | None = None,  # arena name -> ccxt name
                  timeframe: str = "1h", client=None, closed_only: bool = True,
                  now: Callable[[], float] | None = None,
-                 sentiment: Callable[[], int | None] | None = None):
+                 sentiment: Callable[[], int | None] | None = None,
+                 posts: Callable | None = None):
         self.exchange_id = exchange_id
         self.symbols = symbols or default_symbols(exchange_id)
         self.timeframe = timeframe
@@ -99,10 +115,18 @@ class LiveFeed:
         # today's Crypto Fear & Greed: fetched for a real client, injectable for tests
         self._sentiment = sentiment if sentiment is not None else (
             fetch_fear_and_greed if client is None else (lambda: None))
+        # the sources' posts: the X API for a real client (needs X_BEARER_TOKEN), injectable
+        self._posts = posts if posts is not None else (
+            _x_posts if client is None else (lambda handle, since_id=None, user_id=None:
+                                             (user_id, [])))
         if client is None:
             import ccxt
             client = getattr(ccxt, exchange_id)({"enableRateLimit": True})
         self.client = client
+
+    def posts(self, handle: str, since_id: str | None = None, user_id: str | None = None):
+        """(user_id, new posts of `handle` since `since_id`), oldest first."""
+        return self._posts(handle, since_id=since_id, user_id=user_id)
 
     def sentiment(self) -> int | None:
         try:

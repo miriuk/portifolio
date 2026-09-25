@@ -27,6 +27,7 @@ from ..agents.base import HISTORY_LEN, TradingAgent
 from ..learning.memory import TradeJournal
 from ..market.candle import Candle
 from ..market.exchange import SimulatedExchange
+from ..market.sources import Call, Post, Source, parse_calls, signals, trust
 from ..portfolio.risk import RiskManager
 from ..portfolio.wallet import Wallet
 from .episode import EpisodeResult, run_episode
@@ -43,16 +44,21 @@ AGENT_CLASSES: dict[str, type] = {
 class _OneBar:
     """A market that serves exactly the candles it was given, once."""
 
-    def __init__(self, candles: list[Candle], sentiment: int | None = None):
+    def __init__(self, candles: list[Candle], sentiment: int | None = None,
+                 signals: dict[str, float] | None = None):
         self._candles = candles
         self._regime: dict[str, str] = {}
         self._sentiment = sentiment
+        self._signals = signals or {}
 
     def next_candles(self) -> list[Candle]:
         return self._candles
 
     def sentiment_at(self, ts: int) -> int | None:
         return self._sentiment
+
+    def signals_at(self, ts: int) -> dict[str, float]:
+        return self._signals
 
 
 def _utc(ts: int) -> datetime:
@@ -81,6 +87,8 @@ class LiveColony:
         self.last_prices: dict[str, float] = {}
         self.min_costs: dict[str, float] = {}   # the exchange's smallest order per symbol (quote)
         self.sentiment: int | None = None       # the latest Crypto Fear & Greed reading
+        self.sources: list[Source] = []         # the accounts the colony listens to
+        self.source_cursor: dict[str, dict] = {}  # per handle: last post id seen, user id
         self.exchange = SimulatedExchange(fee_rate=getattr(cfg, "fee_rate", 0.001),
                                           seed=int(self.rng.integers(1 << 31)))
         if founders:
@@ -94,7 +102,7 @@ class LiveColony:
     @classmethod
     def open(cls, journal: TradeJournal, founders: list[TradingAgent],
              cfg: SurvivalConfig, feed, warmup: int = 700,
-             verbose: bool = True) -> "LiveColony":
+             verbose: bool = True, sources: list[Source] | None = None) -> "LiveColony":
         """Resume the colony saved in `journal`, or found a new one."""
         saved = journal.load_state(STATE_KEY)
         if saved is not None:
@@ -104,11 +112,13 @@ class LiveColony:
                          verbose=verbose)
             if saved.get("symbol_map") and hasattr(feed, "symbols"):
                 feed.symbols = dict(saved["symbol_map"])   # the colony keeps its own universe
+            colony.sources = list(sources or [])
             colony._restore(saved)
             colony._hire(founders)
             colony._retire(founders)
             return colony
         colony = cls(journal, cfg, feed, founders, warmup=warmup, verbose=verbose)
+        colony.sources = list(sources or [])
         for ind in colony.result.population:
             journal.record_survival_event(0, ind.agent_id, "born", cfg.budget,
                                           generation=0, strategy=ind.strategy)
@@ -192,6 +202,7 @@ class LiveColony:
             fresh = self.feed.sentiment()
             if fresh is not None:
                 self.sentiment = int(fresh)
+        self._read_sources()
         for _page in range(100):                    # exchanges page their history
             bars = self.feed.aligned(limit=200, since=self.last_ts)
             if not bars:
@@ -227,7 +238,8 @@ class LiveColony:
             self.risk = {}                              # a fresh seatbelt every day, as in the sim
             for ind in alive:
                 ind.apply_pressure(self.cfg.pressure)
-        ep = run_episode(self.day, _OneBar(candles, self.sentiment), [i.agent for i in alive],
+        ep = run_episode(self.day, _OneBar(candles, self.sentiment, self.signals()),
+                         [i.agent for i in alive],
                          self.journal,
                          steps=1, step_offset=self.clock, record_step_offset=self.hour,
                          risk=self.risk, exchange=self.exchange)
@@ -237,12 +249,121 @@ class LiveColony:
         self.last_ts = candles[0].timestamp
         self.clock += 1
         self.hour += 1
+        self._judge_calls()
         if self.verbose:
             total = sum(i.agent.wallet.equity(self.last_prices) for i in alive)
             print(f"{_utc(self.last_ts):%Y-%m-%d %H:%M} UTC  day {self.day} h{self.hour:<2} "
                   f"alive={len(alive)} colony={total:.2f}")
         if self._day_over(candles[0].timestamp):
             self._end_day(alive)
+
+    # ------------------------------------------------------------ sources
+    def _read_sources(self) -> int:
+        """Ask the feed for each source's new posts (the X API, when a
+        token is configured) and file their calls. Posts by hand come in
+        through `ingest` directly."""
+        if not self.sources or not hasattr(self.feed, "posts"):
+            return 0
+        filed = 0
+        for src in self.sources:
+            cur = self.source_cursor.setdefault(src.handle, {})
+            try:
+                user_id, posts = self.feed.posts(src.handle, since_id=cur.get("since_id"),
+                                                 user_id=cur.get("user_id"))
+            except Exception as exc:     # noqa: BLE001 — a source down never stops the tick
+                print(f"[sources] @{src.handle}: {exc}")
+                continue
+            if user_id:
+                cur["user_id"] = user_id
+            if posts:
+                cur["since_id"] = max(posts, key=lambda p: int(p.post_id)).post_id
+                filed += self.ingest(posts)
+        return filed
+
+    def _source(self, handle: str) -> Source:
+        for src in self.sources:
+            if src.handle == handle:
+                return src
+        return Source(handle)                       # a hand-fed source nobody registered
+
+    def ingest(self, posts: list[Post]) -> int:
+        """File the calls the posts make, at the price the colony sees
+        now (the bar of the post if it is on the tape, else the last
+        price). Returns how many new calls went into the ledger."""
+        symbols = list(self.last_prices) or list(getattr(self.feed, "symbols", {}) or {})
+        tape = self._tape()
+        filed = 0
+        for post in posts:
+            for call in parse_calls(post, symbols):
+                call.price_at = self._price_at(call.symbol, call.ts, tape)
+                if call.price_at is None:
+                    continue
+                if self.journal.record_call(call):
+                    filed += 1
+                    if self.verbose:
+                        print(f"call @{call.source}: {call.symbol} "
+                              f"{'long' if call.side > 0 else 'short'} at {call.price_at:.4g}")
+        if filed:
+            self.save()
+        return filed
+
+    def _price_at(self, symbol: str, ts: int, tape: dict) -> float | None:
+        rows = tape.get(symbol) or []
+        for r in rows:
+            if r[0] >= ts:                          # the first bar closed after the post
+                return float(r[4])
+        return self.last_prices.get(symbol)
+
+    def _judge_calls(self) -> None:
+        """A call whose horizon has passed is judged at the last price:
+        outcome = the return in the call's direction. The source's trust
+        is nothing but the record of these."""
+        if self.last_ts is None:
+            return
+        for call in self.journal.calls(unresolved=True):
+            horizon = self._source(call.source).horizon_days * 86400
+            price = self.last_prices.get(call.symbol)
+            if call.ts + horizon > self.last_ts or not price or not call.price_at:
+                continue
+            outcome = call.side * (price / call.price_at - 1)
+            self.journal.resolve_call(call.id, self.last_ts, outcome)
+            if self.verbose:
+                print(f"judged @{call.source} {call.symbol} "
+                      f"{'long' if call.side > 0 else 'short'}: {outcome:+.2%}")
+
+    def trust(self, handle: str) -> float:
+        rec = self.journal.source_record(handle)
+        return round(trust(self._source(handle), rec["resolved"], rec["hits"]), 4)
+
+    def signals(self) -> dict[str, float]:
+        """What the sources say right now, per symbol: their open calls
+        weighted by trust, in [-1, 1]."""
+        active = self.journal.calls(unresolved=True)
+        if not active:
+            return {}
+        weights = {h: self.trust(h) for h in {c.source for c in active}}
+        return signals(active, weights)
+
+    def sources_summary(self) -> list[dict]:
+        handles = [s.handle for s in self.sources]
+        for c in self.journal.calls(limit=1000):
+            if c.source not in handles:
+                handles.append(c.source)
+        out = []
+        for h in handles:
+            src, rec = self._source(h), self.journal.source_record(h)
+            out.append({
+                "handle": h, "label": src.label or h, "url": src.link,
+                "trust": self.trust(h), "prior": src.prior, "horizon_days": src.horizon_days,
+                "calls": rec["calls"], "resolved": rec["resolved"], "hits": rec["hits"],
+                "hit_rate": round(rec["hits"] / rec["resolved"], 3) if rec["resolved"] else None,
+                "avg_outcome": round(rec["avg_outcome"], 4) if rec["avg_outcome"] is not None
+                else None,
+                "active": [{"symbol": c.symbol, "side": "long" if c.side > 0 else "short",
+                            "ts": c.ts, "price_at": c.price_at, "url": c.url, "text": c.text}
+                           for c in self.journal.calls(source=h, unresolved=True, limit=20)],
+            })
+        return out
 
     def _complete(self, candles: list[Candle]) -> list[Candle]:
         """A pair the feed could not fetch this bar gets a flat candle at its
@@ -301,6 +422,9 @@ class LiveColony:
             "last_prices": self.last_prices,
             "min_costs": self.min_costs,
             "sentiment": self.sentiment,
+            "source_cursor": self.source_cursor,
+            "sources": self.sources_summary(),
+            "signals": self.signals(),
             "risk": {k: {"peak_equity": r.peak_equity, "halted": r.halted}
                      for k, r in self.risk.items()},
             "population": [_dump_individual(i) for i in self.result.population],
@@ -316,6 +440,7 @@ class LiveColony:
         self.last_prices = dict(saved.get("last_prices", {}))
         self.min_costs = dict(saved.get("min_costs", {}))
         self.sentiment = saved.get("sentiment")
+        self.source_cursor = {k: dict(v) for k, v in (saved.get("source_cursor") or {}).items()}
         for agent_id, r in saved.get("risk", {}).items():
             rm = RiskManager()
             rm.peak_equity, rm.halted = r["peak_equity"], r["halted"]
@@ -377,6 +502,8 @@ class LiveColony:
             "senior": self.result.senior.agent_id if self.result.senior else None,
             "prices": self.last_prices,
             "sentiment": self.sentiment,
+            "signals": self.signals(),
+            "sources": self.sources_summary(),
             "readiness": self.readiness(),
             "agents": [{"id": i.agent_id, "gen": i.generation, "budget": round(i.budget, 4),
                         "equity": round(equity[i.agent_id], 4), "streak": i.streak,

@@ -79,6 +79,20 @@ CREATE TABLE IF NOT EXISTS colony_state (
     value TEXT NOT NULL,          -- JSON blob: a live colony's wallets, positions, clock…
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE IF NOT EXISTS source_calls (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source TEXT NOT NULL,         -- the X handle
+    post_id TEXT NOT NULL,
+    ts INTEGER NOT NULL,          -- when the post was made (unix seconds)
+    symbol TEXT NOT NULL,
+    side INTEGER NOT NULL,        -- +1 long, -1 short
+    text TEXT DEFAULT '',
+    url TEXT DEFAULT '',
+    price_at REAL,                -- the price when the colony first saw the call
+    resolved_ts INTEGER,
+    outcome REAL,                 -- return in the call's direction, once judged
+    UNIQUE (source, post_id, symbol)
+);
 CREATE INDEX IF NOT EXISTS idx_trades_agent ON trades (agent_id, episode);
 CREATE INDEX IF NOT EXISTS idx_equity_agent ON equity_snapshots (agent_id, episode, step);
 """
@@ -251,6 +265,49 @@ class TradeJournal:
             (day, agent_id, event, equity, parent_id, generation, strategy, detail),
         )
         self._conn.commit()
+
+    # ---------------------------------------------------------- sources' calls
+    def record_call(self, call) -> bool:
+        """Add a source's call to the ledger; False if that post already
+        made this call (the same post read twice must not count twice)."""
+        cur = self._conn.execute(
+            """INSERT OR IGNORE INTO source_calls (source, post_id, ts, symbol, side, text,
+               url, price_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (call.source, call.post_id, call.ts, call.symbol, call.side, call.text,
+             call.url, call.price_at))
+        self._conn.commit()
+        return cur.rowcount > 0
+
+    def calls(self, source: str | None = None, unresolved: bool | None = None,
+              limit: int = 500) -> list:
+        from ..market.sources import Call
+        where, args = [], []
+        if source:
+            where.append("source = ?"); args.append(source)
+        if unresolved is True:
+            where.append("resolved_ts IS NULL")
+        elif unresolved is False:
+            where.append("resolved_ts IS NOT NULL")
+        sql = "SELECT source, post_id, ts, symbol, side, text, url, price_at, resolved_ts, " \
+              "outcome, id FROM source_calls"
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+        sql += " ORDER BY ts DESC, id DESC LIMIT ?"
+        args.append(limit)
+        return [Call(*row) for row in self._conn.execute(sql, args).fetchall()]
+
+    def resolve_call(self, call_id: int, resolved_ts: int, outcome: float) -> None:
+        self._conn.execute("UPDATE source_calls SET resolved_ts = ?, outcome = ? WHERE id = ?",
+                           (resolved_ts, outcome, call_id))
+        self._conn.commit()
+
+    def source_record(self, source: str) -> dict:
+        """calls made, judged, hits (outcome > 0) and the mean outcome."""
+        row = self._conn.execute(
+            """SELECT COUNT(*), COUNT(resolved_ts), COALESCE(SUM(outcome > 0), 0),
+               AVG(outcome) FROM source_calls WHERE source = ?""", (source,)).fetchone()
+        return {"calls": row[0], "resolved": row[1], "hits": int(row[2]),
+                "avg_outcome": row[3]}
 
     def save_state(self, key: str, value) -> None:
         """Persist a JSON-serialisable blob under `key` (live colonies keep

@@ -410,6 +410,33 @@ def live_view(state: dict) -> None:
                      f"agent most paper orders are below it, real money needs a bigger budget")
     if notes:
         st.caption(" · ".join(notes))
+    sources_view(state.get("sources") or [], state.get("signals") or {})
+
+
+def sources_view(sources: list[dict], signals: dict[str, float]) -> None:
+    """Who the colony listens to and how right they have been: every call
+    judged after its horizon, trust earned from the record."""
+    if not sources:
+        return
+    with st.expander("Sources: calls and track record", expanded=bool(signals)):
+        rows = []
+        for s in sources:
+            rows.append({
+                "source": f"@{s['handle']}", "trust": s["trust"],
+                "calls": s["calls"], "judged": s["resolved"],
+                "hit rate": s["hit_rate"], "avg outcome": s["avg_outcome"],
+                "open calls": ", ".join(f"{c['symbol'].replace('USD', '')} {c['side']}"
+                                        for c in s.get("active", [])) or "—",
+            })
+        st.dataframe(pd.DataFrame(rows).style.format({"trust": "{:+.2f}", "hit rate": "{:.0%}",
+                                                      "avg outcome": "{:+.1%}"}, na_rep="—"),
+                     width="stretch", hide_index=True)
+        if signals:
+            st.caption("lean now: " + " · ".join(
+                f"{sym.replace('USD', '')} {v:+.2f}" for sym, v in
+                sorted(signals.items(), key=lambda kv: -abs(kv[1]))))
+        st.caption("trust starts at a small prior and becomes 2 × hit rate − 1 once enough "
+                   "calls are judged; a source that is usually wrong ends up faded")
 
 
 def data_view(equity: pd.DataFrame, summary: pd.DataFrame, trades: pd.DataFrame,
