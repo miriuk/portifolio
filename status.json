@@ -1,0 +1,162 @@
+{
+  "day": 1,
+  "hour": 1,
+  "started_at": "2026-09-25T11:00:00+00:00",
+  "last_candle": "2026-09-25T11:00:00+00:00",
+  "alive": 8,
+  "population": 8,
+  "interns": 0,
+  "colony_equity": 999.5597,
+  "invested": 123.316,
+  "senior": null,
+  "prices": {
+    "BTCUSD": 84574.5,
+    "ETHUSD": 2716.81,
+    "SOLUSD": 120.8,
+    "XRPUSD": 1.59478,
+    "ADAUSD": 0.255242,
+    "DOGEUSD": 0.0980265,
+    "AVAXUSD": 10.584,
+    "DOTUSD": 1.1957,
+    "LINKUSD": 14.08196,
+    "LTCUSD": 70.41,
+    "BCHUSD": 335.98,
+    "UNIUSD": 9.7534,
+    "ATOMUSD": 1.8118,
+    "XLMUSD": 0.223034,
+    "ETCUSD": 9.646,
+    "NEARUSD": 5.0282,
+    "APTUSD": 0.8414,
+    "ARBUSD": 0.2253,
+    "OPUSD": 0.1388,
+    "FILUSD": 1.028,
+    "AAVEUSD": 148.24,
+    "ALGOUSD": 0.11682,
+    "SUIUSD": 1.1394,
+    "INJUSD": 8.27
+  },
+  "sentiment": null,
+  "signals": {},
+  "sources": [
+    {
+      "handle": "leshka_eth",
+      "label": "Leshka.eth",
+      "url": "https://x.com/leshka_eth",
+      "trust": 0.25,
+      "prior": 0.25,
+      "horizon_days": 7,
+      "calls": 0,
+      "resolved": 0,
+      "hits": 0,
+      "hit_rate": null,
+      "avg_outcome": null,
+      "active": []
+    }
+  ],
+  "readiness": {
+    "orders": 5,
+    "executable": 0.6,
+    "budget_for_typical": 125.0,
+    "budget_for_all": 223.93,
+    "min_costs": {
+      "BTCUSD": 4.2287,
+      "ETHUSD": 2.7168,
+      "SOLUSD": 7.248,
+      "XRPUSD": 2.6314,
+      "ADAUSD": 5.1048,
+      "DOGEUSD": 4.9013,
+      "AVAXUSD": 5.292,
+      "DOTUSD": 4.6632,
+      "LINKUSD": 7.7451,
+      "LTCUSD": 7.041,
+      "BCHUSD": 3.3598,
+      "UNIUSD": 14.6301,
+      "ATOMUSD": 6.3413,
+      "XLMUSD": 6.691,
+      "ETCUSD": 6.7522,
+      "NEARUSD": 20.1128,
+      "APTUSD": 7.5726,
+      "ARBUSD": 11.265,
+      "OPUSD": 6.94,
+      "FILUSD": 7.196,
+      "AAVEUSD": 7.412,
+      "ALGOUSD": 4.7896,
+      "SUIUSD": 5.697,
+      "INJUSD": 8.27
+    }
+  },
+  "agents": [
+    {
+      "id": "momentum-1",
+      "gen": 0,
+      "budget": 125.0,
+      "equity": 124.8958,
+      "streak": 0,
+      "misses": 0,
+      "immune_until": 0
+    },
+    {
+      "id": "momentum-2",
+      "gen": 0,
+      "budget": 125.0,
+      "equity": 124.8801,
+      "streak": 0,
+      "misses": 0,
+      "immune_until": 0
+    },
+    {
+      "id": "meanrev-1",
+      "gen": 0,
+      "budget": 125.0,
+      "equity": 125.0,
+      "streak": 0,
+      "misses": 0,
+      "immune_until": 0
+    },
+    {
+      "id": "meanrev-2",
+      "gen": 0,
+      "budget": 125.0,
+      "equity": 125.0,
+      "streak": 0,
+      "misses": 0,
+      "immune_until": 0
+    },
+    {
+      "id": "breakout-1",
+      "gen": 0,
+      "budget": 125.0,
+      "equity": 125.0,
+      "streak": 0,
+      "misses": 0,
+      "immune_until": 0
+    },
+    {
+      "id": "regime-1",
+      "gen": 0,
+      "budget": 125.0,
+      "equity": 124.9363,
+      "streak": 0,
+      "misses": 0,
+      "immune_until": 0
+    },
+    {
+      "id": "voltarget-1",
+      "gen": 0,
+      "budget": 125.0,
+      "equity": 124.9628,
+      "streak": 0,
+      "misses": 0,
+      "immune_until": 0
+    },
+    {
+      "id": "trend-1",
+      "gen": 0,
+      "budget": 125.0,
+      "equity": 124.8847,
+      "streak": 0,
+      "misses": 0,
+      "immune_until": 0
+    }
+  ]
+}
