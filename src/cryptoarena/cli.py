@@ -124,7 +124,8 @@ def _forecasters() -> dict:
         "theta": lambda stocks: m.StatsModel("AutoTheta"),
         "lgbm": lambda stocks: m.BoostedLags(min_train=250 if stocks else 300),
         "chronos": lambda stocks: m.ChronosModel(),
-        "kronos": lambda stocks: m.KronosModel(),
+        # 256 days of context and 3 sampled paths keep Kronos within an Actions CPU budget
+        "kronos": lambda stocks: m.KronosModel(context_days=256, samples=3),
     }
 
 
@@ -165,14 +166,18 @@ def _forecast(args) -> None:
             model = _forecasters()[key](stocks)
             t = _time.time()
             preds = walk_forward(daily, model, start, horizon,
-                                 context_days=getattr(model, "context_days", None) or args.context)
+                                 context_days=getattr(model, "context_days", None) or args.context,
+                                 every=args.every)
             rows.append(evaluate(tape, daily, preds, start, horizon, name=model.name, fee=fee))
             preds_out[key] = [None if p != p else float(p) for p in preds]
             print(f"  {model.name}: {_time.time() - t:.0f}s", flush=True)
         print(format_verdicts(rows), "\n", flush=True)
-        report[sym] = {"horizon": horizon, "start": start, "fee": fee,
+        report[sym] = {"horizon": horizon, "start": start, "fee": fee, "every": args.every,
                        "ts": [int(x) for x in daily.ts],
                        "verdicts": [v.__dict__ for v in rows], "preds": preds_out}
+        if args.out:                                   # written as it goes: a timeout keeps the rest
+            with open(args.out, "w") as fh:
+                json.dump(report, fh)
     if len(report) > 1:
         print(summarise(report))
     if args.out:
@@ -309,6 +314,8 @@ def main() -> None:
                     help="per side (0.26%% Kraken for crypto, 0.05%% for stocks)")
     fc.add_argument("--context", type=int, default=730,
                     help="days of closes each prediction sees (models may use fewer)")
+    fc.add_argument("--every", type=int, default=1,
+                    help="predict every N days and hold in between (N = horizon: no overlap)")
     fc.add_argument("--out", default=None, help="write predictions and verdicts as JSON")
 
     bt = sub.add_parser("backtest", help="walk-forward survival colonies on real candles")

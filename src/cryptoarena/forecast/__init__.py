@@ -72,12 +72,14 @@ def daily_closes(tape: Tape, symbol: str | None = None) -> Daily:
 
 
 def walk_forward(daily: Daily, model: Forecaster, start: int, horizon: int = 7,
-                 context_days: int | None = None, batch: int = 128) -> np.ndarray:
-    """Predictions for every day from `start` on (NaN before), each made
-    from the closes up to and including that day only."""
+                 context_days: int | None = None, batch: int = 128, every: int = 1) -> np.ndarray:
+    """Predictions from `start` on, every `every` days (NaN elsewhere),
+    each made from the closes up to and including that day only. With
+    `every == horizon` the predictions do not overlap: each is an
+    independent observation, and the position is held until the next."""
     n = len(daily.close)
     preds = np.full(n, np.nan)
-    days = list(range(start, n))
+    days = list(range(start, n, max(1, every)))
     for k in range(0, len(days), batch):
         chunk = days[k:k + batch]
         spans = [((0 if context_days is None else max(0, d + 1 - context_days)), d + 1)
@@ -129,9 +131,10 @@ def evaluate(tape: Tape, daily: Daily, preds: np.ndarray, start: int, horizon: i
     calls = float(took.mean()) if judged else float("nan")
     ic = (float(pd.Series(p).corr(pd.Series(r), method="spearman"))
           if len(judged) > 2 and np.ptp(p) > 0 else float("nan"))   # a constant call ranks nothing
+    held = pd.Series(preds).ffill().to_numpy()       # between predictions, the last one stands
     sig = np.zeros_like(tape.close, dtype=bool)
     for d in range(start, n):
-        sig[daily.bar[d], btc] = bool(preds[d] > 0)
+        sig[daily.bar[d], btc] = bool(held[d] > 0)
     t0, t1 = int(daily.bar[start]), len(tape.ts) - 1
     run = simulate(tape, sig, t0, t1, [btc], fee=fee)
     years = (tape.ts[t1] - tape.ts[t0]) / (365.25 * 86400)

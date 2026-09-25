@@ -18,13 +18,14 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from cryptoarena.market.stocks import NASDAQ_URL, _get, parse_nasdaq
-from cryptoarena.market.universe import LARGE_CAPS, WORLD_ETFS, asset_class
+from cryptoarena.market.universe import (LARGE_CAPS, WORLD_ETFS, adjust_corporate_actions,
+                                         asset_class)
 
 
 def fetch(ticker: str, years: int) -> list[list[float]]:
     fromdate = (datetime.now(timezone.utc) - timedelta(days=int(365.25 * years))).strftime("%Y-%m-%d")
     url = NASDAQ_URL.format(ticker=ticker, assetclass=asset_class(ticker), fromdate=fromdate)
-    return parse_nasdaq(json.loads(_get(url, timeout=60)))
+    return adjust_corporate_actions(ticker, parse_nasdaq(json.loads(_get(url, timeout=60))))
 
 
 def main() -> None:

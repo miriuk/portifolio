@@ -24,6 +24,14 @@ on:
         description: "Days ahead (empty: 7 for crypto, 5 trading days for stocks)"
         type: string
         default: ""
+      every:
+        description: "Predict every N days, holding in between (1 = daily)"
+        type: string
+        default: "1"
+      label:
+        description: "Suffix for the result branch, so parallel runs do not overwrite each other"
+        type: string
+        default: ""
 
 permissions:
   contents: write
@@ -65,24 +73,27 @@ jobs:
           ls data | wc -l
 
       - name: Bench
+        timeout-minutes: 220            # leaves time to publish what finished
         run: |
           mkdir -p out
           horizon=""
           [ -n "${{ inputs.horizon }}" ] && horizon="--horizon ${{ inputs.horizon }}"
           KRONOS_PATH="$PWD/Kronos" cryptoarena forecast --data data --symbol "${{ inputs.symbol }}" \
-            --models "${{ inputs.models }}" $horizon \
+            --models "${{ inputs.models }}" $horizon --every "${{ inputs.every }}" \
             --out out/forecast.json | tee out/report.txt
 
       - name: Publish
+        if: ${{ always() }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -e
           cd out
+          [ -f forecast.json ] || echo '{}' > forecast.json
           git init -q -b forecast-bench
           git config user.name "forecast-bench[bot]"
           git config user.email "forecast-bench@users.noreply.github.com"
           git add -A
           git commit -q -m "forecast bench $(date -u +'%Y-%m-%dT%H:%MZ') ${{ inputs.tape }} ${{ inputs.symbol }} ${{ inputs.models }}"
           # one branch per tape, so a world run does not replace the crypto report
-          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}" "forecast-bench:forecast-bench-${{ inputs.tape }}"
+          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}" "forecast-bench:forecast-bench-${{ inputs.tape }}${{ inputs.label && format('-{0}', inputs.label) || '' }}"

@@ -116,3 +116,16 @@ def test_hourly_crypto_days_aggregate_their_candles():
     daily = daily_closes(tape)
     assert tape.bars_per_day == 24 and daily.ohlcv.shape[1] == 5
     assert daily.ohlcv[5, 4] == pytest.approx(24.0)          # a day's volume, summed
+
+
+def test_weekly_predictions_do_not_overlap_and_hold_between():
+    closes = 100 * np.exp(np.cumsum(np.random.default_rng(4).normal(0.0005, 0.01, 400)))
+    tape = Tape.from_frames(stock_frames(closes))
+    daily = daily_closes(tape)
+    spy = Spy(daily)
+    preds = walk_forward(daily, spy, start=252, horizon=5, every=5)
+    made = np.where(~np.isnan(preds))[0]
+    assert made.tolist() == list(range(252, 400, 5))            # one a week
+    v = evaluate(tape, daily, preds, 252, 5, name="weekly", fee=0.0005)
+    assert v.days == len([d for d in made if d < 400 - 5])      # judged only where made
+    assert v.trades == 1 and v.in_market == 1.0                  # held between predictions

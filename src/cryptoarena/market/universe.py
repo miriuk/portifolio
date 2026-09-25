@@ -35,3 +35,26 @@ LARGE_CAPS: list[str] = [
 
 def asset_class(ticker: str) -> str:
     return "etf" if ticker in WORLD_ETFS else "stocks"
+
+
+# Corporate actions the price source does not adjust for (it adjusts
+# splits, not spin-offs). On each date the history before it is scaled so
+# that the day's return is zero: the holder received the spun-off shares,
+# not a loss. What is left out is that one day's true return.
+CORPORATE_ACTIONS: dict[str, list[tuple[str, str]]] = {
+    "HON": [("2026-06-29", "spin-off of Honeywell Aerospace (HONA), 1 share per 2 HON")],
+}
+
+
+def adjust_corporate_actions(ticker: str, rows: list[list[float]]) -> list[list[float]]:
+    """rows: [timestamp, open, high, low, close, volume], oldest first."""
+    from datetime import datetime, timezone
+    for date, _why in CORPORATE_ACTIONS.get(ticker, []):
+        ts = int(datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=timezone.utc).timestamp())
+        k = next((i for i, r in enumerate(rows) if r[0] >= ts), None)
+        if not k:
+            continue
+        ratio = rows[k][4] / rows[k - 1][4]
+        rows = [[r[0], *(x * ratio for x in r[1:5]), r[5]] if i < k else r
+                for i, r in enumerate(rows)]
+    return rows
