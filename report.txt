@@ -1,0 +1,467 @@
+ACWI: 2513 daily closes, predicting from 2017-09-26, horizon 5 trading days, fee 0.05%
+  drift (252d mean): 1s
+  LightGBM on lagged returns: 2s
+  statsforecast AutoTheta: 9s
+  statsforecast AutoETS: 9s
+  statsforecast AutoARIMA: 60s
+  Chronos chronos-bolt-small: 11s
+model                      calls   hit  base     IC    CAGR max fall in mkt trades
+hold ACWI                      —     —     —      —   +9.9%      34%   100%      0
+ACWI, 20-day trend exit        —     —     —      —   +4.5%      21%    66%    194
+drift (252d mean)           100%   59%   60% -0.044   +8.1%      20%    77%     19
+LightGBM on lagged returns   99%   47%   60% -0.112   -0.2%      40%    55%    174
+statsforecast AutoTheta     100%   52%   60% -0.057   +3.6%      35%    78%    121
+statsforecast AutoETS       100%   54%   60% -0.028   +3.6%      24%    61%    203
+statsforecast AutoARIMA      65%   54%   60% -0.004   +6.4%      23%    50%    107
+Chronos chronos-bolt-small  100%   56%   60% -0.025   +5.0%      34%    78%     73 
+
+DIA: 2513 daily closes, predicting from 2017-09-26, horizon 5 trading days, fee 0.05%
+  drift (252d mean): 0s
+  LightGBM on lagged returns: 2s
+  statsforecast AutoTheta: 9s
+  statsforecast AutoETS: 9s
+  statsforecast AutoARIMA: 80s
+  Chronos chronos-bolt-small: 5s
+model                      calls   hit  base     IC    CAGR max fall in mkt trades
+hold DIA                       —     —     —      —   +9.7%      37%   100%      0
+DIA, 20-day trend exit         —     —     —      —   +4.1%      17%    66%    170
+drift (252d mean)           100%   54%   56% -0.044   +5.6%      22%    83%     19
+LightGBM on lagged returns   99%   50%   56% -0.059   +0.2%      35%    53%    190
+statsforecast AutoTheta     100%   51%   56% -0.029   +5.3%      37%    85%     95
+statsforecast AutoETS       100%   50%   56% -0.021   +1.6%      28%    59%    207
+statsforecast AutoARIMA      74%   53%   56% -0.035   +3.2%      20%    57%    113
+Chronos chronos-bolt-small  100%   53%   56% -0.039   +4.8%      37%    84%     63 
+
+EEM: 2513 daily closes, predicting from 2017-09-26, horizon 5 trading days, fee 0.05%
+  drift (252d mean): 0s
+  LightGBM on lagged returns: 2s
+  statsforecast AutoTheta: 9s
+  statsforecast AutoETS: 10s
+  statsforecast AutoARIMA: 51s
+  Chronos chronos-bolt-small: 5s
+model                      calls   hit  base     IC    CAGR max fall in mkt trades
+hold EEM                       —     —     —      —   +4.7%      41%   100%      0
+EEM, 20-day trend exit         —     —     —      —   -0.6%      38%    55%    237
+drift (252d mean)           100%   51%   54% +0.008   +4.7%      26%    62%     21
+LightGBM on lagged returns   99%   49%   54% -0.056   -1.8%      47%    48%    168
+statsforecast AutoTheta     100%   51%   54% +0.009   +2.6%      39%    60%    109
+statsforecast AutoETS       100%   49%   54% -0.021   +1.9%      28%    50%    253
+statsforecast AutoARIMA      47%   50%   54% +0.020   +2.2%      23%    31%     97
+Chronos chronos-bolt-small  100%   52%   54% -0.050   -0.6%      48%    73%    101 
+
+EFA: 2513 daily closes, predicting from 2017-09-26, horizon 5 trading days, fee 0.05%
+  drift (252d mean): 0s
+  LightGBM on lagged returns: 2s
+  statsforecast AutoTheta: 9s
+  statsforecast AutoETS: 9s
+  statsforecast AutoARIMA: 44s
+  Chronos chronos-bolt-small: 5s
+model                      calls   hit  base     IC    CAGR max fall in mkt trades
+hold EFA                       —     —     —      —   +4.9%      38%   100%      0
+EFA, 20-day trend exit         —     —     —      —   +1.7%      21%    60%    208
+drift (252d mean)           100%   53%   55% -0.041   +2.9%      25%    69%     17
+LightGBM on lagged returns   99%   47%   55% -0.025   -0.5%      34%    51%    195
+statsforecast AutoTheta     100%   49%   55% -0.028   +1.2%      37%    67%    141
+statsforecast AutoETS       100%   48%   55% -0.040   -1.8%      46%    54%    229
+statsforecast AutoARIMA      47%   51%   55% -0.004   +2.8%      22%    32%     93
+Chronos chronos-bolt-small  100%   55%   55% -0.016   +2.6%      42%    75%     81 
+
+EWA: 2513 daily closes, predicting from 2017-09-26, horizon 5 trading days, fee 0.05%
+  drift (252d mean): 0s
+  LightGBM on lagged returns: 2s
+  statsforecast AutoTheta: 9s
+  statsforecast AutoETS: 9s
+  statsforecast AutoARIMA: 57s
+  Chronos chronos-bolt-small: 5s
+model                      calls   hit  base     IC    CAGR max fall in mkt trades
+hold EWA                       —     —     —      —   +2.6%      47%   100%      0
+EWA, 20-day trend exit         —     —     —      —   -1.2%      31%    56%    250
+drift (252d mean)           100%   46%   53% -0.116   -2.8%      35%    60%     41
+LightGBM on lagged returns   99%   50%   53% -0.020   -0.2%      41%    48%    183
+statsforecast AutoTheta     100%   51%   53% -0.024   +0.1%      41%    56%    155
+statsforecast AutoETS       100%   52%   53% +0.032   -2.0%      44%    53%    227
+statsforecast AutoARIMA      48%   53%   53% +0.051   +0.6%      36%    26%    117
+Chronos chronos-bolt-small  100%   50%   53% +0.016   +0.8%      41%    74%    121 
+
+EWC: 2513 daily closes, predicting from 2017-09-26, horizon 5 trading days, fee 0.05%
+  drift (252d mean): 0s
+  LightGBM on lagged returns: 2s
+  statsforecast AutoTheta: 11s
+  statsforecast AutoETS: 10s
+  statsforecast AutoARIMA: 77s
+  Chronos chronos-bolt-small: 5s
+model                      calls   hit  base     IC    CAGR max fall in mkt trades
+hold EWC                       —     —     —      —   +8.4%      43%   100%      0
+EWC, 20-day trend exit         —     —     —      —   +1.1%      29%    62%    226
+drift (252d mean)           100%   53%   58% -0.059   +4.3%      25%    71%     29
+LightGBM on lagged returns   99%   50%   58% -0.039   +0.9%      50%    54%    163
+statsforecast AutoTheta     100%   53%   58% -0.051   +4.7%      33%    76%    127
+statsforecast AutoETS       100%   54%   58% +0.020   +5.0%      21%    54%    209
+statsforecast AutoARIMA      47%   54%   58% -0.014   +3.6%      18%    29%     79
+Chronos chronos-bolt-small  100%   54%   58% +0.012   +2.3%      49%    77%     83 
+
+EWG: 2513 daily closes, predicting from 2017-09-26, horizon 5 trading days, fee 0.05%
+  drift (252d mean): 0s
+  LightGBM on lagged returns: 2s
+  statsforecast AutoTheta: 10s
+  statsforecast AutoETS: 9s
+  statsforecast AutoARIMA: 50s
+  Chronos chronos-bolt-small: 5s
+model                      calls   hit  base     IC    CAGR max fall in mkt trades
+hold EWG                       —     —     —      —   +3.1%      49%   100%      0
+EWG, 20-day trend exit         —     —     —      —   +3.5%      30%    55%    190
+drift (252d mean)           100%   51%   53% -0.032   +1.3%      42%    67%     25
+LightGBM on lagged returns   99%   53%   53% -0.011   -0.9%      54%    49%    190
+statsforecast AutoTheta     100%   48%   53% -0.087   -1.9%      56%    58%    129
+statsforecast AutoETS       100%   50%   53% -0.028   +0.4%      42%    53%    235
+statsforecast AutoARIMA      58%   53%   53% -0.027   +1.7%      41%    38%    121
+Chronos chronos-bolt-small  100%   49%   53% -0.045   -3.5%      57%    70%     95 
+
+EWH: 2513 daily closes, predicting from 2017-09-26, horizon 5 trading days, fee 0.05%
+  drift (252d mean): 0s
+  LightGBM on lagged returns: 2s
+  statsforecast AutoTheta: 10s
+  statsforecast AutoETS: 9s
+  statsforecast AutoARIMA: 61s
+  Chronos chronos-bolt-small: 5s
+model                      calls   hit  base     IC    CAGR max fall in mkt trades
+hold EWH                       —     —     —      —   -0.9%      48%   100%      0
+EWH, 20-day trend exit         —     —     —      —   +0.7%      28%    50%    212
+drift (252d mean)           100%   51%   50% +0.018   +0.5%      36%    50%     29
+LightGBM on lagged returns   99%   46%   50% -0.110   -8.1%      62%    49%    172
+statsforecast AutoTheta     100%   50%   50% -0.029   -0.2%      33%    53%    123
+statsforecast AutoETS       100%   46%   50% -0.069   -6.3%      50%    52%    222
+statsforecast AutoARIMA      44%   45%   50% -0.045   -0.7%      34%    21%     86
+Chronos chronos-bolt-small  100%   51%   50% +0.028   -1.8%      47%    64%    121 
+
+EWJ: 2513 daily closes, predicting from 2017-09-26, horizon 5 trading days, fee 0.05%
+  drift (252d mean): 0s
+  LightGBM on lagged returns: 2s
+  statsforecast AutoTheta: 9s
+  statsforecast AutoETS: 9s
+  statsforecast AutoARIMA: 65s
+  Chronos chronos-bolt-small: 5s
+model                      calls   hit  base     IC    CAGR max fall in mkt trades
+hold EWJ                       —     —     —      —   +6.2%      35%   100%      0
+EWJ, 20-day trend exit         —     —     —      —   -1.5%      31%    60%    251
+drift (252d mean)           100%   54%   54% -0.024   +6.2%      19%    70%     17
+LightGBM on lagged returns   99%   48%   54% -0.019   +0.7%      29%    54%    183
+statsforecast AutoTheta     100%   49%   54% -0.051   +3.0%      38%    66%    151
+statsforecast AutoETS       100%   48%   54% -0.027   +2.3%      36%    54%    209
+statsforecast AutoARIMA      49%   48%   54% +0.008   +2.7%      28%    31%     97
+Chronos chronos-bolt-small  100%   52%   54% -0.013   +0.7%      43%    75%     85 
+
+EWQ: 2513 daily closes, predicting from 2017-09-26, horizon 5 trading days, fee 0.05%
+  drift (252d mean): 0s
+  LightGBM on lagged returns: 2s
+  statsforecast AutoTheta: 10s
+  statsforecast AutoETS: 9s
+  statsforecast AutoARIMA: 56s
+  Chronos chronos-bolt-small: 5s
+model                      calls   hit  base     IC    CAGR max fall in mkt trades
+hold EWQ                       —     —     —      —   +4.1%      41%   100%      0
+EWQ, 20-day trend exit         —     —     —      —   +0.6%      30%    57%    222
+drift (252d mean)           100%   49%   53% -0.073   -1.5%      28%    67%     30
+LightGBM on lagged returns   99%   50%   53% +0.020   +0.2%      45%    52%    196
+statsforecast AutoTheta     100%   49%   53% -0.029   -2.0%      47%    80%    101
+statsforecast AutoETS       100%   49%   53% -0.039   +0.3%      32%    55%    228
+statsforecast AutoARIMA      51%   53%   53% -0.001   +4.5%      28%    32%    112
+Chronos chronos-bolt-small  100%   52%   53% -0.016   -1.0%      44%    75%     89 
+
+EWS: 2513 daily closes, predicting from 2017-09-26, horizon 5 trading days, fee 0.05%
+  drift (252d mean): 0s
+  LightGBM on lagged returns: 2s
+  statsforecast AutoTheta: 10s
+  statsforecast AutoETS: 9s
+  statsforecast AutoARIMA: 76s
+  Chronos chronos-bolt-small: 5s
+model                      calls   hit  base     IC    CAGR max fall in mkt trades
+hold EWS                       —     —     —      —   +3.5%      46%   100%      0
+EWS, 20-day trend exit         —     —     —      —   -2.9%      49%    54%    250
+drift (252d mean)           100%   52%   55% +0.014   +2.9%      38%    54%     25
+LightGBM on lagged returns   99%   50%   55% +0.003   +0.4%      38%    51%    199
+statsforecast AutoTheta     100%   52%   55% -0.026   -0.7%      50%    60%    105
+statsforecast AutoETS       100%   49%   55% -0.017   -3.2%      50%    52%    211
+statsforecast AutoARIMA      58%   54%   55% +0.097   +6.2%      14%    34%    127
+Chronos chronos-bolt-small  100%   54%   55% +0.029   +2.0%      46%    70%     99 
+
+EWT: 2513 daily closes, predicting from 2017-09-26, horizon 5 trading days, fee 0.05%
+  drift (252d mean): 0s
+  LightGBM on lagged returns: 2s
+  statsforecast AutoTheta: 9s
+  statsforecast AutoETS: 9s
+  statsforecast AutoARIMA: 54s
+  Chronos chronos-bolt-small: 5s
+model                      calls   hit  base     IC    CAGR max fall in mkt trades
+hold EWT                       —     —     —      —  +13.6%      41%   100%      0
+EWT, 20-day trend exit         —     —     —      —   +7.1%      38%    58%    213
+drift (252d mean)           100%   56%   57% +0.045  +13.1%      29%    68%     23
+LightGBM on lagged returns   99%   49%   57% +0.006   +7.8%      31%    51%    181
+statsforecast AutoTheta     100%   53%   57% -0.019  +10.7%      37%    66%    103
+statsforecast AutoETS       100%   49%   57% -0.020   +1.9%      34%    47%    245
+statsforecast AutoARIMA      41%   50%   57% -0.051   +3.0%      38%    26%     71
+Chronos chronos-bolt-small  100%   52%   57% -0.029   +2.6%      52%    71%     83 
+
+EWU: 2513 daily closes, predicting from 2017-09-26, horizon 5 trading days, fee 0.05%
+  drift (252d mean): 0s
+  LightGBM on lagged returns: 2s
+  statsforecast AutoTheta: 10s
+  statsforecast AutoETS: 9s
+  statsforecast AutoARIMA: 66s
+  Chronos chronos-bolt-small: 5s
+model                      calls   hit  base     IC    CAGR max fall in mkt trades
+hold EWU                       —     —     —      —   +3.5%      48%   100%      0
+EWU, 20-day trend exit         —     —     —      —   +0.5%      19%    58%    224
+drift (252d mean)           100%   53%   52% -0.038   +1.7%      25%    63%     21
+LightGBM on lagged returns   99%   52%   52% +0.035   +1.5%      45%    49%    187
+statsforecast AutoTheta     100%   52%   52% +0.010   +1.4%      41%    68%    135
+statsforecast AutoETS       100%   48%   52% -0.030   -0.8%      41%    53%    215
+statsforecast AutoARIMA      44%   55%   52% +0.049   +3.8%      14%    29%     95
+Chronos chronos-bolt-small  100%   56%   52% +0.019   +4.2%      37%    77%     75 
+
+EWW: 2513 daily closes, predicting from 2017-09-26, horizon 5 trading days, fee 0.05%
+  drift (252d mean): 0s
+  LightGBM on lagged returns: 2s
+  statsforecast AutoTheta: 10s
+  statsforecast AutoETS: 9s
+  statsforecast AutoARIMA: 81s
+  Chronos chronos-bolt-small: 5s
+model                      calls   hit  base     IC    CAGR max fall in mkt trades
+hold EWW                       —     —     —      —   +3.0%      55%   100%      0
+EWW, 20-day trend exit         —     —     —      —   -1.8%      46%    55%    248
+drift (252d mean)           100%   52%   54% -0.052   +1.4%      22%    54%     19
+LightGBM on lagged returns   99%   48%   54% -0.084   -1.4%      37%    44%    173
+statsforecast AutoTheta     100%   47%   54% -0.087   -6.6%      55%    60%    121
+statsforecast AutoETS       100%   49%   54% -0.029   -0.5%      45%    49%    233
+statsforecast AutoARIMA      58%   50%   54% -0.025   +0.8%      22%    34%    117
+Chronos chronos-bolt-small  100%   52%   54% +0.016   +1.7%      45%    75%     97 
+
+EWY: 2513 daily closes, predicting from 2017-09-26, horizon 5 trading days, fee 0.05%
+  drift (252d mean): 0s
+  LightGBM on lagged returns: 2s
+  statsforecast AutoTheta: 10s
+  statsforecast AutoETS: 9s
+  statsforecast AutoARIMA: 72s
+  Chronos chronos-bolt-small: 5s
+model                      calls   hit  base     IC    CAGR max fall in mkt trades
+hold EWY                       —     —     —      —  +11.5%      51%   100%      0
+EWY, 20-day trend exit         —     —     —      —   +4.2%      50%    53%    237
+drift (252d mean)           100%   51%   55% +0.059  +10.2%      37%    54%     27
+LightGBM on lagged returns   99%   47%   55% -0.046   -1.5%      51%    49%    182
+statsforecast AutoTheta     100%   53%   55% +0.054  +10.1%      43%    49%    159
+statsforecast AutoETS       100%   52%   55% +0.043   +5.7%      51%    51%    233
+statsforecast AutoARIMA      57%   53%   55% +0.055   +9.7%      35%    37%    131
+Chronos chronos-bolt-small  100%   52%   55% -0.032   +5.2%      46%    69%     89 
+
+EWZ: 2513 daily closes, predicting from 2017-09-26, horizon 5 trading days, fee 0.05%
+  drift (252d mean): 0s
+  LightGBM on lagged returns: 2s
+  statsforecast AutoTheta: 10s
+  statsforecast AutoETS: 9s
+  statsforecast AutoARIMA: 58s
+  Chronos chronos-bolt-small: 5s
+model                      calls   hit  base     IC    CAGR max fall in mkt trades
+hold EWZ                       —     —     —      —   -1.3%      57%   100%      0
+EWZ, 20-day trend exit         —     —     —      —   +3.5%      42%    49%    209
+drift (252d mean)           100%   46%   50% -0.071   -6.6%      63%    50%     45
+LightGBM on lagged returns   99%   51%   50% +0.002   -3.1%      53%    47%    194
+statsforecast AutoTheta     100%   48%   50% -0.028   -5.3%      55%    43%    193
+statsforecast AutoETS       100%   50%   50% -0.008   -1.8%      46%    52%    239
+statsforecast AutoARIMA      65%   51%   50% +0.021   +3.3%      39%    34%    146
+Chronos chronos-bolt-small  100%   49%   50% -0.042   -2.0%      59%    75%    109 
+
+EZA: 2513 daily closes, predicting from 2017-09-26, horizon 5 trading days, fee 0.05%
+  drift (252d mean): 0s
+  LightGBM on lagged returns: 2s
+  statsforecast AutoTheta: 10s
+  statsforecast AutoETS: 9s
+  statsforecast AutoARIMA: 77s
+  Chronos chronos-bolt-small: 5s
+model                      calls   hit  base     IC    CAGR max fall in mkt trades
+hold EZA                       —     —     —      —   +1.3%      68%   100%      0
+EZA, 20-day trend exit         —     —     —      —   -7.1%      64%    53%    254
+drift (252d mean)           100%   49%   52% -0.039   +1.3%      46%    50%     23
+LightGBM on lagged returns   99%   45%   52% -0.039   -6.2%      64%    45%    173
+statsforecast AutoTheta     100%   52%   52% +0.002   +4.2%      37%    51%    131
+statsforecast AutoETS       100%   53%   52% +0.028   +1.1%      53%    49%    235
+statsforecast AutoARIMA      44%   49%   52% +0.008   -0.6%      35%    22%    114
+Chronos chronos-bolt-small  100%   50%   52% +0.065   +5.4%      58%    72%    119 
+
+FXI: 2513 daily closes, predicting from 2017-09-26, horizon 5 trading days, fee 0.05%
+  drift (252d mean): 0s
+  LightGBM on lagged returns: 2s
+  statsforecast AutoTheta: 10s
+  statsforecast AutoETS: 9s
+  statsforecast AutoARIMA: 66s
+  Chronos chronos-bolt-small: 5s
+model                      calls   hit  base     IC    CAGR max fall in mkt trades
+hold FXI                       —     —     —      —   -2.7%      62%   100%      0
+FXI, 20-day trend exit         —     —     —      —   -2.5%      44%    48%    232
+drift (252d mean)           100%   48%   48% -0.004   -2.5%      49%    45%     32
+LightGBM on lagged returns   99%   53%   48% -0.016   -2.1%      39%    47%    167
+statsforecast AutoTheta     100%   49%   48% -0.008   -2.8%      57%    60%    123
+statsforecast AutoETS       100%   48%   48% -0.013   -2.3%      56%    50%    229
+statsforecast AutoARIMA      54%   49%   48% +0.004   -1.5%      40%    26%    118
+Chronos chronos-bolt-small  100%   53%   48% +0.093   -0.5%      48%    66%    131 
+
+GLD: 2513 daily closes, predicting from 2017-09-26, horizon 5 trading days, fee 0.05%
+  drift (252d mean): 0s
+  LightGBM on lagged returns: 2s
+  statsforecast AutoTheta: 9s
+  statsforecast AutoETS: 9s
+  statsforecast AutoARIMA: 64s
+  Chronos chronos-bolt-small: 5s
+model                      calls   hit  base     IC    CAGR max fall in mkt trades
+hold GLD                       —     —     —      —  +13.7%      26%   100%      0
+GLD, 20-day trend exit         —     —     —      —   +3.8%      25%    57%    250
+drift (252d mean)           100%   52%   53% +0.053  +10.0%      29%    75%     21
+LightGBM on lagged returns   99%   50%   53% -0.045   +3.4%      29%    58%    199
+statsforecast AutoTheta     100%   53%   53% -0.002  +11.3%      26%    89%     49
+statsforecast AutoETS       100%   54%   53% +0.052  +10.4%      26%    57%    171
+statsforecast AutoARIMA      64%   49%   53% -0.024   +3.6%      30%    50%    103
+Chronos chronos-bolt-small  100%   54%   53% +0.080  +12.9%      24%    80%    107 
+
+IEF: 2513 daily closes, predicting from 2017-09-26, horizon 5 trading days, fee 0.05%
+  drift (252d mean): 0s
+  LightGBM on lagged returns: 2s
+  statsforecast AutoTheta: 3s
+  statsforecast AutoETS: 9s
+  statsforecast AutoARIMA: 70s
+  Chronos chronos-bolt-small: 5s
+model                      calls   hit  base     IC    CAGR max fall in mkt trades
+hold IEF                       —     —     —      —   -2.0%      28%   100%      0
+IEF, 20-day trend exit         —     —     —      —   -2.6%      27%    47%    234
+drift (252d mean)           100%   51%   49% +0.058   +0.3%      14%    39%     22
+LightGBM on lagged returns   99%   50%   49% -0.004   -1.5%      26%    43%    165
+statsforecast AutoTheta     100%   51%   49% +0.039   -1.8%      20%    50%    217
+statsforecast AutoETS       100%   51%   49% +0.051   -1.0%      17%    50%    215
+statsforecast AutoARIMA      70%   51%   49% +0.048   -0.3%      13%    26%     56
+Chronos chronos-bolt-small  100%   55%   49% +0.094   +0.5%      15%    63%     95 
+
+INDA: 2513 daily closes, predicting from 2017-09-26, horizon 5 trading days, fee 0.05%
+  drift (252d mean): 0s
+  LightGBM on lagged returns: 2s
+  statsforecast AutoTheta: 9s
+  statsforecast AutoETS: 10s
+  statsforecast AutoARIMA: 66s
+  Chronos chronos-bolt-small: 5s
+model                      calls   hit  base     IC    CAGR max fall in mkt trades
+hold INDA                      —     —     —      —   +4.2%      46%   100%      0
+INDA, 20-day trend exit        —     —     —      —   +3.8%      21%    57%    240
+drift (252d mean)           100%   50%   54% -0.008   +0.7%      29%    63%     36
+LightGBM on lagged returns   99%   48%   54% -0.052   -3.9%      53%    51%    172
+statsforecast AutoTheta     100%   50%   54% -0.021   -1.8%      50%    63%    209
+statsforecast AutoETS       100%   52%   54% -0.024   +0.2%      39%    56%    223
+statsforecast AutoARIMA      73%   50%   54% -0.064   -4.1%      51%    38%    159
+Chronos chronos-bolt-small  100%   53%   54% -0.039   -0.4%      48%    77%    106 
+
+IWM: 2513 daily closes, predicting from 2017-09-26, horizon 5 trading days, fee 0.05%
+  drift (252d mean): 0s
+  LightGBM on lagged returns: 2s
+  statsforecast AutoTheta: 10s
+  statsforecast AutoETS: 9s
+  statsforecast AutoARIMA: 59s
+  Chronos chronos-bolt-small: 5s
+model                      calls   hit  base     IC    CAGR max fall in mkt trades
+hold IWM                       —     —     —      —   +7.7%      42%   100%      0
+IWM, 20-day trend exit         —     —     —      —   +1.8%      45%    59%    218
+drift (252d mean)           100%   52%   54% -0.041   +6.5%      20%    65%     37
+LightGBM on lagged returns   99%   49%   54% -0.039   -2.0%      46%    52%    184
+statsforecast AutoTheta     100%   52%   54% -0.049   +3.6%      42%    74%     75
+statsforecast AutoETS       100%   49%   54% -0.033   -1.6%      46%    52%    225
+statsforecast AutoARIMA      44%   54%   54% -0.018   +1.7%      27%    29%     89
+Chronos chronos-bolt-small  100%   52%   54% -0.009   +4.5%      41%    77%     90 
+
+QQQ: 2513 daily closes, predicting from 2017-09-26, horizon 5 trading days, fee 0.05%
+  drift (252d mean): 0s
+  LightGBM on lagged returns: 2s
+  statsforecast AutoTheta: 9s
+  statsforecast AutoETS: 9s
+  statsforecast AutoARIMA: 71s
+  Chronos chronos-bolt-small: 5s
+model                      calls   hit  base     IC    CAGR max fall in mkt trades
+hold QQQ                       —     —     —      —  +20.1%      36%   100%      0
+QQQ, 20-day trend exit         —     —     —      —  +15.2%      21%    66%    169
+drift (252d mean)           100%   58%   59% -0.003  +17.3%      32%    87%      9
+LightGBM on lagged returns   99%   51%   59% -0.002   +7.9%      32%    65%    179
+statsforecast AutoTheta     100%   55%   59% -0.051  +12.8%      31%    84%     93
+statsforecast AutoETS       100%   49%   59% -0.078   +5.7%      32%    62%    173
+statsforecast AutoARIMA      75%   58%   59% -0.062  +13.0%      36%    68%     61
+Chronos chronos-bolt-small  100%   58%   59% -0.021  +18.8%      35%    84%     66 
+
+SPY: 2513 daily closes, predicting from 2017-09-26, horizon 5 trading days, fee 0.05%
+  drift (252d mean): 0s
+  LightGBM on lagged returns: 2s
+  statsforecast AutoTheta: 9s
+  statsforecast AutoETS: 9s
+  statsforecast AutoARIMA: 71s
+  Chronos chronos-bolt-small: 5s
+model                      calls   hit  base     IC    CAGR max fall in mkt trades
+hold SPY                       —     —     —      —  +13.3%      34%   100%      0
+SPY, 20-day trend exit         —     —     —      —   +8.3%      14%    68%    177
+drift (252d mean)           100%   61%   62% -0.034  +12.2%      20%    85%      9
+LightGBM on lagged returns   99%   54%   62% -0.002   +4.4%      32%    60%    192
+statsforecast AutoTheta     100%   55%   62% -0.036   +8.8%      34%    86%     97
+statsforecast AutoETS       100%   53%   62% -0.058   +4.5%      22%    64%    171
+statsforecast AutoARIMA      73%   58%   62% -0.095   +3.0%      29%    58%    109
+Chronos chronos-bolt-small  100%   55%   62% -0.031   +6.0%      34%    83%     57 
+
+TLT: 2513 daily closes, predicting from 2017-09-26, horizon 5 trading days, fee 0.05%
+  drift (252d mean): 0s
+  LightGBM on lagged returns: 2s
+  statsforecast AutoTheta: 9s
+  statsforecast AutoETS: 9s
+  statsforecast AutoARIMA: 86s
+  Chronos chronos-bolt-small: 5s
+model                      calls   hit  base     IC    CAGR max fall in mkt trades
+hold TLT                       —     —     —      —   -5.1%      54%   100%      0
+TLT, 20-day trend exit         —     —     —      —   -3.9%      41%    44%    216
+drift (252d mean)           100%   53%   47% +0.008   +0.4%      23%    30%     20
+LightGBM on lagged returns   99%   51%   47% +0.014   -1.8%      35%    35%    182
+statsforecast AutoTheta     100%   52%   47% +0.057   -0.9%      27%    39%     82
+statsforecast AutoETS       100%   54%   47% +0.089   +1.7%      21%    47%    247
+statsforecast AutoARIMA      60%   55%   47% +0.054   -0.7%      24%    21%     88
+Chronos chronos-bolt-small  100%   50%   47% +0.032   -3.1%      42%    63%    113 
+
+VGK: 2513 daily closes, predicting from 2017-09-26, horizon 5 trading days, fee 0.05%
+  drift (252d mean): 0s
+  LightGBM on lagged returns: 2s
+  statsforecast AutoTheta: 9s
+  statsforecast AutoETS: 9s
+  statsforecast AutoARIMA: 45s
+  Chronos chronos-bolt-small: 5s
+model                      calls   hit  base     IC    CAGR max fall in mkt trades
+hold VGK                       —     —     —      —   +4.8%      42%   100%      0
+VGK, 20-day trend exit         —     —     —      —   +3.1%      18%    58%    210
+drift (252d mean)           100%   51%   54% -0.045   +1.9%      29%    68%     25
+LightGBM on lagged returns   99%   51%   54% +0.017   +2.8%      37%    49%    178
+statsforecast AutoTheta     100%   51%   54% -0.026   +1.8%      36%    70%    147
+statsforecast AutoETS       100%   49%   54% -0.034   -1.1%      40%    50%    229
+statsforecast AutoARIMA      52%   48%   54% -0.014   +3.6%      29%    33%     93
+Chronos chronos-bolt-small  100%   52%   54% -0.013   +1.0%      42%    76%     81 
+
+VT: 2513 daily closes, predicting from 2017-09-26, horizon 5 trading days, fee 0.05%
+  drift (252d mean): 0s
+  LightGBM on lagged returns: 2s
+  statsforecast AutoTheta: 9s
+  statsforecast AutoETS: 9s
+  statsforecast AutoARIMA: 64s
+  Chronos chronos-bolt-small: 5s
+model                      calls   hit  base     IC    CAGR max fall in mkt trades
+hold VT                        —     —     —      —   +9.5%      34%   100%      0
+VT, 20-day trend exit          —     —     —      —   +4.8%      26%    66%    202
+drift (252d mean)           100%   59%   59% -0.044   +7.9%      19%    77%     19
+LightGBM on lagged returns   99%   46%   59% -0.100   -0.2%      32%    56%    190
+statsforecast AutoTheta     100%   51%   59% -0.075   +2.8%      37%    78%    123
+statsforecast AutoETS       100%   50%   59% -0.063   +0.5%      28%    59%    201
+statsforecast AutoARIMA      63%   50%   59% -0.033   +2.8%      25%    43%    103
+Chronos chronos-bolt-small  100%   55%   59% -0.013   +4.3%      34%    77%     79 
+
+across 27 assets:
+model                        hit - base  mean IC  beats hold  beats trend  smaller fall
+drift (252d mean)                 -1.6%   -0.020      6 of 27      20 of 27       25 of 27  
+LightGBM on lagged returns        -4.5%   -0.029      3 of 27      10 of 27       18 of 27  
+statsforecast AutoTheta           -3.0%   -0.024      4 of 27      15 of 27       17 of 27  
+statsforecast AutoETS             -3.8%   -0.013      3 of 27      10 of 27       20 of 27  
+statsforecast AutoARIMA           -2.3%   -0.004      8 of 27      16 of 27       25 of 27  
+Chronos chronos-bolt-small        -1.4%   +0.002      5 of 27      17 of 27       13 of 27  
