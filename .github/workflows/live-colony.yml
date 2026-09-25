@@ -1,0 +1,129 @@
+# The survival colony on real prices, one closed hourly candle at a time.
+#
+# Every hour the job restores the colony's journal from the `colony-live`
+# branch, feeds it the candles that closed since the last tick (paper
+# trading on Kraken's public OHLCV — no account, no keys, no real money),
+# and publishes the updated journal back. The dashboard reads that file
+# straight from GitHub, so the public app shows the live colony.
+#
+# GitHub only runs scheduled workflows from the default branch, so this
+# starts ticking once the file is on `main`. "Run workflow" (with reset)
+# starts a fresh colony.
+name: Live colony
+
+on:
+  # Paused (2026-09-25): five years of backtests put the colony's return
+  # near zero against holding BTC, so the attention moved to the stocks
+  # floor. The journal stays on `colony-live`; "Run workflow" still ticks it
+  # by hand, and restoring the schedule resumes the clock:
+  #   schedule:
+  #     - cron: "6 * * * *"      # a few minutes past the hour: the bar has closed by then
+  workflow_dispatch:
+    inputs:
+      reset:
+        description: "Start a fresh colony (discard the saved state)"
+        type: boolean
+        default: false
+      budget:
+        description: "Budget per agent for a fresh colony (quote units); ignored without reset"
+        type: string
+        default: "125"
+      post_text:
+        description: "File a source's post by hand: its text (a call on a coin)"
+        type: string
+        default: ""
+      post_url:
+        description: "…and its link (x.com/<handle>/status/<id>)"
+        type: string
+        default: ""
+      post_source:
+        description: "…from which handle"
+        type: string
+        default: "leshka_eth"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: live-colony
+  cancel-in-progress: false
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      COLONY_BRANCH: colony-live
+      COLONY_DB: live/colony.db
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: pip install -e ".[live]"
+
+      - name: Restore the colony
+        if: ${{ !inputs.reset }}
+        run: |
+          mkdir -p live
+          if git fetch --depth 1 origin "$COLONY_BRANCH" 2>/dev/null; then
+            git show "origin/$COLONY_BRANCH:colony.db" > "$COLONY_DB"
+            echo "restored $(stat -c %s "$COLONY_DB") bytes"
+          else
+            echo "no saved colony — founding a new one"
+          fi
+
+      - name: File a post by hand
+        if: ${{ inputs.post_text != '' && !inputs.reset }}
+        env:
+          POST_TEXT: ${{ inputs.post_text }}
+          POST_URL: ${{ inputs.post_url }}
+          POST_SOURCE: ${{ inputs.post_source }}
+        run: cryptoarena call --db "$COLONY_DB" --source "$POST_SOURCE" --url "$POST_URL" --text "$POST_TEXT"
+
+      - name: Tick
+        # the budget only matters at the founding: a resumed colony keeps the
+        # one saved in its state. X_BEARER_TOKEN (a repository secret) lets the
+        # colony read its sources' posts itself; without it, posts are filed
+        # by hand through the "post" inputs above.
+        env:
+          X_BEARER_TOKEN: ${{ secrets.X_BEARER_TOKEN }}
+        run: cryptoarena live --once --db "$COLONY_DB" --exchange kraken --budget "${{ inputs.budget || '125' }}"
+
+      - name: Status
+        run: cryptoarena live --status --db "$COLONY_DB" | tee live/status.json
+
+      - name: Publish the colony
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          pub=$(mktemp -d)
+          cp "$COLONY_DB" "$pub/colony.db"
+          cp live/status.json "$pub/status.json"
+          {
+            echo "# Live colony"
+            echo
+            echo "Updated $(date -u +'%Y-%m-%d %H:%M UTC') by the hourly job."
+            echo "Paper trading on real Kraken prices. Read \`colony.db\` with the dashboard:"
+            echo
+            echo '```'
+            echo "CRYPTOARENA_DB_URL=https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${COLONY_BRANCH}/colony.db"
+            echo '```'
+            echo
+            echo '```json'
+            cat live/status.json
+            echo '```'
+          } > "$pub/README.md"
+          cd "$pub"
+          git init -q -b "$COLONY_BRANCH"
+          git config user.name "live-colony[bot]"
+          git config user.email "live-colony@users.noreply.github.com"
+          git add -A
+          git commit -q -m "colony tick $(date -u +'%Y-%m-%dT%H:%MZ')"
+          # one commit, replaced every hour: the history lives inside the journal
+          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}" "$COLONY_BRANCH"

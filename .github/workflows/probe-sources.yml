@@ -1,0 +1,52 @@
+# One-minute probe of public market-data sources from a GitHub runner, so
+# a data source is chosen on facts rather than on 20-minute failed runs.
+name: Probe data sources
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[live]"
+      - name: HTTP sources (15 s each)
+        run: |
+          for u in \
+            "https://cdn.cboe.com/api/global/us_indices/daily_prices/SPX_History.csv" \
+            "https://fred.stlouisfed.org/graph/fredgraph.csv?id=SP500" \
+            "https://api.nasdaq.com/api/quote/SPY/historical?assetclass=etf&fromdate=2025-01-01&limit=50" \
+            "https://query2.finance.yahoo.com/v8/finance/chart/SPY?interval=1d&range=5d" \
+            "https://stooq.com/q/d/l/?s=spy.us&i=d" \
+            "https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=SPY&apikey=demo" \
+            "https://api.exchange.coinbase.com/products" \
+            "https://api.kraken.com/0/public/AssetPairs" ; do
+            printf "%-100s " "$u"
+            curl -sS -m 15 -o /tmp/body -w "%{http_code} %{size_download}B %{time_total}s" \
+              -A "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36" "$u" || echo -n " (curl failed)"
+            echo " :: $(head -c 100 /tmp/body | tr '\n' ' ')"
+          done
+      - name: Kraken tokenized stocks (xStocks) via ccxt
+        run: |
+          python - <<'PY'
+          import ccxt
+          k = ccxt.kraken({"enableRateLimit": True})
+          markets = k.load_markets()
+          xs = sorted(s for s in markets if s.endswith("/USD") and s[:-4].lower().endswith("x") and len(s[:-4]) <= 6)
+          print("candidate x-suffixed USD pairs:", xs[:60])
+          for s in ("AAPLx/USD", "SPYx/USD", "NVDAx/USD", "QQQx/USD", "TSLAx/USD", "MSFTx/USD"):
+              print(s, "listed" if s in markets else "not listed")
+          for s in xs[:3]:
+              try:
+                  rows = k.fetch_ohlcv(s, "1h", limit=3)
+                  print(s, "ohlcv ok:", rows[-1])
+              except Exception as e:
+                  print(s, "ohlcv failed:", e)
+          PY

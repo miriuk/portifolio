@@ -1,0 +1,297 @@
+"""The colony on real-world time: closed candles only, state that survives
+a process restart, and the same daily rituals when the UTC day rolls over."""
+import math
+
+import pytest
+
+from cryptoarena.arena.live_colony import LiveColony
+from cryptoarena.arena.survival import SurvivalConfig
+from cryptoarena.cli import build_agents
+from cryptoarena.learning.memory import TradeJournal
+from cryptoarena.market.live import LiveFeed, default_symbols
+
+HOUR = 3600
+T0 = 1_760_000_000 // 86400 * 86400          # a UTC midnight
+
+
+class FakeClient:
+    """A CCXT-shaped client serving a deterministic hourly tape that keeps
+    growing as `now` advances; the last row is always the candle still
+    being formed (open time == the current hour)."""
+
+    def __init__(self, start: int = T0, base: dict[str, float] | None = None):
+        self.start = start
+        self.base = base or {"BTC/USD": 60_000.0, "ETH/USD": 3_000.0, "SOL/USD": 150.0}
+        self.now = start + 6 * HOUR
+        self.calls = 0
+
+    def price(self, symbol: str, i: int) -> float:
+        # a trend with wiggles, so the trend followers actually trade
+        return self.base[symbol] * (1 + 0.004 * i + 0.01 * math.sin(i / 3))
+
+    def fetch_ohlcv(self, symbol, timeframe, since=None, limit=None):
+        self.calls += 1
+        assert timeframe == "1h"
+        last_open = self.now // HOUR * HOUR                 # the forming candle
+        first = self.start if since is None else max(self.start, since // 1000)
+        rows = []
+        i0 = (first - self.start) // HOUR
+        for i in range(int(i0), int((last_open - self.start) // HOUR) + 1):
+            o, c = self.price(symbol, i), self.price(symbol, i + 1)
+            rows.append([(self.start + i * HOUR) * 1000, o, max(o, c) * 1.001,
+                         min(o, c) * 0.999, c, 50.0])
+        if not limit:
+            return rows
+        return rows[:limit] if since is not None else rows[-limit:]   # as CCXT pages
+
+
+def make_feed(client: FakeClient) -> LiveFeed:
+    return LiveFeed("kraken", default_symbols("kraken"), client=client, now=lambda: client.now)
+
+
+def cfg(**kw) -> SurvivalConfig:
+    base = dict(budget=5.0, seed=1, endogenous=False, daily_cost=0.0)
+    base.update(kw)
+    return SurvivalConfig(**base)
+
+
+def test_feed_hides_the_forming_candle():
+    client = FakeClient()
+    feed = make_feed(client)
+    bars = feed.aligned(limit=10)
+    assert len(bars) == 6                                   # 6 closed, the 7th is forming
+    assert bars[-1][0].timestamp == client.now - HOUR
+    assert {c.symbol for c in bars[-1]} == {"BTCUSD", "ETHUSD", "SOLUSD"}
+    since = bars[-1][0].timestamp
+    assert feed.aligned(limit=10, since=since) == []        # nothing new yet
+    client.now += HOUR
+    new = feed.aligned(limit=10, since=since)
+    assert [b[0].timestamp for b in new] == [since + HOUR]
+
+
+def test_first_run_warms_up_then_trades_the_latest_bar(tmp_path):
+    client = FakeClient()
+    client.now = T0 + 120 * HOUR
+    journal = TradeJournal(tmp_path / "live.db")
+    colony = LiveColony.open(journal, build_agents(5.0, False, ""), cfg(), make_feed(client),
+                             warmup=100, verbose=False)
+    assert colony.clock == 1                                  # exactly one bar traded
+    assert colony.last_ts == client.now - HOUR
+    founder = colony.alive[0].agent
+    assert len(founder.history["BTCUSD"]) == 100             # warmed with the tape
+    assert journal.load_state("live_colony")["last_ts"] == colony.last_ts
+    assert colony.run_once() == 0                             # idempotent within the hour
+    journal.close()
+
+
+def test_state_survives_a_restart_and_the_day_rolls_over(tmp_path):
+    client = FakeClient()
+    client.now = T0 + 120 * HOUR                              # midnight: first closed bar opened at 23:00
+    db = tmp_path / "live.db"
+    journal = TradeJournal(db)
+    colony = LiveColony.open(journal, build_agents(5.0, False, ""), cfg(), make_feed(client),
+                             warmup=100, verbose=False)
+    assert colony.day == 2 and colony.hour == 0               # day 1 was that single 23:00 bar
+    assert journal._conn.execute(
+        "SELECT COUNT(*) FROM survival_events WHERE event='survived' AND day=1").fetchone()[0] == 8
+    journal.close()
+
+    # a fresh process, six hours later: everything comes back and the clock continues
+    client.now += 6 * HOUR
+    journal = TradeJournal(db)
+    colony2 = LiveColony.open(journal, build_agents(5.0, False, ""), cfg(budget=99.0),
+                              make_feed(client), verbose=False)
+    assert colony2.cfg.budget == 5.0                          # the saved config wins
+    ids = {i.agent_id for i in colony2.alive}
+    assert ids == {i.agent_id for i in colony.alive}
+    assert colony2.clock == colony.clock and colony2.day == 2 and colony2.hour == 0
+    n = colony2.run_once()
+    assert n == 6 and colony2.hour == 6 and colony2.clock == colony.clock + 6
+    for ind in colony2.alive:
+        assert len(ind.agent.history["BTCUSD"]) == 106
+
+    # the same tape, replayed from the same state, gives the same wallets
+    journal.close()
+    journal = TradeJournal(db)
+    again = LiveColony.open(journal, [], cfg(), make_feed(client), verbose=False)
+    for a, b in zip(colony2.alive, again.alive):
+        assert a.agent.wallet.cash == pytest.approx(b.agent.wallet.cash)
+        assert a.agent.wallet.positions == pytest.approx(b.agent.wallet.positions)
+        assert a.agent.get_params() == b.agent.get_params()
+        assert getattr(a.agent, "_last_trade_step", None) == getattr(b.agent, "_last_trade_step", None)
+
+    # a full day later the rituals ran once: summaries for day 2, day 3 open
+    client.now += 18 * HOUR
+    assert again.run_once() == 18
+    assert again.day == 3 and again.hour == 0
+    days = [r[0] for r in journal._conn.execute(
+        "SELECT DISTINCT episode FROM episode_summary ORDER BY episode")]
+    assert days == [1, 2]
+    steps = [r[0] for r in journal._conn.execute(
+        "SELECT DISTINCT step FROM market_snapshots WHERE episode = 2 ORDER BY step")]
+    assert steps == list(range(24))                           # the day's tape reads 0..23
+    assert again.status()["alive"] == 8
+    journal.close()
+
+
+def test_missed_hours_are_caught_up_in_order(tmp_path):
+    client = FakeClient()
+    client.now = T0 + 30 * HOUR
+    journal = TradeJournal(tmp_path / "live.db")
+    colony = LiveColony.open(journal, build_agents(5.0, False, ""), cfg(), make_feed(client),
+                             warmup=20, verbose=False)
+    before = colony.last_ts
+    client.now += 5 * HOUR                                    # the cron skipped four ticks
+    assert colony.run_once() == 5
+    assert colony.last_ts == before + 5 * HOUR
+    journal.close()
+
+
+def test_a_week_on_the_tape_hires_and_holds_the_happy_hour(tmp_path):
+    client = FakeClient()
+    client.now = T0 + 120 * HOUR
+    journal = TradeJournal(tmp_path / "live.db")
+    colony = LiveColony.open(journal, build_agents(5.0, False, ""),
+                             cfg(daily_target=0.0, clone_at=1.02, min_child_budget=0.05),
+                             make_feed(client), warmup=100, verbose=False)
+    client.now += 8 * 24 * HOUR
+    colony.run_once()
+    events = {r[0] for r in journal._conn.execute("SELECT DISTINCT event FROM survival_events")}
+    assert {"party", "senior", "target_hit"} <= events
+    assert colony.day == 10                                   # day 1 was one bar, then 8 full days
+    assert len(colony.result.alive_per_day) == colony.day - 1
+    journal.close()
+
+
+def test_state_keeps_the_tape_once_and_fills_a_missing_pair(tmp_path):
+    """24 pairs × 8 agents would be a heavy hourly commit if every agent
+    saved its own copy of the same candles; the tape is saved once and
+    every agent gets it back. A pair the feed misses on a bar is carried
+    at its last price, so nobody's position is marked to zero."""
+    client = FakeClient()
+    client.now = T0 + 120 * HOUR
+    db = tmp_path / "live.db"
+    journal = TradeJournal(db)
+    colony = LiveColony.open(journal, build_agents(5.0, False, ""), cfg(), make_feed(client),
+                             warmup=50, verbose=False)
+    state = journal.load_state("live_colony")
+    assert set(state["tape"]) == {"BTCUSD", "ETHUSD", "SOLUSD"}
+    assert len(state["tape"]["BTCUSD"]) == 50
+    assert "history" not in state["population"][0]["agent"]
+    assert state["symbol_map"] == {"BTCUSD": "BTC/USD", "ETHUSD": "ETH/USD", "SOLUSD": "SOL/USD"}
+    journal.close()
+
+    journal = TradeJournal(db)
+    feed = make_feed(client)
+    feed.symbols = {"BTCUSD": "BTC/USD"}                      # a narrower CLI default...
+    again = LiveColony.open(journal, [], cfg(), feed, verbose=False)
+    assert set(feed.symbols) == {"BTCUSD", "ETHUSD", "SOLUSD"}   # ...loses to the colony's own map
+    for ind in again.alive:
+        assert {s: len(h) for s, h in ind.agent.history.items()} == {
+            "BTCUSD": 50, "ETHUSD": 50, "SOLUSD": 50}
+
+    # SOL misses a bar: the colony carries it flat at the last price
+    sol_price = again.last_prices["SOLUSD"]
+    bar = [c for c in make_feed(client).aligned(limit=2)[-1] if c.symbol != "SOLUSD"]
+    filled = again._complete(bar)
+    sol = next(c for c in filled if c.symbol == "SOLUSD")
+    assert sol.close == sol_price and sol.volume == 0.0 and sol.timestamp == bar[0].timestamp
+    journal.close()
+
+
+def test_state_saved_before_a_field_existed_still_restores():
+    """A colony founded before `last_end` was added must survive the next tick."""
+    from cryptoarena.agents.rules import MomentumAgent
+    from cryptoarena.arena.live_colony import _dump_individual, _load_individual
+    from cryptoarena.arena.survival import Individual
+    ind = Individual(agent=MomentumAgent("m", 5.0), strategy="momentum", parent_id=None,
+                     generation=0, born_day=1, budget=5.0)
+    saved = _dump_individual(ind)
+    del saved["last_end"]
+    assert _load_individual(saved).last_end is None
+
+
+def test_a_specialist_added_to_the_floor_is_hired_into_the_running_colony(tmp_path):
+    """New founders in the floor join a saved colony with a fresh budget and
+    the shared tape, born today — no re-founding."""
+    from cryptoarena.agents.rules import BearAgent, MomentumAgent
+    client = FakeClient()
+    client.now = T0 + 800 * HOUR
+    journal = TradeJournal(tmp_path / "c.db")
+    colony = LiveColony.open(journal, [MomentumAgent("momentum-1", 5.0)], cfg(),
+                             make_feed(client), warmup=700, verbose=False)
+    colony.run_once()
+    day = colony.day
+    journal.close()
+    client.now += 2 * HOUR
+    journal = TradeJournal(tmp_path / "c.db")
+    again = LiveColony.open(journal, [MomentumAgent("momentum-1", 5.0), BearAgent("bear-1", 5.0)],
+                            cfg(), make_feed(client), warmup=700, verbose=False)
+    ids = {i.agent_id: i for i in again.result.population}
+    assert set(ids) == {"momentum-1", "bear-1"}
+    bear = ids["bear-1"]
+    assert bear.born_day == day and bear.budget == 5.0 and bear.agent.wallet.cash == 5.0
+    assert len(bear.agent.history["BTCUSD"]) == len(ids["momentum-1"].agent.history["BTCUSD"])
+    assert bear.agent.wallet.allow_short
+    events = journal._conn.execute(
+        "SELECT event, detail FROM survival_events WHERE agent_id = 'bear-1'").fetchall()
+    assert ("born", "hired") in events
+    assert again.run_once() == 2                           # both trade the new bars
+    journal.close()
+    once_more = LiveColony.open(TradeJournal(tmp_path / "c.db"), [MomentumAgent("momentum-1", 5.0),
+                                BearAgent("bear-1", 5.0)], cfg(), make_feed(client), verbose=False)
+    assert len(once_more.result.population) == 2           # hired once, not every tick
+
+
+def test_readiness_compares_the_colony_orders_with_the_exchange_minimums(tmp_path):
+    client = FakeClient()
+    client.now = T0 + 800 * HOUR
+    client.load_markets = lambda: {
+        "BTC/USD": {"limits": {"amount": {"min": 0.0001}, "cost": {"min": None}}},
+        "ETH/USD": {"limits": {"amount": {"min": 0.002}, "cost": {"min": 5.0}}},
+        "SOL/USD": {"limits": {}},
+    }
+    feed = make_feed(client)
+    journal = TradeJournal(tmp_path / "r.db")
+    colony = LiveColony.open(journal, build_agents(5.0, False, ""), cfg(), feed, warmup=700,
+                             verbose=False)
+    prices = colony.last_prices
+    mins = feed.min_costs(prices)
+    assert set(mins) == {"BTCUSD", "ETHUSD"}
+    assert abs(mins["BTCUSD"] - round(0.0001 * prices["BTCUSD"], 4)) < 1e-6
+    assert mins["ETHUSD"] == max(5.0, round(0.002 * prices["ETHUSD"], 4))
+    colony.min_costs = mins
+    colony.save()
+    r = colony.status()["readiness"]
+    assert r["min_costs"] == mins and 0 <= (r["executable"] or 0) <= 1
+    if r["orders"] and r["executable"] < 1:
+        assert r["budget_for_all"] >= r["budget_for_typical"] > 5.0   # budgets that clear the line
+    journal.close()
+    reopened = LiveColony.open(TradeJournal(tmp_path / "r.db"), [], cfg(), feed, verbose=False)
+    assert reopened.min_costs == mins
+
+
+def test_a_specialist_dropped_from_the_floor_is_retired_from_the_running_colony(tmp_path):
+    from cryptoarena.agents.rules import BearAgent, MomentumAgent
+    client = FakeClient()
+    client.now = T0 + 800 * HOUR
+    journal = TradeJournal(tmp_path / "r.db")
+    colony = LiveColony.open(journal, [MomentumAgent("momentum-1", 5.0), BearAgent("bear-1", 5.0)],
+                             cfg(), make_feed(client), warmup=700, verbose=False)
+    colony.run_once()
+    journal.close()
+    client.now += HOUR
+    journal = TradeJournal(tmp_path / "r.db")
+    again = LiveColony.open(journal, [MomentumAgent("momentum-1", 5.0)], cfg(), make_feed(client),
+                            verbose=False)
+    assert [i.agent_id for i in again.alive] == ["momentum-1"]
+    gone = next(i for i in again.result.population if i.agent_id == "bear-1")
+    assert gone.died_day == again.day
+    assert journal._conn.execute(
+        "SELECT COUNT(*) FROM survival_events WHERE agent_id = 'bear-1' AND event = 'retired'"
+    ).fetchone()[0] == 1
+    assert again.run_once() == 1 and again.status()["alive"] == 1
+    journal.close()
+    # a bare resume (no founders given: status, dashboard) retires nobody
+    bare = LiveColony.open(TradeJournal(tmp_path / "r.db"), [], cfg(), make_feed(client), verbose=False)
+    assert bare.status()["alive"] == 1
