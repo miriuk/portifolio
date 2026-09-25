@@ -91,9 +91,19 @@ def write_provider(csv_dirs: dict[str, str | Path], out: str | Path) -> dict[str
 
 # ------------------------------------------------------------------ run
 def _init(provider: str | Path) -> None:
+    """Qlib logs training metrics to MLflow; keep that log next to the
+    data instead of ./mlruns, in the file store recent MLflow refuses by
+    default."""
+    import os
+
     import qlib
     from qlib.constant import REG_US
-    qlib.init(provider_uri=str(Path(provider).resolve()), region=REG_US, kernels=1)
+    os.environ.setdefault("MLFLOW_ALLOW_FILE_STORE", "true")
+    provider = Path(provider).resolve()
+    qlib.init(provider_uri=str(provider), region=REG_US, kernels=1,
+              exp_manager={"class": "MLflowExpManager", "module_path": "qlib.workflow.expm",
+                           "kwargs": {"uri": f"file:{provider.parent / (provider.name + '-mlruns')}",
+                                      "default_exp_name": "Experiment"}})
 
 
 def _dataset(universe: str, start: str, train_end: str, valid: tuple[str, str],

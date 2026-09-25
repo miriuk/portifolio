@@ -185,6 +185,24 @@ def _forecast(args) -> None:
             json.dump(report, fh)
 
 
+def _qlib(args) -> None:
+    """Microsoft Qlib's ranking pipeline on the world universe."""
+    import json
+
+    from .forecast.qlib_bench import MODELS, format_report, run, write_provider
+
+    groups = write_provider({"stocks": f"{args.data}/stocks", "etf": f"{args.data}/etf"},
+                            args.provider)
+    print({k: len(v) for k, v in groups.items()}, flush=True)
+    models = args.models.split(",") if args.models else list(MODELS)
+    rep = run(args.provider, universe=args.universe, benchmark=args.benchmark, models=models,
+              first_test_year=args.first_year, topk=args.topk, n_drop=args.n_drop, cost=args.fee)
+    print(format_report(rep))
+    if args.out:
+        with open(args.out, "w") as fh:
+            json.dump(rep, fh)
+
+
 _OVERRIDES = {"budget": "budget", "target": "daily_target", "death": "death_below",
               "cost": "daily_cost", "clone_at": "clone_at", "min_child": "min_child_budget",
               "pressure": "pressure", "max_pop": "max_population", "seed": "seed",
@@ -318,6 +336,19 @@ def main() -> None:
                     help="predict every N days and hold in between (N = horizon: no overlap)")
     fc.add_argument("--out", default=None, help="write predictions and verdicts as JSON")
 
+    ql = sub.add_parser("qlib", help="Microsoft Qlib's stock-ranking models on the world universe")
+    ql.add_argument("--data", required=True,
+                    help="the global-data branch checked out: <data>/stocks and <data>/etf")
+    ql.add_argument("--provider", default="qlib_data", help="where to write Qlib's binary data")
+    ql.add_argument("--universe", default="stocks", choices=["stocks", "etf"])
+    ql.add_argument("--benchmark", default="SPY")
+    ql.add_argument("--models", default=None, help="LightGBM,DoubleEnsemble,XGBoost,Linear")
+    ql.add_argument("--first-year", type=int, default=2020)
+    ql.add_argument("--topk", type=int, default=10)
+    ql.add_argument("--n-drop", type=int, default=2)
+    ql.add_argument("--fee", type=float, default=0.0005)
+    ql.add_argument("--out", default=None)
+
     bt = sub.add_parser("backtest", help="walk-forward survival colonies on real candles")
     bt.add_argument("--floor", default="crypto", choices=["crypto", "stocks"])
     bt.add_argument("--data", default=None, help="directory of ReplayMarket CSVs (default: the floor's)")
@@ -387,6 +418,8 @@ def main() -> None:
         _call(args)
     elif args.command == "forecast":
         _forecast(args)
+    elif args.command == "qlib":
+        _qlib(args)
     elif args.command == "backtest":
         from .arena.backtest import (format_by_year, format_summary, load_sentiment, load_tape,
                                      run_backtest)
