@@ -1,0 +1,134 @@
+# Live colony
+
+Updated 2026-09-26 05:38 UTC by the nightly job.
+Paper trading on Nasdaq's daily bars, mirrored to a Trading 212 practice account.
+Read `colony.db` with the dashboard:
+
+```
+CRYPTOARENA_DB_URL=https://raw.githubusercontent.com/miriuk/portifolio/colony-live-stocks/colony.db
+```
+
+```json
+{
+  "day": 3,
+  "hour": 0,
+  "started_at": "2026-09-24T00:00:00+00:00",
+  "last_candle": "2026-09-25T00:00:00+00:00",
+  "alive": 9,
+  "population": 9,
+  "interns": 0,
+  "colony_equity": 1325.1388,
+  "invested": 277.4248,
+  "senior": null,
+  "prices": {
+    "SPY": 771.35,
+    "QQQ": 744.5,
+    "AAPL": 341.07,
+    "MSFT": 516.17,
+    "NVDA": 225.07,
+    "AMZN": 249.67
+  },
+  "sentiment": null,
+  "signals": {},
+  "sources": [
+    {
+      "handle": "leshka_eth",
+      "label": "Leshka.eth",
+      "url": "https://x.com/leshka_eth",
+      "trust": 0.25,
+      "prior": 0.25,
+      "horizon_days": 7,
+      "calls": 0,
+      "resolved": 0,
+      "hits": 0,
+      "hit_rate": null,
+      "avg_outcome": null,
+      "active": []
+    }
+  ],
+  "readiness": {},
+  "agents": [
+    {
+      "id": "momentum-1",
+      "gen": 0,
+      "budget": 146.89,
+      "equity": 147.3381,
+      "streak": 1,
+      "misses": 0,
+      "immune_until": 0
+    },
+    {
+      "id": "momentum-2",
+      "gen": 0,
+      "budget": 146.89,
+      "equity": 148.1287,
+      "streak": 1,
+      "misses": 0,
+      "immune_until": 0
+    },
+    {
+      "id": "meanrev-1",
+      "gen": 0,
+      "budget": 146.89,
+      "equity": 146.8312,
+      "streak": 0,
+      "misses": 2,
+      "immune_until": 0
+    },
+    {
+      "id": "meanrev-2",
+      "gen": 0,
+      "budget": 146.89,
+      "equity": 146.8312,
+      "streak": 0,
+      "misses": 2,
+      "immune_until": 0
+    },
+    {
+      "id": "breakout-1",
+      "gen": 0,
+      "budget": 146.89,
+      "equity": 146.7909,
+      "streak": 0,
+      "misses": 2,
+      "immune_until": 0
+    },
+    {
+      "id": "regime-1",
+      "gen": 0,
+      "budget": 146.89,
+      "equity": 147.3548,
+      "streak": 1,
+      "misses": 0,
+      "immune_until": 0
+    },
+    {
+      "id": "voltarget-1",
+      "gen": 0,
+      "budget": 146.89,
+      "equity": 147.4258,
+      "streak": 1,
+      "misses": 0,
+      "immune_until": 0
+    },
+    {
+      "id": "trend-1",
+      "gen": 0,
+      "budget": 146.89,
+      "equity": 147.3507,
+      "streak": 1,
+      "misses": 0,
+      "immune_until": 0
+    },
+    {
+      "id": "index-1",
+      "gen": 0,
+      "budget": 146.89,
+      "equity": 147.0874,
+      "streak": 1,
+      "misses": 0,
+      "immune_until": 0
+    }
+  ]
+}
+```
