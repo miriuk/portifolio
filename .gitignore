@@ -4,6 +4,7 @@ __pycache__/
 .pytest_cache/
 arena.db
 data/*.csv
+data/*/*.csv
 .env
 .streamlit/secrets.toml
 live/

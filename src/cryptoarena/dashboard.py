@@ -27,6 +27,7 @@ import streamlit.components.v1 as components
 from cryptoarena.agents.llm import ClaudeTraderAgent
 from cryptoarena.arena import background
 from cryptoarena.arena.background import RunConfig
+from cryptoarena.world.feed import build_feed, render_feed
 from cryptoarena.world.render import build_state, render_world
 
 
@@ -343,7 +344,12 @@ def main() -> None:
             unit = "day" if run.config.mode == "survival" else "episode"
             done = int(summary["episode"].max()) if not summary.empty else 0
             st.progress(min(done / total, 1.0), text=f"{unit} {done}/{total} complete")
-        world_tab, data_tab = st.tabs(["🏢 The floor", "📊 Data"])
+        world_tab, feed_tab, data_tab = st.tabs(["🏢 The floor", "📟 Desk feed", "📊 Data"])
+        with feed_tab:
+            st.markdown(render_feed(build_feed(trades, survival)), unsafe_allow_html=True)
+            st.caption("newest first · trades, the desk's risk officer (RISK), the PM's "
+                       "book (PM), hires and dismissals (HR), and the chief of staff's note "
+                       "at each close (CHIEF)")
         with world_tab:
             state = build_state(data, running=running)
             components.html(render_world(state), height=650)
@@ -411,6 +417,42 @@ def live_view(state: dict) -> None:
     if notes:
         st.caption(" · ".join(notes))
     sources_view(state.get("sources") or [], state.get("signals") or {})
+    desk_view(state, alive, prices, equity)
+
+
+def desk_view(state: dict, alive: list[dict], prices: dict, equity: float) -> None:
+    """The desk above the agents: how concentrated the colony is against
+    the risk officer's cap, and the PM's book next to the colony."""
+    desk = state.get("desk") or {}
+    cfg = state.get("config") or {}
+    cap = cfg.get("desk_symbol_cap") or 0.0
+    pm = desk.get("pm")
+    if not desk or (not cap and not pm):
+        return
+    per: dict[str, float] = {}
+    for p in alive:
+        for s, q in p["agent"]["wallet"]["positions"].items():
+            per[s] = per.get(s, 0.0) + abs(q) * prices.get(s, 0.0)
+    with st.expander("The desk: risk officer and PM", expanded=False):
+        cols = st.columns(3)
+        top = max(per.items(), key=lambda kv: kv[1]) if per else None
+        cols[0].metric("Biggest name", f"{top[0]} {top[1] / equity:.0%}" if top and equity else "—",
+                       help=f"cap {cap:.0%} of the colony per name, all agents together"
+                       if cap else "no cap")
+        cols[1].metric("Refused / cut", f"{desk.get('vetoes', 0)} / {desk.get('clipped', 0)}")
+        if pm:
+            w = pm.get("wallet") or {}
+            pm_eq = w.get("cash", 0.0) + sum(q * prices.get(s, 0.0)
+                                             for s, q in (w.get("positions") or {}).items())
+            start = desk.get("pm_start") or {}
+            base = start.get("colony")
+            pm_ret = pm_eq / pm["capital"] - 1 if pm.get("capital") else 0.0
+            col_ret = equity / base - 1 if base else None
+            cols[2].metric("PM book", f"{pm_eq:,.2f}", f"{pm_ret:+.2%}",
+                           help=f"since day {start.get('day', '?')}; the colony in the same days: "
+                                + (f"{col_ret:+.2%}" if col_ret is not None else "—"))
+        if per and equity:
+            st.bar_chart(pd.Series({s: v / equity for s, v in per.items()}, name="share"))
 
 
 def sources_view(sources: list[dict], signals: dict[str, float]) -> None:

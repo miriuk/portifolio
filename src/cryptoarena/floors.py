@@ -15,6 +15,7 @@ from typing import Callable
 
 from .agents.rules import (BreakoutAgent, BuyAndHoldAgent, MeanReversionAgent, MomentumAgent,
                            RegimeSwitchAgent, TrendFollowerAgent, VolTargetAgent)
+from .arena.chief import ChiefPolicy
 from .arena.survival import SurvivalConfig
 from .market.sources import Source
 
@@ -36,6 +37,7 @@ class Floor:
     backtest_days: int = 30
     backtest_stride: int = 10
     sources: list = field(default_factory=list)    # accounts whose calls the colony judges
+    chief: ChiefPolicy | None = None                # when the chief of staff calls the owner
 
     @property
     def live_url(self) -> str:
@@ -103,6 +105,14 @@ CRYPTO_SOURCES = [
 ]
 
 
+# Who the stocks floor listens to: company insiders buying their own stock
+# on the open market (SEC Form 4, market/sec.py), judged a month later.
+STOCK_SOURCES = [
+    Source("sec-form4", "SEC Form 4 · insider purchases", prior=0.25, horizon_days=30,
+           min_resolved=10, url="https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=4"),
+]
+
+
 def _crypto_feed(exchange_id: str = "kraken", symbols: dict | None = None,
                  timeframe: str = "1h"):
     from .market.live import LiveFeed, majors_symbols
@@ -124,17 +134,27 @@ FLOORS: dict[str, Floor] = {
         default_db="live/colony.db", state_branch="colony-live", data_dir="data",
         warmup=700, backtest_days=30, backtest_stride=10,
         sources=CRYPTO_SOURCES,
+        chief=ChiefPolicy(benchmark="BTCUSD", min_days=14, behind_pts=0.05, drawdown=0.10,
+                          stale_days=1.0),
     ),
     "stocks": Floor(
         name="stocks", label="Stocks",
         caption="daily bars of SPY, QQQ, Apple, Microsoft, Nvidia and Amazon from Nasdaq, "
                 "paper wallets, one day per trading day",
         build_founders=stock_founders,
+        # the desk: a 20% cap per name across all agents (six years of bars
+        # never reached it: a seatbelt, not a strategy) and the PM's shadow
+        # book, which matched the colony there without beating it
         config_defaults=dict(endogenous=False, steps_per_day=1, week_days=5,
-                             daily_target=0.002, fee_rate=0.0005),
+                             daily_target=0.002, fee_rate=0.0005,
+                             desk_symbol_cap=0.20, pm=True, pm_band=0.02),
         make_feed=_stock_feed,
         default_db="live/stocks.db", state_branch="colony-live-stocks", data_dir="data/stocks",
         warmup=250, backtest_days=60, backtest_stride=20,
+        sources=STOCK_SOURCES,
+        # a Monday holiday leaves Friday's bar as the newest on Tuesday night
+        chief=ChiefPolicy(benchmark="SPY", min_days=10, behind_pts=0.03, drawdown=0.05,
+                          stale_days=5.0),
     ),
 }
 

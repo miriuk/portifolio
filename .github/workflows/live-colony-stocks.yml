@@ -9,6 +9,9 @@
 #
 # "Run workflow" (with reset) founds a fresh colony.
 #
+# After each tick the chief of staff writes the day's note and opens a GitHub
+# issue (label "mesa") only when something needs the owner's decision.
+#
 # After each tick the colony's holdings are mirrored onto Trading 212's
 # PRACTICE account (virtual money; broker/mirror.py), when the repository
 # has the secrets T212_API_KEY and T212_API_SECRET of a practice-account
@@ -35,6 +38,7 @@ on:
 
 permissions:
   contents: write
+  issues: write        # the chief of staff opens an issue only when a decision is needed
 
 concurrency:
   group: live-colony-stocks
@@ -72,11 +76,14 @@ jobs:
           fi
 
       - name: Tick
-        # the deposit only matters at the founding: a resumed colony keeps its budget
+        # the deposit only matters at the founding: a resumed colony keeps its budget;
+        # EDGAR (insider purchases, market/sec.py) wants a User-Agent naming who asks
+        env:
+          SEC_USER_AGENT: ${{ vars.SEC_USER_AGENT }}
         run: cryptoarena live --floor stocks --once --db "$COLONY_DB" --deposit-gbp "${{ inputs.deposit_gbp || '1000' }}"
 
       - name: Status
-        run: cryptoarena live --status --db "$COLONY_DB" | tee live/status.json
+        run: cryptoarena live --floor stocks --status --db "$COLONY_DB" | tee live/status.json
 
       - name: Publish the colony
         env:
@@ -109,6 +116,14 @@ jobs:
           git commit -q -m "colony tick $(date -u +'%Y-%m-%dT%H:%MZ')"
           # one commit, replaced every hour: the history lives inside the journal
           git push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}" "$COLONY_BRANCH"
+
+      - name: Chief of staff
+        # one note a day in the job log and on the desk feed; a GitHub issue
+        # (label "mesa") only when a decision is needed, closed when it clears
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: cryptoarena chief --floor stocks --db "$COLONY_DB" --issues
 
       - name: Mirror to the Trading 212 practice account
         continue-on-error: true           # the colony is already saved; the mirror catches up next run

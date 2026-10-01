@@ -27,14 +27,20 @@ from ..agents.base import HISTORY_LEN, TradingAgent
 from ..learning.memory import TradeJournal
 from ..market.candle import Candle
 from ..market.exchange import SimulatedExchange
+from ..market import sec
 from ..market.sources import Call, Post, Source, parse_calls, signals, trust
 from ..portfolio.risk import RiskManager
 from ..portfolio.wallet import Wallet
+from .chief import ChiefPolicy, bench_start, day_activity, report
+from .desk import PMBook
 from .episode import EpisodeResult, run_episode
 from .survival import (Individual, SurvivalConfig, SurvivalResult, _end_of_day,
-                       _next_id_factory, _strategy_name)
+                       _next_id_factory, _strategy_name, make_desk)
 
 STATE_KEY = "live_colony"
+# The desk is the floor's policy, not the colony's history: a tick applies
+# whatever the floor says today, like the list of founders.
+DESK_FIELDS = ("desk_symbol_cap", "desk_gross_cap", "pm", "pm_consensus", "pm_band")
 AGENT_CLASSES: dict[str, type] = {
     name: cls for name, cls in inspect.getmembers(rules, inspect.isclass)
     if issubclass(cls, rules.ParamAgent) and cls is not rules.ParamAgent
@@ -91,6 +97,10 @@ class LiveColony:
         self.source_cursor: dict[str, dict] = {}  # per handle: last post id seen, user id
         self.exchange = SimulatedExchange(fee_rate=getattr(cfg, "fee_rate", 0.001),
                                           seed=int(self.rng.integers(1 << 31)))
+        self.desk = None                        # the roles above the agents (arena/desk.py)
+        self.chief: ChiefPolicy | None = None   # who reads it all and calls the owner (arena/chief.py)
+        self.bench_start: dict | None = None    # the benchmark at the founding: the line to beat
+        self.pm_start: dict | None = None       # when the PM's book opened, and the colony then
         if founders:
             for agent in founders:
                 agent.starting_cash = cfg.budget
@@ -102,7 +112,8 @@ class LiveColony:
     @classmethod
     def open(cls, journal: TradeJournal, founders: list[TradingAgent],
              cfg: SurvivalConfig, feed, warmup: int = 700,
-             verbose: bool = True, sources: list[Source] | None = None) -> "LiveColony":
+             verbose: bool = True, sources: list[Source] | None = None,
+             chief: ChiefPolicy | None = None) -> "LiveColony":
         """Resume the colony saved in `journal`, or found a new one."""
         saved = journal.load_state(STATE_KEY)
         if saved is not None:
@@ -113,15 +124,22 @@ class LiveColony:
             if saved.get("symbol_map") and hasattr(feed, "symbols"):
                 feed.symbols = dict(saved["symbol_map"])   # the colony keeps its own universe
             colony.sources = list(sources or [])
+            colony.chief = chief
             colony._restore(saved)
+            if founders:                          # a real tick: the floor's desk policy applies
+                for name in DESK_FIELDS:
+                    setattr(colony.cfg, name, getattr(cfg, name))
             colony._hire(founders)
             colony._retire(founders)
+            colony._staff_desk(saved.get("desk"))
             return colony
         colony = cls(journal, cfg, feed, founders, warmup=warmup, verbose=verbose)
         colony.sources = list(sources or [])
+        colony.chief = chief
         for ind in colony.result.population:
             journal.record_survival_event(0, ind.agent_id, "born", cfg.budget,
                                           generation=0, strategy=ind.strategy)
+        colony._staff_desk(None)
         colony._warm_up()
         colony.save()
         return colony
@@ -129,6 +147,34 @@ class LiveColony:
     @property
     def alive(self) -> list[Individual]:
         return self.result.alive
+
+    def _staff_desk(self, saved: dict | None) -> None:
+        """The desk the configuration asks for, with the counters and the
+        PM's book carried over from the saved state. A PM added to a
+        running colony opens its book today, with the founders' capital,
+        and is compared with the colony from that day on."""
+        founding = sum(i.budget for i in self.result.population if i.generation == 0)
+        self.desk = make_desk(self.cfg, self.journal, capital=founding)
+        saved = saved or {}
+        self.pm_start = saved.get("pm_start")
+        if self.desk is None:
+            return
+        self.desk.vetoes = saved.get("vetoes", 0)
+        self.desk.clipped = saved.get("clipped", 0)
+        if self.desk.pm is not None:
+            if saved.get("pm"):
+                book = PMBook.load(saved["pm"])
+                book.consensus, book.band = self.cfg.pm_consensus, self.cfg.pm_band
+                book.exchange = self.desk.pm.exchange
+                self.desk.pm = book
+            else:
+                colony = (sum(i.agent.wallet.equity(self.last_prices) for i in self.alive)
+                          if self.last_prices else founding)
+                self.pm_start = {"day": self.day, "ts": self.last_ts, "colony": round(colony, 4)}
+                self.journal.record_survival_event(
+                    self.day, "pm", "pm_opened", founding,
+                    detail=f"desk: the PM opens its book with {founding:.2f}")
+                self.save()
 
     def _retire(self, founders: list[TradingAgent]) -> None:
         """A specialist dropped from the floor leaves the running colony:
@@ -238,11 +284,13 @@ class LiveColony:
             self.risk = {}                              # a fresh seatbelt every day, as in the sim
             for ind in alive:
                 ind.apply_pressure(self.cfg.pressure)
+        if self.desk is not None:
+            self.desk.day = self.day
         ep = run_episode(self.day, _OneBar(candles, self.sentiment, self.signals()),
                          [i.agent for i in alive],
                          self.journal,
                          steps=1, step_offset=self.clock, record_step_offset=self.hour,
-                         risk=self.risk, exchange=self.exchange)
+                         risk=self.risk, exchange=self.exchange, desk=self.desk)
         for agent_id, curve in ep.equity_curves.items():
             self.day_curves.setdefault(agent_id, []).extend(curve)
         self.last_prices = {c.symbol: c.close for c in candles}
@@ -259,19 +307,25 @@ class LiveColony:
 
     # ------------------------------------------------------------ sources
     def _read_sources(self) -> int:
-        """Ask the feed for each source's new posts (the X API, when a
-        token is configured) and file their calls. Posts by hand come in
-        through `ingest` directly."""
-        if not self.sources or not hasattr(self.feed, "posts"):
-            return 0
+        """Ask each source for what is new and file its calls: X accounts
+        through the feed (the X API, when a token is configured), SEC
+        Form 4 insider purchases from EDGAR. Posts by hand come in through
+        `ingest` directly."""
         filed = 0
         for src in self.sources:
             cur = self.source_cursor.setdefault(src.handle, {})
             try:
+                if src.handle == sec.SOURCE:
+                    symbols = list(self.last_prices) or list(getattr(self.feed, "symbols", {}) or {})
+                    calls, cur["since"] = sec.fetch_calls(symbols, since=cur.get("since"))
+                    filed += self.file_calls(calls)
+                    continue
+                if not hasattr(self.feed, "posts"):
+                    continue
                 user_id, posts = self.feed.posts(src.handle, since_id=cur.get("since_id"),
                                                  user_id=cur.get("user_id"))
             except Exception as exc:     # noqa: BLE001 — a source down never stops the tick
-                print(f"[sources] @{src.handle}: {exc}")
+                print(f"[sources] {src.handle}: {exc}")
                 continue
             if user_id:
                 cur["user_id"] = user_id
@@ -287,22 +341,26 @@ class LiveColony:
         return Source(handle)                       # a hand-fed source nobody registered
 
     def ingest(self, posts: list[Post]) -> int:
-        """File the calls the posts make, at the price the colony sees
-        now (the bar of the post if it is on the tape, else the last
-        price). Returns how many new calls went into the ledger."""
+        """File the calls the posts make. Returns how many new calls went
+        into the ledger."""
         symbols = list(self.last_prices) or list(getattr(self.feed, "symbols", {}) or {})
+        return self.file_calls([call for post in posts for call in parse_calls(post, symbols)])
+
+    def file_calls(self, calls: list[Call]) -> int:
+        """File calls at the price the colony sees for them (the bar of the
+        call if it is on the tape, else the last price). Returns how many
+        were new to the ledger."""
         tape = self._tape()
         filed = 0
-        for post in posts:
-            for call in parse_calls(post, symbols):
-                call.price_at = self._price_at(call.symbol, call.ts, tape)
-                if call.price_at is None:
-                    continue
-                if self.journal.record_call(call):
-                    filed += 1
-                    if self.verbose:
-                        print(f"call @{call.source}: {call.symbol} "
-                              f"{'long' if call.side > 0 else 'short'} at {call.price_at:.4g}")
+        for call in calls:
+            call.price_at = self._price_at(call.symbol, call.ts, tape)
+            if call.price_at is None:
+                continue
+            if self.journal.record_call(call):
+                filed += 1
+                if self.verbose:
+                    print(f"call {call.source}: {call.symbol} "
+                          f"{'long' if call.side > 0 else 'short'} at {call.price_at:.4g}")
         if filed:
             self.save()
         return filed
@@ -397,10 +455,31 @@ class LiveColony:
             ep.halted[ind.agent_id] = self.risk.get(ind.agent_id, RiskManager()).halted
         _end_of_day(self.day, alive, ep, self.cfg, self.rng, self.journal,
                     self.next_id, self.result, self.verbose)
+        if self.desk is not None and self.desk.pm is not None:
+            self.desk.pm.end_day(self.last_prices)
         self.day += 1
         self.hour = 0
         self.day_curves = {}
         self.risk = {}
+        note = self.chief_note()
+        if note is not None:                     # the day's note goes on the desk feed
+            self.journal.record_survival_event(
+                note["day"], "chief", "chief_note", round(note["colony_return"] or 0.0, 6),
+                detail=" ".join(note["lines"]) + (" Decidir: " + "; ".join(
+                    d["title"] for d in note["decisions"]) if note["decisions"] else ""))
+
+    def chief_note(self, status: dict | None = None, now: float | None = None) -> dict | None:
+        """The chief of staff's note on the last closed day, and the
+        decisions it raises (arena/chief.py); None without a chief."""
+        if self.chief is None:
+            return None
+        if self.bench_start is None or self.bench_start.get("symbol") != self.chief.benchmark:
+            self.bench_start = bench_start(self._tape(), self.chief.benchmark, self.started_at)
+        status = status or self.status(chief=False)
+        founding = sum(i.budget for i in self.result.population if i.generation == 0)
+        day = max(self.day - (1 if self.hour == 0 else 0), 0)
+        return report(status, day_activity(self.journal, day), self.bench_start, founding,
+                      self.chief, now=now)
 
     # ------------------------------------------------------------ persistence
     def save(self) -> None:
@@ -428,7 +507,54 @@ class LiveColony:
             "risk": {k: {"peak_equity": r.peak_equity, "halted": r.halted}
                      for k, r in self.risk.items()},
             "population": [_dump_individual(i) for i in self.result.population],
+            "desk": self._desk_state(),
+            "bench_start": self.bench_start,
         })
+
+    def _desk_state(self) -> dict | None:
+        if self.desk is None:
+            return {"pm_start": self.pm_start} if self.pm_start else None
+        return {"vetoes": self.desk.vetoes, "clipped": self.desk.clipped,
+                "pm": self.desk.pm.dump() if self.desk.pm is not None else None,
+                "pm_start": self.pm_start}
+
+    def desk_status(self) -> dict | None:
+        """What the desk did: the risk officer's refusals and the PM's book
+        next to the colony over the same days."""
+        if self.desk is None:
+            return None
+        out = {"symbol_cap": self.cfg.desk_symbol_cap, "gross_cap": self.cfg.desk_gross_cap,
+               "vetoes": self.desk.vetoes, "clipped": self.desk.clipped}
+        prices = self.last_prices
+        alive = self.alive
+        colony = sum(i.agent.wallet.equity(prices) for i in alive)
+        if colony > 0 and prices:
+            per: dict[str, float] = {}
+            for i in alive:
+                for sym, q in i.agent.wallet.positions.items():
+                    per[sym] = per.get(sym, 0.0) + abs(q) * prices.get(sym, 0.0)
+            out["exposure"] = {sym: round(v / colony, 4) for sym, v in
+                               sorted(per.items(), key=lambda kv: -kv[1])}
+            out["holders"] = {sym: sum(1 for i in alive if i.agent.wallet.positions.get(sym))
+                              for sym in per}
+        pm = self.desk.pm
+        if pm is not None:
+            eq = pm.wallet.equity(prices)
+            start = self.pm_start or {}
+            base = start.get("colony")
+            out["pm"] = {
+                "since_day": start.get("day", 0),
+                "capital": round(pm.capital, 4), "equity": round(eq, 4),
+                "return": round(eq / pm.capital - 1, 6) if pm.capital else None,
+                "colony_return": round(colony / base - 1, 6) if base else None,
+                "consensus": pm.consensus, "band": pm.band,
+                "fees": round(pm.wallet.fees_paid, 4),
+                "weights": {sym: round(q * prices.get(sym, 0.0) / eq, 4)
+                            for sym, q in pm.wallet.positions.items()} if eq > 0 else {},
+                "targets": {k: round(v, 4) for k, v in pm.targets.items()},
+                "fills": pm.fills[-10:],
+            }
+        return out
 
     def _restore(self, saved: dict) -> None:
         self.day, self.hour, self.clock = saved["day"], saved["hour"], saved["clock"]
@@ -438,6 +564,7 @@ class LiveColony:
         self.result.equity_per_day = list(saved.get("equity_per_day", []))
         self.day_curves = {k: list(v) for k, v in saved.get("day_curves", {}).items()}
         self.last_prices = dict(saved.get("last_prices", {}))
+        self.bench_start = saved.get("bench_start")
         self.min_costs = dict(saved.get("min_costs", {}))
         self.sentiment = saved.get("sentiment")
         self.source_cursor = {k: dict(v) for k, v in (saved.get("source_cursor") or {}).items()}
@@ -488,10 +615,10 @@ class LiveColony:
                 "budget_for_all": round(self.cfg.budget * max(worst, 1.0), 2),
                 "min_costs": self.min_costs}
 
-    def status(self) -> dict:
+    def status(self, chief: bool = True) -> dict:
         alive = self.alive
         equity = {i.agent_id: i.agent.wallet.equity(self.last_prices) for i in alive}
-        return {
+        out = {
             "day": self.day, "hour": self.hour, "started_at": self.started_at,
             "last_candle": _utc(self.last_ts).isoformat() if self.last_ts else None,
             "alive": len(alive), "population": len(self.result.population),
@@ -505,11 +632,15 @@ class LiveColony:
             "signals": self.signals(),
             "sources": self.sources_summary(),
             "readiness": self.readiness(),
+            "desk": self.desk_status(),
             "agents": [{"id": i.agent_id, "gen": i.generation, "budget": round(i.budget, 4),
                         "equity": round(equity[i.agent_id], 4), "streak": i.streak,
                         "misses": i.misses, "immune_until": i.immune_until}
                        for i in alive],
         }
+        if chief and self.chief is not None:
+            out["chief"] = self.chief_note(status=out)
+        return out
 
 
 # ---------------------------------------------------------------- (de)serialisation

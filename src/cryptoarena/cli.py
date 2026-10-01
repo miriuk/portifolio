@@ -43,7 +43,7 @@ def _live(args) -> None:
             feed = _StaticFeed(saved.get("timeframe", "1h"), saved.get("exchange", ""),
                                saved.get("symbols", []))
             colony = LiveColony.open(journal, [], SurvivalConfig(), feed, verbose=False,
-                                     sources=floor.sources)
+                                     sources=floor.sources, chief=floor.chief)
             print(json.dumps(colony.status(), indent=2))
             return
         symbols = None
@@ -68,7 +68,8 @@ def _live(args) -> None:
         cfg = floor.config(days=args.days, **_overrides(args))
         founders = build_agents(cfg.budget, False, "", floor=floor.name)
         colony = LiveColony.open(journal, founders, cfg, feed,
-                                 warmup=args.warmup or floor.warmup, sources=floor.sources)
+                                 warmup=args.warmup or floor.warmup, sources=floor.sources,
+                                 chief=floor.chief)
         if args.once:
             n = 1 if founding else colony.run_once()
             if hasattr(feed, "min_costs"):              # real-money readiness, refreshed each tick
@@ -82,6 +83,41 @@ def _live(args) -> None:
             colony.run_forever(args.days)
     finally:
         journal.close()
+
+
+def _chief(args) -> None:
+    """The chief of staff's note on the last closed day; with --issues, the
+    decisions it raises are synced to the repository's GitHub issues."""
+    from .arena.chief import GitHub, format_note, safe_sync
+    from .arena.live_colony import LiveColony
+    from .arena.survival import SurvivalConfig
+    from .floors import get_floor
+
+    floor = get_floor(args.floor)
+    journal = TradeJournal(args.db or floor.default_db)
+    try:
+        saved = journal.load_state("live_colony")
+        if saved is None:
+            print("no live colony in", args.db or floor.default_db)
+            return
+        feed = _StaticFeed(saved.get("timeframe", "1h"), saved.get("exchange", ""),
+                           saved.get("symbols", []))
+        colony = LiveColony.open(journal, [], SurvivalConfig(), feed, verbose=False,
+                                 sources=floor.sources, chief=floor.chief)
+        note = colony.chief_note()
+    finally:
+        journal.close()
+    if note is None:
+        print(f"the {floor.name} floor has no chief of staff")
+        return
+    print(format_note(note))
+    if args.issues:
+        gh = GitHub.from_env()
+        if gh is None:
+            print("\n(no GITHUB_REPOSITORY / GITHUB_TOKEN: issues not touched)")
+            return
+        for line in safe_sync(gh, floor.name, note) or ["no decision open or closed"]:
+            print(line)
 
 
 def _call(args) -> None:
@@ -244,7 +280,9 @@ def _t212(args) -> None:
 _OVERRIDES = {"budget": "budget", "target": "daily_target", "death": "death_below",
               "cost": "daily_cost", "clone_at": "clone_at", "min_child": "min_child_budget",
               "pressure": "pressure", "max_pop": "max_population", "seed": "seed",
-              "fee": "fee_rate", "learn": "learn"}
+              "fee": "fee_rate", "learn": "learn", "desk_cap": "desk_symbol_cap",
+              "desk_gross": "desk_gross_cap", "pm": "pm", "pm_consensus": "pm_consensus",
+              "pm_band": "pm_band"}
 
 
 def _overrides(args) -> dict:
@@ -253,7 +291,7 @@ def _overrides(args) -> dict:
     for flag, field in _OVERRIDES.items():
         value = getattr(args, flag, None)
         if value is not None:
-            out[field] = bool(value) if field == "learn" else value
+            out[field] = bool(value) if field in ("learn", "pm") else value
     return out
 
 
@@ -350,6 +388,12 @@ def main() -> None:
     live.add_argument("--max-pop", type=int, default=None)
     live.add_argument("--seed", type=int, default=None)
 
+    ch = sub.add_parser("chief", help="the chief of staff's note on the last closed day")
+    ch.add_argument("--floor", default="stocks", choices=["crypto", "stocks"])
+    ch.add_argument("--db", default=None, help="journal path (default: the floor's)")
+    ch.add_argument("--issues", action="store_true",
+                    help="open/update/close a GitHub issue per decision (GITHUB_TOKEN)")
+
     call = sub.add_parser("call", help="file a source's post (a call on a coin) by hand")
     call.add_argument("--floor", default="crypto", choices=["crypto", "stocks"])
     call.add_argument("--db", default=None, help="journal path (default: the floor's)")
@@ -415,6 +459,19 @@ def main() -> None:
     bt.add_argument("--seed", type=int, default=1)
     bt.add_argument("--quiet", action="store_true")
 
+    for p in (live, bt):
+        p.add_argument("--desk-cap", type=float, default=None,
+                       help="the desk's cap on one symbol, all agents together, as a share of "
+                            "the colony's equity (0 = off)")
+        p.add_argument("--desk-gross", type=float, default=None,
+                       help="the desk's cap on the colony's total invested share (0 = off)")
+        p.add_argument("--pm", type=int, default=None,
+                       help="1 = keep the PM's shadow book (one portfolio from the agents' votes)")
+        p.add_argument("--pm-consensus", type=float, default=None,
+                       help="the PM holds a symbol only if this share of the agents do")
+        p.add_argument("--pm-band", type=float, default=None,
+                       help="the PM trades a symbol only when this far off its target weight")
+
     lessons = sub.add_parser("lessons", help="show an agent's learned lessons")
     lessons.add_argument("agent_id")
     lessons.add_argument("--db", default="arena.db")
@@ -471,6 +528,8 @@ def main() -> None:
         _qlib(args)
     elif args.command == "t212":
         _t212(args)
+    elif args.command == "chief":
+        _chief(args)
     elif args.command == "backtest":
         from .arena.backtest import (format_by_year, format_summary, load_sentiment, load_tape,
                                      run_backtest)

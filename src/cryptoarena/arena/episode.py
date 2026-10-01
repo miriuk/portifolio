@@ -41,6 +41,7 @@ def run_episode(
     step_offset: int = 0,
     record_step_offset: int = 0,
     risk: dict[str, RiskManager] | None = None,
+    desk=None,
 ) -> EpisodeResult:
     """One episode: agents live through `steps` hourly candles.
 
@@ -57,6 +58,12 @@ def run_episode(
     caller that feeds one candle per call and wants the day's tape to read
     0..23 all the same. `risk` lets such a caller keep each agent's risk
     manager (peak equity, kill switch) alive between calls.
+
+    `desk` (arena/desk.py) sees the colony as a whole: its risk officer
+    vets every order after the agent's own risk manager, and its PM
+    rebalances a shadow book after each bar. With a risk officer on, the
+    agents take turns being first in line, so the room under a cap does
+    not always go to the same one.
     """
     if exchange is None:
         exchange = market if hasattr(market, "execute") else SimulatedExchange()
@@ -80,7 +87,11 @@ def run_episode(
         signals = (market.signals_at(candles[0].timestamp)
                    if candles and hasattr(market, "signals_at") else {}) or {}
 
-        for agent in agents:
+        turn = agents
+        if desk is not None and desk.limits.active and agents:
+            k = (step_offset + step) % len(agents)
+            turn = agents[k:] + agents[:k]
+        for agent in turn:
             agent.observe(candles)
             rm = risk[agent.agent_id]
             view = MarketView(candles=latest, history=agent.history,
@@ -122,6 +133,8 @@ def run_episode(
             for order in orders:
                 vetted = order if order.reason.startswith("risk:") else \
                     rm.vet(order, agent.wallet, prices)
+                if vetted is not None and desk is not None:
+                    vetted = desk.vet(vetted, agent, agents, prices)
                 if vetted is None:
                     continue
                 candle = latest.get(vetted.symbol)
@@ -139,6 +152,9 @@ def run_episode(
                     agent.agent_id, episode, fill.symbol, fill.side,
                     fill.quantity, fill.price, fill.fee, fill.timestamp,
                     fill.reason, regimes.get(fill.symbol, ""), pnl))
+        if desk is not None:
+            desk.after_bar(agents, latest, prices, exchange,
+                           ts=candles[0].timestamp if candles else 0)
 
     for agent in agents:
         result.halted[agent.agent_id] = risk[agent.agent_id].halted

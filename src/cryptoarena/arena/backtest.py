@@ -127,6 +127,10 @@ class WindowResult:
     target_hits: int
     target_days: int
     symbols: int = 0                        # coins that existed for the whole window
+    pm_return: float | None = None          # the PM's shadow book over the same days, when kept
+    pm_fees: float = 0.0
+    vetoes: int = 0                         # orders the desk's risk officer refused
+    clipped: int = 0                        # orders it cut down to the room left
 
 
 @dataclass
@@ -179,7 +183,23 @@ class BacktestReport:
             "target_hit_rate": sum(w.target_hits for w in self.windows)
             / max(1, sum(w.target_days for w in self.windows)),
             "strategies": per,
+            **self._desk_summary(),
         }
+
+    def _desk_summary(self) -> dict:
+        out = {"vetoes": sum(w.vetoes for w in self.windows),
+               "clipped": sum(w.clipped for w in self.windows)}
+        pm = [(w.pm_return, w) for w in self.windows if w.pm_return is not None]
+        if pm:
+            rets = [r for r, _ in pm]
+            out.update({
+                "pm_mean": statistics.fmean(rets), "pm_median": statistics.median(rets),
+                "pm_positive": sum(r > 0 for r in rets) / len(rets),
+                "pm_beats_hold": sum(r > w.hold_return for r, w in pm) / len(pm),
+                "pm_beats_colony": sum(r > w.colony_return for r, w in pm) / len(pm),
+                "pm_fees": sum(w.pm_fees for _, w in pm),
+            })
+        return out
 
 
 def run_backtest(tape: dict[str, pd.DataFrame], make_founders, cfg: SurvivalConfig,
@@ -208,6 +228,13 @@ def run_backtest(tape: dict[str, pd.DataFrame], make_founders, cfg: SurvivalConf
             res = run_survival(founders, journal, wcfg, verbose=False, market=market)
             w = _summarise(sub, start, warmup_bars, window_bars, res, journal)
             w.symbols = len(present)
+            if res.desk is not None:
+                w.vetoes, w.clipped = res.desk.vetoes, res.desk.clipped
+                if res.desk.pm is not None:
+                    last = start + window_bars - 1
+                    prices = {sym: float(df.iloc[last]["close"]) for sym, df in sub.items()}
+                    w.pm_return = res.desk.pm.wallet.equity(prices) / res.desk.pm.capital - 1
+                    w.pm_fees = res.desk.pm.wallet.fees_paid
             report.windows.append(w)
         finally:
             journal.close()
@@ -216,6 +243,7 @@ def run_backtest(tape: dict[str, pd.DataFrame], make_founders, cfg: SurvivalConf
             print(f"{pd.Timestamp(w.start_ts, unit='s'):%Y-%m-%d}  {w.symbols:2d} coins  "
                   f"colony {w.colony_return:+.1%}  hold {w.hold_return:+.1%}  hires {w.hires}  "
                   f"let go {w.dismissed}  "
+                  + (f"pm {w.pm_return:+.1%}  " if w.pm_return is not None else "")
                   + "  ".join(f"{s} {r:+.1%}" for s, r in w.by_strategy.items()), flush=True)
     return report
 
@@ -275,6 +303,12 @@ def format_summary(summary: dict) -> str:
         f"hires {summary['hires']} · let go {summary['dismissed']} · fees {summary['fees']:.2f} · "
         f"daily target hit {summary['target_hit_rate']:.0%} of agent-days",
     ]
+    if summary.get("vetoes") or summary.get("clipped"):
+        lines.append(f"desk risk: {summary['vetoes']} orders refused, {summary['clipped']} cut down")
+    if "pm_mean" in summary:
+        lines.append(f"PM book mean {summary['pm_mean']:+.2%} (median {summary['pm_median']:+.2%}, "
+                     f"positive {summary['pm_positive']:.0%}) · beats hold {summary['pm_beats_hold']:.0%} "
+                     f"· beats the colony {summary['pm_beats_colony']:.0%} · fees {summary['pm_fees']:.2f}")
     for s, d in summary["strategies"].items():
         lines.append(f"  {s:<14} mean {d['mean']:+.2%}  median {d['median']:+.2%}  "
                      f"positive {d['positive']:.0%}  beats hold {d['beats_hold']:.0%}")

@@ -620,6 +620,91 @@ cryptoarena t212 mirror --db live/stocks.db     # lista o que mandaria
 cryptoarena t212 mirror --db live/stocks.db --execute
 ```
 
+### A mesa: risco, PM, chefe de gabinete e o feed
+
+Cada agente tem o seu cinto (no máximo 35% do *seu* patrimônio num
+nome, stop, kill switch), mas ninguém olhava a colônia inteira. No
+quarto pregão do andar de ações, quatro agentes compraram Nvidia na
+mesma barra: nove carteiras, uma aposta só. Acima dos agentes agora há
+uma **mesa** (`arena/desk.py`, `arena/chief.py`):
+
+- **Risco da mesa**: vê cada ordem depois do risco do próprio agente e
+  corta ou recusa a que levaria a colônia além de uma fatia do patrimônio
+  num nome (`desk_symbol_cap`) ou investida no total (`desk_gross_cap`).
+  Fechar posição nunca é recusado. Os agentes revezam o primeiro lugar
+  da fila, então a folga sob o teto não vai sempre para o mesmo. Cada
+  "não" fica no journal (`vetoed` ou `clipped`) e aparece no feed.
+- **PM**: mantém um livro próprio com o mesmo capital dos fundadores,
+  montado com os votos dos agentes. Depois de cada barra, ele segura o
+  peso líquido da colônia em cada nome (o peso de cada agente, ponderado
+  pelo patrimônio dele), pode ignorar o que poucos agentes têm
+  (`pm_consensus`) e só opera quando um peso sai mais de `pm_band` do
+  alvo. Se o agente A vende o que o B compra, isso se anula dentro do
+  livro em vez de pagar taxa duas vezes. O livro é uma **sombra**: não
+  mexe nas carteiras dos agentes, então os dois se comparam nas mesmas
+  barras.
+- **Chefe de gabinete**: a cada fechamento escreve uma nota com a
+  colônia contra segurar o índice desde a fundação (SPY nas ações, BTC
+  no cripto), o que foi comprado e vendido, e o que a mesa barrou. Só
+  **chama o dono** quando há uma decisão:
+  - a colônia está mais de 3 pontos atrás do SPY depois de 10 pregões;
+  - caiu mais de 5% desde a fundação;
+  - o livro do PM está mais de 2 pontos à frente da colônia;
+  - o andar está sem barra nova há 5 dias.
+
+  Nesses casos, o workflow abre uma **issue no GitHub** com o rótulo
+  `mesa`, e o app do GitHub avisa no celular. A issue é atualizada
+  enquanto a situação dura e fechada com uma nota quando ela some. Sem
+  decisão, nada é postado. À mão: `cryptoarena chief --floor stocks`.
+- **Feed da mesa**: nova aba **📟 Desk feed** no dashboard. Mostra uma
+  linha por evento, do mais novo ao mais antigo: compras e vendas por
+  agente, `RISK`, `PM`, contratações e dispensas (`HR`), prêmios e a
+  nota do `CHIEF`. O painel ao vivo ganhou "The desk", com o maior nome
+  contra o teto, as ordens recusadas e o livro do PM.
+
+O que o backtest disse antes de ligar qualquer coisa:
+
+| Ações: 60 janelas de 60 pregões, 2020–2026 | média/janela | desvio | barradas / cortadas |
+|---|---|---|---|
+| sem mesa | +0,52% | 5,35% | |
+| teto de 20% por nome | +0,52% | 5,35% | 0 / 2 |
+| teto de 15% por nome | +0,43% | 5,12% | 241 / 111 |
+| teto de 10% por nome | +0,07% | 4,24% | 1.216 / 326 |
+| no máximo 50% investido | +0,27% | 4,81% | 596 / 152 |
+| livro do PM (banda de 2%) | +0,49% | | taxas 1,48 contra 1,68 |
+| segurar as 6 | +5,08% | | |
+
+| Cripto: 184 janelas de 30 dias, 2021–2026 | média/janela | desvio | barradas / cortadas |
+|---|---|---|---|
+| sem mesa | +0,55% | 9,03% | |
+| teto de 20% por nome | +0,52% | 8,90% | 154 / 59 |
+| teto de 15% por nome | +0,47% | 8,58% | 785 / 448 |
+| no máximo 50% investido | +0,51% | 8,90% | 165 / 171 |
+| livro do PM (banda de 2%) | +0,67% | | taxas 33 contra 41 |
+| segurar as moedas | +0,99% | | |
+
+- **Tetos que mordem custam mais retorno do que tiram de risco.** O
+  retorno por unidade de desvio piora em todos. O andar de ações tem 6
+  nomes; o que pesa é estar fora do mercado na alta, não a concentração.
+  O teto de **20%** fica ligado nas ações como cinto de segurança: em
+  seis anos nunca mordeu (2 cortes) e existe para o dia em que muitos
+  agentes correrem para o mesmo papel. Aqueles quatro Nvidias eram 9%
+  da colônia, abaixo de qualquer teto razoável.
+- **O PM não ganha da colônia nas ações**: −0,02 ponto por janela, t
+  −0,8, um empate. No cripto ficou +0,12 ponto à frente, pagando menos
+  taxa (detalhe abaixo). Ele fica ligado como **livro-sombra** no andar
+  de ações (`pm_band` 0,02): o status mostra os dois lado a lado, e o
+  chefe chama se o PM abrir 2 pontos de vantagem. O espelho da Trading
+  212 já faz essa reconciliação líquida sobre a soma das carteiras;
+  seguir o PM só mudaria a banda.
+- Nada disso fecha a distância para segurar o índice.
+
+```bash
+cryptoarena backtest --floor stocks --desk-cap 0.15 --pm 1 --pm-band 0.02   # a mesa no backtest
+cryptoarena live --floor stocks --status | jq .desk,.chief                  # a mesa ao vivo
+cryptoarena chief --floor stocks                                            # a nota do dia
+```
+
 ### Pronto para dinheiro de verdade?
 
 Cada tick a colônia pergunta à Kraken o **menor pedido aceito** por
@@ -692,6 +777,23 @@ nenhum, não vira chamada — só se julga o que dá para julgar. O
 `status.json` e o dashboard mostram, por fonte, chamadas, julgadas,
 taxa de acerto, resultado médio e confiança, e a inclinação atual por
 moeda.
+
+**No andar de ações, a fonte são os próprios diretores das empresas**
+(`market/sec.py`, `STOCK_SOURCES`). Quando um diretor ou executivo
+negocia ações da própria empresa, ele entrega um **Form 4** à SEC em até
+dois dias úteis, e o EDGAR publica de graça. Vendas dizem pouco
+(salário, impostos, planos 10b5-1 marcados com antecedência). A
+**compra no mercado aberto** (código P) é o executivo pondo o próprio
+dinheiro no preço do dia. A literatura dá algum poder de previsão a essas
+compras (Lakonishok & Lee, 2001; Cohen, Malloy & Pomorski, 2012), menor
+nas maiores empresas. Cada compra de um diretor da Apple, Microsoft,
+Nvidia ou Amazon vira uma chamada comprada no mesmo placar das fontes do
+X: anotada ao preço do dia, julgada **30 dias** depois, com a confiança
+tirada só do acerto. ETFs não entregam Form 4. Nessas gigantes, compras
+de diretores são raras: a fonte pode passar meses calada, e isso também
+é informação. O EDGAR pede um User-Agent que diga quem pergunta: a
+variável `SEC_USER_AGENT` do repositório (por exemplo, "Seu Nome
+seu@email") substitui o padrão.
 
 ## O andar (mundo isométrico)
 

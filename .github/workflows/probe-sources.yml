@@ -50,3 +50,15 @@ jobs:
               except Exception as e:
                   print(s, "ohlcv failed:", e)
           PY
+      - name: SEC EDGAR (Form 4 insider purchases, last year)
+        env:
+          SEC_USER_AGENT: ${{ vars.SEC_USER_AGENT }}
+        run: |
+          python - <<'PY'
+          from cryptoarena.market import sec
+          print("user agent:", sec.user_agent())
+          calls, since = sec.fetch_calls(["AAPL", "MSFT", "NVDA", "AMZN"], lookback_days=365)
+          print(len(calls), "open-market purchases in a year; cursor", since)
+          for c in calls:
+              print(c.symbol, c.ts, c.text, c.url)
+          PY

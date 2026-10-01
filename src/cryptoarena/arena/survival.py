@@ -22,6 +22,7 @@ from ..learning.reflection import compute_stats, reflect_on_episode
 from ..market.endogenous import EndogenousMarket
 from ..market.exchange import SimulatedExchange
 from ..market.synthetic import SyntheticMarket
+from .desk import Desk, DeskLimits, PMBook
 from .episode import run_episode
 
 
@@ -50,6 +51,12 @@ class SurvivalConfig:
     short_funding: float = 0.0012   # a short's daily carry (Kraken margin rollover ~0.02% per 4h)
     learn: bool = True              # nightly reflection nudges parameters (off = fixed rules)
     warmup_bars: int = 0            # candles the founders see before day 1 (indicators warm)
+    # the desk above the agents (arena/desk.py); 0 / False = off
+    desk_symbol_cap: float = 0.0    # the colony's max share of equity in one symbol, all agents together
+    desk_gross_cap: float = 0.0     # the colony's max share of equity invested, all agents together
+    pm: bool = False                # keep the PM's shadow book (one portfolio from the agents' votes)
+    pm_consensus: float = 0.0       # the PM holds a symbol only if this share of the agents do
+    pm_band: float = 0.05           # the PM trades a symbol only when it is this far off its target weight
 
 
 @dataclass
@@ -93,6 +100,7 @@ class SurvivalResult:
     alive_per_day: list[int] = field(default_factory=list)
     equity_per_day: list[float] = field(default_factory=list)
     senior: Individual | None = None
+    desk: Desk | None = None
 
     @property
     def alive(self) -> list[Individual]:
@@ -123,6 +131,7 @@ def run_survival(
 
     result = SurvivalResult()
     next_id = _next_id_factory(founders)
+    result.desk = make_desk(cfg, journal, capital=cfg.budget * len(founders))
 
     for agent in founders:
         agent.starting_cash = cfg.budget
@@ -143,11 +152,27 @@ def run_survival(
         for ind in alive:
             ind.apply_pressure(cfg.pressure)
         # history is NOT cleared: the market is continuous, indicators stay warm
+        if result.desk is not None:
+            result.desk.day = day
         ep = run_episode(day, market, [i.agent for i in alive], journal,
                          steps=cfg.steps_per_day, verbose=False, exchange=exchange,
-                         step_offset=(day - 1) * cfg.steps_per_day)
+                         step_offset=(day - 1) * cfg.steps_per_day, desk=result.desk)
         _end_of_day(day, alive, ep, cfg, rng, journal, next_id, result, verbose)
+        if result.desk is not None and result.desk.pm is not None:
+            result.desk.pm.end_day(ep.last_prices)
     return result
+
+
+def make_desk(cfg: SurvivalConfig, journal: TradeJournal, capital: float) -> Desk | None:
+    """The desk the configuration asks for, or None when every role is off."""
+    limits = DeskLimits(getattr(cfg, "desk_symbol_cap", 0.0) or 0.0,
+                        getattr(cfg, "desk_gross_cap", 0.0) or 0.0)
+    pm = (PMBook(capital, cfg.pm_consensus, cfg.pm_band, cfg.daily_cost,
+                 exchange=SimulatedExchange(fee_rate=cfg.fee_rate, seed=cfg.seed))
+          if getattr(cfg, "pm", False) else None)
+    if not limits.active and pm is None:
+        return None
+    return Desk(limits=limits, pm=pm, journal=journal)
 
 
 def _next_id_factory(founders: list[TradingAgent]):
