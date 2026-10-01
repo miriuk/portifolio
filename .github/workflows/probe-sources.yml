@@ -50,7 +50,21 @@ jobs:
               except Exception as e:
                   print(s, "ohlcv failed:", e)
           PY
+      - name: SEC EDGAR reachability (which User-Agent it accepts)
+        run: |
+          for ua in "CryptoArena research bot live-colony@users.noreply.github.com" \
+                    "Sample Company Name AdminContact@samplecompanydomain.com" \
+                    "CryptoArena miriuk-portifolio@example.org"; do
+            for url in "https://data.sec.gov/submissions/CIK0000320193.json" \
+                       "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0000320193&type=4&count=5&output=atom"; do
+              printf "%-62s %-70s " "$ua" "${url:0:70}"
+              curl -sS -m 15 -o /tmp/body -w "%{http_code}\n" -H "User-Agent: $ua" \
+                -H "Accept-Encoding: gzip, deflate" --compressed "$url" || echo "(curl failed)"
+            done
+          done
+          head -c 300 /tmp/body; echo
       - name: SEC EDGAR (Form 4 insider purchases, last year)
+        continue-on-error: true
         env:
           SEC_USER_AGENT: ${{ vars.SEC_USER_AGENT }}
         run: |
