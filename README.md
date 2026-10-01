@@ -691,12 +691,17 @@ O que o backtest disse antes de ligar qualquer coisa:
   agentes correrem para o mesmo papel. Aqueles quatro Nvidias eram 9%
   da colônia, abaixo de qualquer teto razoável.
 - **O PM não ganha da colônia nas ações**: −0,02 ponto por janela, t
-  −0,8, um empate. No cripto ficou +0,12 ponto à frente, pagando menos
-  taxa (detalhe abaixo). Ele fica ligado como **livro-sombra** no andar
-  de ações (`pm_band` 0,02): o status mostra os dois lado a lado, e o
-  chefe chama se o PM abrir 2 pontos de vantagem. O espelho da Trading
-  212 já faz essa reconciliação líquida sobre a soma das carteiras;
-  seguir o PM só mudaria a banda.
+  −0,8, um empate. **No cripto ganha +0,11 ponto por janela** (t 1,9,
+  0,3 e 2,5 nos três conjuntos de janelas que não se sobrepõem), e isso
+  é quase exatamente a taxa que ele deixa de pagar (33 contra 41): com
+  24 moedas e 8 agentes, um vende o que o outro compra o tempo todo, e o
+  livro compensa isso por dentro. É uma vantagem mecânica, não de
+  previsão, e ainda perde de segurar (+0,67% contra +0,99%). O PM fica
+  ligado como **livro-sombra** nos dois andares (`pm_band` 0,02): o
+  status mostra os dois lado a lado, e o chefe chama se o PM abrir 2
+  pontos de vantagem. O espelho da Trading 212 já faz essa
+  reconciliação líquida sobre a soma das carteiras; seguir o PM só
+  mudaria a banda.
 - Nada disso fecha a distância para segurar o índice.
 
 ```bash

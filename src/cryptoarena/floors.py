@@ -129,7 +129,9 @@ FLOORS: dict[str, Floor] = {
         name="crypto", label="Crypto",
         caption="24 majors at real Kraken prices, paper wallets, a real day per day",
         build_founders=crypto_founders,
-        config_defaults=dict(endogenous=False),
+        # the PM's shadow book: +0.11 pt per 30-day window over five years,
+        # the fees saved when one agent sells what another buys
+        config_defaults=dict(endogenous=False, pm=True, pm_band=0.02),
         make_feed=_crypto_feed,
         default_db="live/colony.db", state_branch="colony-live", data_dir="data",
         warmup=700, backtest_days=30, backtest_stride=10,
