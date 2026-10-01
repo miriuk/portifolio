@@ -19,6 +19,7 @@ class EpisodeStats:
     fees: float = 0.0
     max_drawdown: float = 0.0
     pnl_by_regime: dict[str, float] = field(default_factory=dict)
+    market_return: float | None = None      # equal-weight move of the tape over the episode
 
     @property
     def return_pct(self) -> float:
@@ -34,9 +35,9 @@ class EpisodeStats:
 
 def compute_stats(agent_id: str, episode: int, trades: list[TradeRecord],
                   start_equity: float, end_equity: float,
-                  max_drawdown: float) -> EpisodeStats:
+                  max_drawdown: float, market_return: float | None = None) -> EpisodeStats:
     stats = EpisodeStats(agent_id, episode, start_equity, end_equity,
-                         max_drawdown=max_drawdown)
+                         max_drawdown=max_drawdown, market_return=market_return)
     by_regime: dict[str, float] = defaultdict(float)
     for t in trades:
         stats.n_trades += 1
@@ -72,29 +73,39 @@ def reflect_on_episode(journal: TradeJournal, stats: EpisodeStats) -> list[str]:
             f"episode {s.episode}: fees ({s.fees:.2f}) ate into a losing episode — "
             "overtrading; trade less often or with more conviction."
         )
-    if s.n_trades <= 2:
+    # Sitting out is a decision, not a fault: capital kept in a falling market
+    # is a win. Only a market that ran without us earns the "loosen up" note.
+    if s.n_trades <= 2 and s.market_return is not None and s.market_return > 0.03 \
+            and s.return_pct < s.market_return / 3:
         lessons.append(
-            f"episode {s.episode}: barely traded ({s.n_trades} trades) — "
-            "too passive; entry conditions are too strict, loosen them slightly."
+            f"episode {s.episode}: the market moved {s.market_return:+.1%} and we made "
+            f"{s.return_pct:+.1%} with {s.n_trades} trades — missed the move; "
+            "loosen entry conditions slightly."
         )
     if s.max_drawdown > 0.30:
         lessons.append(
             f"episode {s.episode}: drawdown reached {s.max_drawdown:.0%} — "
             "position sizing too large for current volatility."
         )
+    regime_of: dict[str, str] = {}
     for regime, pnl in sorted(s.pnl_by_regime.items(), key=lambda kv: kv[1]):
         if pnl < -s.start_equity * 0.02:
-            lessons.append(
+            text = (
                 f"episode {s.episode}: lost {pnl:.2f} trading in '{regime}' regime — "
                 f"this strategy is mismatched to '{regime}'; reduce activity there."
             )
+            lessons.append(text)
+            regime_of[text] = regime
     if s.return_pct > 0.05 and s.win_rate > 0.55:
         best = max(s.pnl_by_regime, key=s.pnl_by_regime.get) if s.pnl_by_regime else None
         if best:
-            lessons.append(
+            text = (
                 f"episode {s.episode}: +{s.return_pct:.1%} with {s.win_rate:.0%} win rate, "
                 f"strongest in '{best}' regime — lean into this setup."
             )
+            lessons.append(text)
+            regime_of[text] = best
     for lesson in lessons:
-        journal.add_lesson(s.agent_id, s.episode, lesson)
+        journal.add_lesson(s.agent_id, s.episode, lesson,
+                           regime=regime_of.get(lesson, ""))
     return lessons

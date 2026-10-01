@@ -1,0 +1,99 @@
+# Price-prediction models against holding BTC, on the tape the market-data
+# workflow publishes. Runs here because Chronos needs PyTorch and its
+# weights from the Hugging Face hub; the report is published to the
+# `forecast-bench-<tape>` branch (report.txt + predictions JSON).
+name: Forecast bench
+
+on:
+  workflow_dispatch:
+    inputs:
+      models:
+        description: "Comma-separated: drift, arima, ets, theta, lgbm, chronos, kronos"
+        type: string
+        default: "drift,lgbm,chronos,kronos"
+      tape:
+        description: "crypto (market-data, hourly) or world (global-data etf/, daily)"
+        type: choice
+        options: [crypto, world]
+        default: crypto
+      symbol:
+        description: "Asset to predict, a comma list, or all"
+        type: string
+        default: "BTCUSD"
+      horizon:
+        description: "Days ahead (empty: 7 for crypto, 5 trading days for stocks)"
+        type: string
+        default: ""
+      every:
+        description: "Predict every N days, holding in between (1 = daily)"
+        type: string
+        default: "1"
+      label:
+        description: "Suffix for the result branch, so parallel runs do not overwrite each other"
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        # the CPU build of PyTorch keeps the download small
+        run: |
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -e ".[forecast,chronos]" einops huggingface_hub safetensors
+          # Kronos is not on PyPI: its model code comes from the repository
+          git clone --depth 1 https://github.com/shiyu-coder/Kronos.git Kronos
+
+      - name: Fetch the tape
+        run: |
+          mkdir -p data
+          if [ "${{ inputs.tape }}" = "world" ]; then
+            git fetch --depth 1 origin global-data
+            for f in $(git ls-tree --name-only origin/global-data:etf | grep '\.csv$'); do
+              git show "origin/global-data:etf/$f" > "data/$f"
+            done
+          else
+            git fetch --depth 1 origin market-data
+            for f in $(git ls-tree --name-only origin/market-data | grep '\.csv$'); do
+              git show "origin/market-data:$f" > "data/$f"
+            done
+          fi
+          ls data | wc -l
+
+      - name: Bench
+        timeout-minutes: 220            # leaves time to publish what finished
+        run: |
+          mkdir -p out
+          horizon=""
+          [ -n "${{ inputs.horizon }}" ] && horizon="--horizon ${{ inputs.horizon }}"
+          KRONOS_PATH="$PWD/Kronos" cryptoarena forecast --data data --symbol "${{ inputs.symbol }}" \
+            --models "${{ inputs.models }}" $horizon --every "${{ inputs.every }}" \
+            --out out/forecast.json | tee out/report.txt
+
+      - name: Publish
+        if: ${{ always() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          cd out
+          [ -f forecast.json ] || echo '{}' > forecast.json
+          git init -q -b forecast-bench
+          git config user.name "forecast-bench[bot]"
+          git config user.email "forecast-bench@users.noreply.github.com"
+          git add -A
+          git commit -q -m "forecast bench $(date -u +'%Y-%m-%dT%H:%MZ') ${{ inputs.tape }} ${{ inputs.symbol }} ${{ inputs.models }}"
+          # one branch per tape, so a world run does not replace the crypto report
+          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}" "forecast-bench:forecast-bench-${{ inputs.tape }}${{ inputs.label && format('-{0}', inputs.label) || '' }}"
