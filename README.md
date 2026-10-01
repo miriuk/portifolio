@@ -796,9 +796,16 @@ Nvidia ou Amazon vira uma chamada comprada no mesmo placar das fontes do
 X: anotada ao preço do dia, julgada **30 dias** depois, com a confiança
 tirada só do acerto. ETFs não entregam Form 4. Nessas gigantes, compras
 de diretores são raras: a fonte pode passar meses calada, e isso também
-é informação. O EDGAR pede um User-Agent que diga quem pergunta: a
-variável `SEC_USER_AGENT` do repositório (por exemplo, "Seu Nome
-seu@email") substitui o padrão.
+é informação.
+
+O EDGAR exige que cada cliente se identifique com nome e um e-mail de
+contato real. De um servidor do GitHub ele respondeu 403 ("Undeclared
+Automated Tool") a qualquer outra coisa, inclusive aos endereços noreply
+do GitHub. Por isso a fonte **fica calada até o repositório ter a
+o secret `SEC_USER_AGENT`** (Settings → Secrets and variables →
+Actions), por exemplo `Seu Nome seu@email.com`. É um secret e não uma
+variável porque o repositório e os logs do Actions são públicos: assim o
+e-mail aparece mascarado.
 
 ## O andar (mundo isométrico)
 

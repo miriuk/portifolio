@@ -14,8 +14,8 @@ at the price on the tape when it was accepted, judged after the source's
 horizon like any X account's call, and weighted by the trust its record
 earns (market/sources.py). Nothing here trades by itself.
 
-EDGAR asks every client for a User-Agent naming who is asking
-(`SEC_USER_AGENT`), and at most ten requests a second.
+EDGAR asks every client for a User-Agent naming who is asking — a name and
+a real e-mail, `SEC_USER_AGENT` — and at most ten requests a second.
 """
 from __future__ import annotations
 
@@ -33,18 +33,21 @@ SOURCE = "sec-form4"
 CIKS = {"AAPL": 320193, "MSFT": 789019, "NVDA": 1045810, "AMZN": 1018724}
 SUBMISSIONS = "https://data.sec.gov/submissions/CIK{cik:010d}.json"
 ARCHIVE = "https://www.sec.gov/Archives/edgar/data/{cik}/{acc}/"
-# EDGAR wants "Name e-mail" and refuses anything that reads like a bot
-# (a runner got 403 for "CryptoArena research bot …", 200 for "Name e-mail");
-# the address is the one the workflows already commit with, not a person's
-DEFAULT_UA = "CryptoArena live-colony@users.noreply.github.com"
 
 
-def user_agent() -> str:
-    return os.environ.get("SEC_USER_AGENT") or DEFAULT_UA
+def user_agent() -> str | None:
+    """EDGAR wants "Name e-mail" from a real contact and answers 403
+    ("Undeclared Automated Tool") to anything else, GitHub's noreply
+    addresses included. The repository secret `SEC_USER_AGENT` declares
+    it; without one the source stays quiet instead of pretending."""
+    return os.environ.get("SEC_USER_AGENT", "").strip() or None
 
 
 def _get(url: str, timeout: int = 20) -> bytes:
-    req = urllib.request.Request(url, headers={"User-Agent": user_agent(),
+    ua = user_agent()
+    if ua is None:
+        raise RuntimeError("SEC_USER_AGENT is not set (EDGAR wants 'Name e-mail')")
+    req = urllib.request.Request(url, headers={"User-Agent": ua,
                                                "Accept-Encoding": "identity"})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return resp.read()

@@ -79,7 +79,7 @@ jobs:
         # the deposit only matters at the founding: a resumed colony keeps its budget;
         # EDGAR (insider purchases, market/sec.py) wants a User-Agent naming who asks
         env:
-          SEC_USER_AGENT: ${{ vars.SEC_USER_AGENT }}
+          SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}   # a secret: the logs are public
         run: cryptoarena live --floor stocks --once --db "$COLONY_DB" --deposit-gbp "${{ inputs.deposit_gbp || '1000' }}"
 
       - name: Status

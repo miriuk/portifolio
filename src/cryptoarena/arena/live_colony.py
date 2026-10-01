@@ -316,6 +316,10 @@ class LiveColony:
             cur = self.source_cursor.setdefault(src.handle, {})
             try:
                 if src.handle == sec.SOURCE:
+                    if sec.user_agent() is None:
+                        print(f"[sources] {src.handle}: quiet until the repository secret "
+                              "SEC_USER_AGENT ('Name e-mail') is set")
+                        continue
                     symbols = list(self.last_prices) or list(getattr(self.feed, "symbols", {}) or {})
                     calls, cur["since"] = sec.fetch_calls(symbols, since=cur.get("since"))
                     filed += self.file_calls(calls)

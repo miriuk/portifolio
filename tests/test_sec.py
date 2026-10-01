@@ -81,6 +81,14 @@ def test_fetch_calls_reads_the_raw_xml_and_moves_the_cursor():
     assert again == []
 
 
+def test_without_a_declared_contact_the_source_stays_quiet(monkeypatch):
+    monkeypatch.delenv("SEC_USER_AGENT", raising=False)
+    assert sec.user_agent() is None
+    import pytest
+    with pytest.raises(RuntimeError, match="SEC_USER_AGENT"):
+        sec._get("https://data.sec.gov/submissions/CIK0000320193.json")
+
+
 def test_the_live_colony_files_insider_calls_in_its_ledger(tmp_path, monkeypatch):
     from cryptoarena.arena.live_colony import LiveColony
     from cryptoarena.arena.survival import SurvivalConfig
@@ -102,6 +110,11 @@ def test_the_live_colony_files_insider_calls_in_its_ledger(tmp_path, monkeypatch
         assert "BTCUSD" in symbols
         return [Call("sec-form4", "acc-1", ts, "BTCUSD", 1, "Form 4: …", "u")], {"BTCUSD": ts}
     monkeypatch.setattr(sec, "fetch_calls", fake)
+    monkeypatch.delenv("SEC_USER_AGENT", raising=False)
+    client.now += HOUR
+    colony.run_once()
+    assert journal.calls(source="sec-form4") == []              # no contact declared: quiet
+    monkeypatch.setenv("SEC_USER_AGENT", "Test Person test@example.org")
     client.now += HOUR
     colony.run_once()
     calls = journal.calls(source="sec-form4")
