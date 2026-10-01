@@ -33,7 +33,9 @@ SOURCE = "sec-form4"
 CIKS = {"AAPL": 320193, "MSFT": 789019, "NVDA": 1045810, "AMZN": 1018724}
 SUBMISSIONS = "https://data.sec.gov/submissions/CIK{cik:010d}.json"
 ARCHIVE = "https://www.sec.gov/Archives/edgar/data/{cik}/{acc}/"
-DEFAULT_UA = "CryptoArena research bot (+https://github.com/miriuk/portifolio)"
+# EDGAR refuses a User-Agent without an e-mail; this is the bot address the
+# workflows already commit with, not a person's
+DEFAULT_UA = "CryptoArena research bot live-colony@users.noreply.github.com"
 
 
 def user_agent() -> str:
