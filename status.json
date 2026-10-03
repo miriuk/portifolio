@@ -1,0 +1,242 @@
+{
+  "day": 8,
+  "hour": 0,
+  "started_at": "2026-09-24T00:00:00+00:00",
+  "last_candle": "2026-10-02T00:00:00+00:00",
+  "alive": 9,
+  "population": 9,
+  "interns": 0,
+  "colony_equity": 1325.1246,
+  "invested": 515.6361,
+  "senior": "momentum-2",
+  "prices": {
+    "SPY": 769.64,
+    "QQQ": 749.58,
+    "AAPL": 333.69,
+    "MSFT": 517.53,
+    "NVDA": 233.95,
+    "AMZN": 251.52
+  },
+  "sentiment": null,
+  "signals": {},
+  "sources": [
+    {
+      "handle": "sec-form4",
+      "label": "SEC Form 4 \u00b7 insider purchases",
+      "url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=4",
+      "trust": 0.25,
+      "prior": 0.25,
+      "horizon_days": 30,
+      "calls": 0,
+      "resolved": 0,
+      "hits": 0,
+      "hit_rate": null,
+      "avg_outcome": null,
+      "active": []
+    }
+  ],
+  "readiness": {},
+  "desk": {
+    "symbol_cap": 0.2,
+    "gross_cap": 0.0,
+    "vetoes": 0,
+    "clipped": 0,
+    "exposure": {
+      "MSFT": 0.136,
+      "NVDA": 0.1193,
+      "AAPL": 0.0781,
+      "QQQ": 0.028,
+      "SPY": 0.0278
+    },
+    "holders": {
+      "AAPL": 3,
+      "NVDA": 5,
+      "MSFT": 5,
+      "SPY": 1,
+      "QQQ": 1
+    },
+    "pm": {
+      "since_day": 6,
+      "capital": 1322.01,
+      "equity": 1325.1072,
+      "return": 0.002343,
+      "colony_return": 0.00311,
+      "consensus": 0.0,
+      "band": 0.02,
+      "fees": 0.2588,
+      "weights": {
+        "AAPL": 0.0824,
+        "MSFT": 0.136,
+        "NVDA": 0.1192,
+        "QQQ": 0.028,
+        "SPY": 0.0277
+      },
+      "targets": {
+        "AAPL": 0.0781,
+        "NVDA": 0.1192,
+        "MSFT": 0.136,
+        "SPY": 0.0278,
+        "QQQ": 0.028
+      },
+      "fills": [
+        {
+          "ts": 1790812800,
+          "symbol": "AAPL",
+          "side": "buy",
+          "quantity": 0.32732204275882676,
+          "price": 330.4932733215796,
+          "fee": 0.05411592463315192
+        },
+        {
+          "ts": 1790812800,
+          "symbol": "MSFT",
+          "side": "buy",
+          "quantity": 0.20578244391832407,
+          "price": 513.4192882915208,
+          "fee": 0.05285276433188382
+        },
+        {
+          "ts": 1790812800,
+          "symbol": "NVDA",
+          "side": "buy",
+          "quantity": 0.5182706824175252,
+          "price": 231.05294750234913,
+          "fee": 0.0599039363564898
+        },
+        {
+          "ts": 1790812800,
+          "symbol": "QQQ",
+          "side": "buy",
+          "quantity": 0.049417908127356115,
+          "price": 742.5523943044989,
+          "fee": 0.01835687143646225
+        },
+        {
+          "ts": 1790812800,
+          "symbol": "SPY",
+          "side": "buy",
+          "quantity": 0.047756673092996034,
+          "price": 764.3849806226956,
+          "fee": 0.018261372504649417
+        },
+        {
+          "ts": 1790899200,
+          "symbol": "MSFT",
+          "side": "buy",
+          "quantity": 0.1423793729779516,
+          "price": 517.963554159643,
+          "fee": 0.036892109087884574
+        },
+        {
+          "ts": 1790899200,
+          "symbol": "NVDA",
+          "side": "buy",
+          "quantity": 0.15698888403480796,
+          "price": 234.23982275357093,
+          "fee": 0.01839572204632032
+        }
+      ]
+    }
+  },
+  "agents": [
+    {
+      "id": "momentum-1",
+      "gen": 0,
+      "budget": 146.89,
+      "equity": 147.3825,
+      "streak": 1,
+      "misses": 0,
+      "immune_until": 0
+    },
+    {
+      "id": "momentum-2",
+      "gen": 0,
+      "budget": 146.89,
+      "equity": 148.3038,
+      "streak": 1,
+      "misses": 0,
+      "immune_until": 0
+    },
+    {
+      "id": "meanrev-1",
+      "gen": 0,
+      "budget": 146.89,
+      "equity": 146.6844,
+      "streak": 0,
+      "misses": 7,
+      "immune_until": 0
+    },
+    {
+      "id": "meanrev-2",
+      "gen": 0,
+      "budget": 146.89,
+      "equity": 146.6844,
+      "streak": 0,
+      "misses": 7,
+      "immune_until": 0
+    },
+    {
+      "id": "breakout-1",
+      "gen": 0,
+      "budget": 146.89,
+      "equity": 146.7002,
+      "streak": 0,
+      "misses": 7,
+      "immune_until": 0
+    },
+    {
+      "id": "regime-1",
+      "gen": 0,
+      "budget": 146.89,
+      "equity": 147.3257,
+      "streak": 1,
+      "misses": 0,
+      "immune_until": 0
+    },
+    {
+      "id": "voltarget-1",
+      "gen": 0,
+      "budget": 146.89,
+      "equity": 147.5451,
+      "streak": 0,
+      "misses": 5,
+      "immune_until": 0
+    },
+    {
+      "id": "trend-1",
+      "gen": 0,
+      "budget": 146.89,
+      "equity": 147.3886,
+      "streak": 1,
+      "misses": 0,
+      "immune_until": 0
+    },
+    {
+      "id": "index-1",
+      "gen": 0,
+      "budget": 146.89,
+      "equity": 147.11,
+      "streak": 1,
+      "misses": 0,
+      "immune_until": 0
+    }
+  ],
+  "chief": {
+    "day": 7,
+    "headline": "Col\u00f4nia $1,325.12 (+0.24% desde a funda\u00e7\u00e3o, 7 dias); segurar SPY no mesmo per\u00edodo: +0.32%.",
+    "lines": [
+      "Col\u00f4nia $1,325.12 (+0.24% desde a funda\u00e7\u00e3o, 7 dias); segurar SPY no mesmo per\u00edodo: +0.32%.",
+      "Hoje a mesa comprou MSFT (2\u00d7 $73.68), comprou NVDA (1\u00d7 $36.67), comprou AAPL (2\u00d7 $30.67), vendeu AAPL (1\u00d7 $36.40).",
+      "O livro do PM (desde o dia 6): +0.23%, a col\u00f4nia no mesmo per\u00edodo +0.31%."
+    ],
+    "decisions": [],
+    "colony_return": 0.002355957973086742,
+    "hold_return": 0.003206548658724273,
+    "benchmark": "SPY",
+    "bench_start": {
+      "symbol": "SPY",
+      "ts": 1790208000,
+      "price": 767.18
+    }
+  }
+}
