@@ -1,0 +1,282 @@
+# Live colony
+
+Updated 2026-10-10 05:42 UTC by the nightly job.
+Paper trading on Nasdaq's daily bars, mirrored to a Trading 212 practice account.
+Read `colony.db` with the dashboard:
+
+```
+CRYPTOARENA_DB_URL=https://raw.githubusercontent.com/miriuk/portifolio/colony-live-stocks/colony.db
+```
+
+```json
+{
+  "day": 13,
+  "hour": 0,
+  "started_at": "2026-09-24T00:00:00+00:00",
+  "last_candle": "2026-10-09T00:00:00+00:00",
+  "alive": 9,
+  "population": 9,
+  "interns": 0,
+  "colony_equity": 1327.352,
+  "invested": 668.5325,
+  "senior": "momentum-2",
+  "prices": {
+    "SPY": 778.57,
+    "QQQ": 751.27,
+    "AAPL": 336.64,
+    "MSFT": 535.07,
+    "NVDA": 229.28,
+    "AMZN": 262.43
+  },
+  "sentiment": null,
+  "signals": {},
+  "sources": [
+    {
+      "handle": "sec-form4",
+      "label": "SEC Form 4 \u00b7 insider purchases",
+      "url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=4",
+      "trust": 0.25,
+      "prior": 0.25,
+      "horizon_days": 30,
+      "calls": 0,
+      "resolved": 0,
+      "hits": 0,
+      "hit_rate": null,
+      "avg_outcome": null,
+      "active": []
+    }
+  ],
+  "readiness": {},
+  "desk": {
+    "symbol_cap": 0.2,
+    "gross_cap": 0.0,
+    "vetoes": 0,
+    "clipped": 0,
+    "exposure": {
+      "MSFT": 0.1404,
+      "NVDA": 0.1267,
+      "AAPL": 0.0787,
+      "QQQ": 0.0739,
+      "AMZN": 0.0559,
+      "SPY": 0.028
+    },
+    "holders": {
+      "AAPL": 3,
+      "NVDA": 5,
+      "MSFT": 5,
+      "AMZN": 2,
+      "QQQ": 3,
+      "SPY": 1
+    },
+    "pm": {
+      "since_day": 6,
+      "capital": 1322.01,
+      "equity": 1327.8732,
+      "return": 0.004435,
+      "colony_return": 0.004796,
+      "consensus": 0.0,
+      "band": 0.02,
+      "fees": 0.3265,
+      "weights": {
+        "AAPL": 0.083,
+        "MSFT": 0.1403,
+        "NVDA": 0.1166,
+        "QQQ": 0.0739,
+        "SPY": 0.028,
+        "AMZN": 0.0559
+      },
+      "targets": {
+        "AAPL": 0.0786,
+        "NVDA": 0.1267,
+        "MSFT": 0.1404,
+        "AMZN": 0.0559,
+        "QQQ": 0.0739,
+        "SPY": 0.028
+      },
+      "fills": [
+        {
+          "ts": 1790812800,
+          "symbol": "AAPL",
+          "side": "buy",
+          "quantity": 0.32732204275882676,
+          "price": 330.4932733215796,
+          "fee": 0.05411592463315192
+        },
+        {
+          "ts": 1790812800,
+          "symbol": "MSFT",
+          "side": "buy",
+          "quantity": 0.20578244391832407,
+          "price": 513.4192882915208,
+          "fee": 0.05285276433188382
+        },
+        {
+          "ts": 1790812800,
+          "symbol": "NVDA",
+          "side": "buy",
+          "quantity": 0.5182706824175252,
+          "price": 231.05294750234913,
+          "fee": 0.0599039363564898
+        },
+        {
+          "ts": 1790812800,
+          "symbol": "QQQ",
+          "side": "buy",
+          "quantity": 0.049417908127356115,
+          "price": 742.5523943044989,
+          "fee": 0.01835687143646225
+        },
+        {
+          "ts": 1790812800,
+          "symbol": "SPY",
+          "side": "buy",
+          "quantity": 0.047756673092996034,
+          "price": 764.3849806226956,
+          "fee": 0.018261372504649417
+        },
+        {
+          "ts": 1790899200,
+          "symbol": "MSFT",
+          "side": "buy",
+          "quantity": 0.1423793729779516,
+          "price": 517.963554159643,
+          "fee": 0.036892109087884574
+        },
+        {
+          "ts": 1790899200,
+          "symbol": "NVDA",
+          "side": "buy",
+          "quantity": 0.15698888403480796,
+          "price": 234.23982275357093,
+          "fee": 0.01839572204632032
+        },
+        {
+          "ts": 1791331200,
+          "symbol": "AMZN",
+          "side": "buy",
+          "quantity": 0.14210486563645294,
+          "price": 260.1051955108979,
+          "fee": 0.018490352105762616
+        },
+        {
+          "ts": 1791331200,
+          "symbol": "QQQ",
+          "side": "buy",
+          "quantity": 0.08112175784809633,
+          "price": 758.2593309768592,
+          "fee": 0.030771050442003154
+        },
+        {
+          "ts": 1791504000,
+          "symbol": "AMZN",
+          "side": "buy",
+          "quantity": 0.1406317546162906,
+          "price": 262.6896784096455,
+          "fee": 0.018480495444891228
+        }
+      ]
+    }
+  },
+  "agents": [
+    {
+      "id": "momentum-1",
+      "gen": 0,
+      "budget": 146.89,
+      "equity": 146.4399,
+      "streak": 0,
+      "misses": 4,
+      "immune_until": 15
+    },
+    {
+      "id": "momentum-2",
+      "gen": 0,
+      "budget": 146.89,
+      "equity": 149.9363,
+      "streak": 1,
+      "misses": 0,
+      "immune_until": 15
+    },
+    {
+      "id": "meanrev-1",
+      "gen": 0,
+      "budget": 146.89,
+      "equity": 146.5375,
+      "streak": 0,
+      "misses": 12,
+      "immune_until": 0
+    },
+    {
+      "id": "meanrev-2",
+      "gen": 0,
+      "budget": 146.89,
+      "equity": 146.5375,
+      "streak": 0,
+      "misses": 12,
+      "immune_until": 0
+    },
+    {
+      "id": "breakout-1",
+      "gen": 0,
+      "budget": 146.89,
+      "equity": 147.3852,
+      "streak": 1,
+      "misses": 0,
+      "immune_until": 15
+    },
+    {
+      "id": "regime-1",
+      "gen": 0,
+      "budget": 146.89,
+      "equity": 147.6386,
+      "streak": 1,
+      "misses": 0,
+      "immune_until": 15
+    },
+    {
+      "id": "voltarget-1",
+      "gen": 0,
+      "budget": 146.89,
+      "equity": 147.6969,
+      "streak": 0,
+      "misses": 4,
+      "immune_until": 0
+    },
+    {
+      "id": "trend-1",
+      "gen": 0,
+      "budget": 146.89,
+      "equity": 147.7067,
+      "streak": 1,
+      "misses": 0,
+      "immune_until": 15
+    },
+    {
+      "id": "index-1",
+      "gen": 0,
+      "budget": 146.89,
+      "equity": 147.4735,
+      "streak": 1,
+      "misses": 0,
+      "immune_until": 0
+    }
+  ],
+  "chief": {
+    "day": 12,
+    "headline": "Col\u00f4nia $1,327.35 (+0.40% desde a funda\u00e7\u00e3o, 12 dias); segurar SPY no mesmo per\u00edodo: +1.48%.",
+    "lines": [
+      "Col\u00f4nia $1,327.35 (+0.40% desde a funda\u00e7\u00e3o, 12 dias); segurar SPY no mesmo per\u00edodo: +1.48%.",
+      "Hoje a mesa comprou AMZN (1\u00d7 $36.91).",
+      "O livro do PM (desde o dia 6): +0.44%, a col\u00f4nia no mesmo per\u00edodo +0.48%."
+    ],
+    "decisions": [],
+    "colony_return": 0.004040816635275224,
+    "hold_return": 0.014846580984905877,
+    "benchmark": "SPY",
+    "bench_start": {
+      "symbol": "SPY",
+      "ts": 1790208000,
+      "price": 767.18
+    }
+  }
+}
+```
