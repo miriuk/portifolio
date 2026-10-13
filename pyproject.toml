@@ -30,7 +30,7 @@ cryptoarena = "cryptoarena.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-cryptoarena = ["world/*.html"]
+cryptoarena = ["world/*.html", "agents/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

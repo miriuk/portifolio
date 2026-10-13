@@ -287,6 +287,17 @@ def _academy(args) -> None:
             if args.course == 4:
                 print("  " + bs.white_noise_test(px, sig, pref, bench, runs=args.runs).summary())
                 print("  " + bs.bootstrap_test(px, sig, pref, bench, runs=args.runs // 2).summary())
+    elif args.course == 6:
+        from .agents.technical import to_daily
+        from .learning.ta_exam import correct, examine, format_results, grades, panel
+        frames = load_tape(data, align=False)
+        if floor.name == "crypto":
+            frames = {s: to_daily(df) for s, df in frames.items()}
+        frames = {s: df.dropna(subset=["close"]).reset_index(drop=True) for s, df in frames.items()}
+        res = correct(examine(panel(frames), Path(data).name))
+        print(format_results(res, 20))
+        for name, g in grades(res).items():
+            print(f"  {name:<14} nota {g['grade']} · confiança {g['confidence']:.2f}")
     elif args.course == 5:
         from .forecast.events import ml_exam
         for r in ml_exam(load_tape(data, align=False)):
@@ -619,7 +630,7 @@ def main() -> None:
 
     ac = sub.add_parser("academy", help="the agents' courses (Algorithmic Trading with Python) "
                                          "and their exams")
-    ac.add_argument("--course", type=int, default=0, choices=[0, 1, 2, 3, 4, 5])
+    ac.add_argument("--course", type=int, default=0, choices=[0, 1, 2, 3, 4, 5, 6])
     ac.add_argument("--floor", default="stocks", choices=["crypto", "stocks"])
     ac.add_argument("--data", default=None, help="directory of CSVs (default: the floor's)")
     ac.add_argument("--top", type=int, default=None, help="course 2: a point-in-time top N")

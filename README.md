@@ -1111,6 +1111,90 @@ nestes dados. O que a academia ganhou foi método: o boletim do curso 1
 achou o custo de vida e o cinto de 35%, que já explicam boa parte da
 distância.
 
+### Curso 6: 21 técnicas de análise técnica, e a confiança que cada uma ganhou
+
+Os agentes aprenderam as técnicas que mais se ouve no mercado
+(`agents/technical.py`). Cada uma virou uma regra mecânica que, no
+fechamento de cada barra, diz compra (+1), venda (−1) ou nada, usando só
+o passado. Os topos e fundos (pivôs) só contam a partir da barra que os
+confirma, e são montados um dia de cada vez. A primeira versão juntava
+fundos seguidos olhando o futuro, o que apagava justamente os padrões
+que falhavam; foi corrigida antes da prova. O auditor de futuro
+embaralhado (`arena/lookahead.py`) passa limpo nas 21, em ações e em
+cripto.
+
+A prova (`learning/ta_exam.py`, `cryptoarena academy --course 6`):
+
+- **Entrada e medida.** Em cada sinal, a operação entra na abertura
+  seguinte e é medida 5 e 20 barras depois, contra o retorno *normal*
+  daquele papel no mesmo prazo. Uma alta geral não faz todo sinal de
+  compra parecer bom, e um sinal de venda pontua quando o papel rende
+  menos que o normal.
+- **Universos.** 4 universos: as 6 ações, 27 ETFs de índices, as 100
+  maiores (2016–2026) e 24 moedas em barras diárias (2021–2026). São
+  cerca de 367 mil barras e 355 mil sinais.
+- **Contagem honesta.** Os sinais vêm em grupos (uma queda geral dispara
+  a mesma compra em muitos nomes), então o *t* conta blocos de *h*
+  barras, não operações. Com 332 testes de uma vez, alguns "significativos"
+  aparecem por acaso, e a correção de Benjamini–Hochberg (*q*) mede quantos
+  sobrevivem.
+- **Notas.**
+  - **A**: a vantagem resiste à correção e aparece na maioria dos
+    universos. Só a nota A dá confiança acima de zero.
+  - **B**: positiva na maioria dos universos, mas não resiste à
+    correção.
+  - **C**: sem direção.
+  - **D**: aponta para o lado errado.
+
+| Técnica | Nota | vantagem média em 20 barras | universos a favor | menor *q* | confiança |
+|---|---|---|---|---|---|
+| Fibonacci (retração 50–61,8%) | C | +0,29% | 2 de 4 | 0,76 | 0 |
+| Padrões de rompimento | D | -1,52% | 0 de 4 | 0,46 | 0 |
+| Padrões de reversão (fundo/topo duplo, OCO) | D | -0,13% | 1 de 4 | 0,33 | 0 |
+| Ondas de Elliott (entrada na onda 3) | D | -0,58% | 1 de 4 | 0,23 | 0 |
+| Fair value gap | D | -0,58% | 0 de 4 | 0,65 | 0 |
+| Padrões de candle | C | +0,04% | 2 de 4 | 0,47 | 0 |
+| Heikin-Ashi | D | -0,33% | 0 de 4 | 0,65 | 0 |
+| Fases da lua | C | -0,30% | 2 de 4 | 0,53 | 0 |
+| Renko | D | -0,72% | 0 de 4 | 0,06 | 0 |
+| Padrões harmônicos | B | +0,03% | 2 de 3 | 0,54 | 0 |
+| Suporte e resistência | B | +0,07% | 3 de 4 | 0,62 | 0 |
+| Suporte dinâmico (média de 20) | D | -0,45% | 0 de 4 | 0,46 | 0 |
+| Linhas de tendência | D | -0,92% | 1 de 4 | 0,39 | 0 |
+| Leque de Gann (1×1) | B | +0,12% | 3 de 4 | 0,40 | 0 |
+| Osciladores (IFR 30/70) | B | +0,98% | 4 de 4 | 0,46 | 0 |
+| Divergência preço × IFR | B | +0,21% | 3 de 4 | 0,78 | 0 |
+| Indicador de volume (OBV) | D | -0,40% | 0 de 4 | 0,34 | 0 |
+| Oferta e demanda | B | +0,16% | 3 de 4 | 0,47 | 0 |
+| Estrutura de mercado | D | -0,46% | 0 de 4 | 0,46 | 0 |
+| BOS | D | -1,54% | 0 de 4 | 0,23 | 0 |
+| CHoCH | D | -1,12% | 0 de 4 | 0,39 | 0 |
+
+- **Nenhuma técnica tirou A, e a confiança de todas é zero.** O menor
+  *q* de todo o exame (0,06) é de um sinal que funciona *ao contrário*:
+  a compra do Renko nas 100 maiores rende 0,34% *menos* que o normal em
+  5 pregões.
+- **As entradas "a favor da tendência" tendem a render menos que o
+  normal**: rompimento, BOS, CHoCH, onda 3 de Elliott, estrutura e Renko
+  nas compras. Nas ações, o curto prazo costuma devolver parte do
+  movimento, o que é conhecido na literatura. Nenhum desses resultados
+  passa da correção, então não há base para operar o contrário deles.
+- **As de nota B** (IFR, divergência, suporte e resistência, Gann,
+  harmônicos, oferta e demanda) apontam para o lado certo em 3 ou 4
+  universos, mas com vantagem pequena e sem passar na correção. É o que
+  se espera do acaso entre 21 técnicas.
+- **A lua não move nada**: −0,30% em 20 barras, dentro do ruído, a
+  favor em 2 de 4 universos.
+
+**O conselho técnico.** Todo agente de regra pode consultar as 21 técnicas
+(`ta` > 0): cada uma vota com o peso da confiança que ganhou
+(`agents/ta_confidence.json`). Voto negativo veta a compra e voto positivo
+põe o nome na frente da fila. Hoje todos os pesos são zero, então o
+conselho não muda nada. A confiança dos agentes nessas técnicas está
+**calibrada**: é exatamente o que a prova mostrou. Se uma nova prova (mais
+anos, outro mercado) der nota A a alguma técnica, ela ganha voz sozinha,
+sem mudar código.
+
 ### Pronto para dinheiro de verdade?
 
 Cada tick a colônia pergunta à Kraken o **menor pedido aceito** por

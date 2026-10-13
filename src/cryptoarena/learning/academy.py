@@ -32,6 +32,10 @@ COURSES = {
         "teste de ruído branco e de bootstrap: habilidade ou sorte?"),
     5: ("Aprendizado de máquina financeiro", "capítulos 6 e 7",
         "filtro CUSUM, rótulos de barreira tripla, peso por exclusividade, walk-forward com purga"),
+    6: ("Análise técnica", "21 técnicas de mercado",
+        "Fibonacci, rompimentos, reversões, Elliott, FVG, candles, Heikin-Ashi, lua, Renko, "
+        "harmônicos, suporte e resistência, suporte dinâmico, LTA/LTB, Gann, IFR, divergência, "
+        "volume, oferta e demanda, estrutura, BOS, CHoCH — a confiança de cada uma vem da prova"),
 }
 
 

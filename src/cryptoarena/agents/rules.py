@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from ..market.exchange import Order
 from .base import MarketView, TradingAgent
+from .technical import candles_frame, council, load_confidence
 from .wyckoff import BEAR_EVENTS, BULL_EVENTS, cached_read
 
 
@@ -13,8 +14,10 @@ SIGNAL_VETO = 0.5
 
 # Disciplines every rule agent carries, whatever its strategy: the Wyckoff
 # lens (agents/wyckoff.py; 0 = off) and the bars its trading range spans
-# (240 hourly bars = 10 days of crypto; the stocks floor sets 40 sessions).
-SHARED_DEFAULTS: dict[str, float] = {"wyckoff": 0.0, "wyckoff_range": 240}
+# (240 hourly bars = 10 days of crypto; the stocks floor sets 40 sessions),
+# and the technical council (agents/technical.py; 0 = off), whose voices
+# weigh only as much confidence as the exam gave them.
+SHARED_DEFAULTS: dict[str, float] = {"wyckoff": 0.0, "wyckoff_range": 240, "ta": 0.0}
 
 
 class ParamAgent(TradingAgent):
@@ -149,6 +152,13 @@ class ParamAgent(TradingAgent):
         if wy:
             for o in buys:
                 lean[o.symbol] = lean.get(o.symbol, 0.0) + wy * wyckoff(o.symbol).score
+        ta_w = float(self.params.get("ta", 0) or 0)
+        if ta_w and buys and any(v > 0 for v in load_confidence().values()):
+            votes = {o.symbol: council(candles_frame(list(self.history.get(o.symbol, ()))[-300:]))
+                     for o in buys}
+            buys = [o for o in buys if votes[o.symbol] >= 0]          # the trusted voices say no
+            for o in buys:
+                lean[o.symbol] = lean.get(o.symbol, 0.0) + ta_w * votes[o.symbol]
         if buys and lean:
             buys = [o for o in buys if lean.get(o.symbol, 0.0) > -SIGNAL_VETO]
         top = int(self.params.get("rank_top", 0) or 0)
