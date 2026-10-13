@@ -20,6 +20,8 @@ ui = ["streamlit>=1.45"]
 dev = ["pytest>=7.0"]
 forecast = ["statsforecast>=2.0", "lightgbm>=4.0"]
 chronos = ["chronos-forecasting>=2.0"]
+# Kronos' own code is not on PyPI: scripts/install_kronos.sh fetches it (pinned)
+kronos = ["torch>=2.0", "einops>=0.8", "huggingface_hub>=0.33", "safetensors>=0.6", "tqdm>=4.0"]
 qlib = ["pyqlib>=0.9.7", "lightgbm>=4.0", "xgboost>=2.0", "scikit-learn>=1.3"]
 academy = ["scikit-learn>=1.3"]   # course 5's random forest
 

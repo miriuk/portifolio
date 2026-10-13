@@ -332,12 +332,17 @@ def _forecasters() -> dict:
         "theta": lambda stocks: m.StatsModel("AutoTheta"),
         "lgbm": lambda stocks: m.BoostedLags(min_train=250 if stocks else 300),
         "chronos": lambda stocks: m.ChronosModel(),
-        # 256 days of context and 3 sampled paths keep Kronos within an Actions CPU budget
-        "kronos": lambda stocks: m.KronosModel(context_days=256, samples=3),
+        # 256 days of context and 3 sampled paths keep Kronos within an Actions CPU
+        # budget; every size gets the same, so they compare on equal terms
+        **{name: (lambda stocks, ids=ids: m.KronosModel(*ids, context_days=256, samples=3))
+           for name, ids in (("kronos", m.KRONOS_SIZES["small"]),
+                             ("kronos-mini", m.KRONOS_SIZES["mini"]),
+                             ("kronos-base", m.KRONOS_SIZES["base"]))},
     }
 
 
-FORECASTERS = ("drift", "arima", "ets", "theta", "lgbm", "chronos", "kronos")
+FORECASTERS = ("drift", "arima", "ets", "theta", "lgbm", "chronos", "kronos", "kronos-mini",
+               "kronos-base")
 
 
 def _forecast(args) -> None:

@@ -128,13 +128,24 @@ class ChronosModel:
         return np.log(median / np.array([c[-1] for c in contexts]))
 
 
+# size -> (model, tokenizer) on the Hugging Face hub; Kronos-large is not released
+KRONOS_SIZES = {
+    "mini": ("NeoQuasar/Kronos-mini", "NeoQuasar/Kronos-Tokenizer-2k"),
+    "small": ("NeoQuasar/Kronos-small", "NeoQuasar/Kronos-Tokenizer-base"),
+    "base": ("NeoQuasar/Kronos-base", "NeoQuasar/Kronos-Tokenizer-base"),
+}
+
+
 class KronosModel:
     """Kronos (github.com/shiyu-coder/Kronos, AAAI 2026): a foundation
     model pre-trained on K-lines from 45+ exchanges, zero-shot here. It
     reads the day's open, high, low, close and volume and samples future
-    candles; the forecast is the mean of `samples` paths. Needs PyTorch,
-    the Hugging Face hub, and the Kronos repository on the path
-    (`KRONOS_PATH`, default ./Kronos) since it is not on PyPI."""
+    candles; the forecast is the mean of `samples` paths. Three open sizes
+    (`KRONOS_SIZES`): mini (4.1M parameters, its own 2k tokenizer), small
+    (24.7M) and base (102.3M). Needs PyTorch, the Hugging Face hub, and the
+    Kronos repository on the path (`KRONOS_PATH`, default ./Kronos) since it
+    is not on PyPI: `pip install -e ".[kronos]"` and
+    `scripts/install_kronos.sh` put both in place."""
 
     wants_ohlcv = True
 
@@ -160,6 +171,10 @@ class KronosModel:
         mdl = Kronos.from_pretrained(self.model_id)
         self._predictor = KronosPredictor(mdl, tok, device="cpu", max_context=self.context_days)
 
+    def _seed(self) -> None:
+        import torch
+        torch.manual_seed(self.seed)
+
     @staticmethod
     def _future(ts: pd.Series, horizon: int) -> pd.Series:
         last = ts.iloc[-1]
@@ -169,7 +184,6 @@ class KronosModel:
         return pd.Series(idx)
 
     def predict(self, contexts, horizon):
-        import torch
         if self._predictor is None:
             self._load()
         out = np.zeros(len(contexts))
@@ -178,7 +192,7 @@ class KronosModel:
             groups.setdefault(len(df), []).append(k)      # predict_batch wants equal lengths
         cols = ["open", "high", "low", "close", "volume"]
         for _, ks in sorted(groups.items()):
-            torch.manual_seed(self.seed)
+            self._seed()
             dfs = [contexts[k][cols].reset_index(drop=True) for k in ks]
             xts = [contexts[k]["timestamps"].reset_index(drop=True) for k in ks]
             yts = [self._future(x, horizon) for x in xts]

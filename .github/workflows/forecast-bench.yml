@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       models:
-        description: "Comma-separated: drift, arima, ets, theta, lgbm, chronos, kronos"
+        description: "Comma-separated: drift, arima, ets, theta, lgbm, chronos, kronos (small), kronos-mini, kronos-base"
         type: string
         default: "drift,lgbm,chronos,kronos"
       tape:
@@ -52,9 +52,9 @@ jobs:
         # the CPU build of PyTorch keeps the download small
         run: |
           pip install torch --index-url https://download.pytorch.org/whl/cpu
-          pip install -e ".[forecast,chronos]" einops huggingface_hub safetensors
-          # Kronos is not on PyPI: its model code comes from the repository
-          git clone --depth 1 https://github.com/shiyu-coder/Kronos.git Kronos
+          pip install -e ".[forecast,chronos,kronos]"
+          # Kronos is not on PyPI: its model code comes from the repository, pinned
+          bash scripts/install_kronos.sh Kronos
 
       - name: Fetch the tape
         run: |

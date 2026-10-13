@@ -534,6 +534,25 @@ tempo prevendo queda. A saída pela tendência de 20 pregões repete o
 cripto: queda máxima menor em 25 dos 27 índices (mediana 42% → 30%),
 retorno menor em 22 (mediana 4,7% → 1,7% ao ano).
 
+**Instalar o Kronos.** O código do modelo não está no PyPI; ele vem do
+repositório num commit fixo (13/04/2026), e os pesos vêm do Hugging Face
+na primeira vez que o modelo carrega. Os três tamanhos abertos estão no
+banco, com o mesmo contexto (256 dias) e 3 caminhos sorteados:
+`kronos-mini` (4,1M de parâmetros, tokenizador próprio de 2k), `kronos`
+(o small, 24,7M) e `kronos-base` (102,3M). O large (499M) não foi
+liberado.
+
+```bash
+pip install -e ".[forecast,kronos]"      # PyTorch, einops, huggingface_hub, safetensors
+bash scripts/install_kronos.sh           # o código do Kronos em ./Kronos (fora do git)
+KRONOS_PATH="$PWD/Kronos" cryptoarena forecast --data data/global/etf --symbol SPY,QQQ \
+  --models drift,kronos-mini,kronos,kronos-base --every 5
+```
+
+No GitHub Actions: **Forecast bench → Run workflow**, `tape: world`,
+`models: drift,kronos-mini,kronos,kronos-base`, com um `label` para não
+sobrescrever resultados anteriores.
+
 **2. Ranquear ações (a abordagem do [Microsoft Qlib](https://github.com/microsoft/qlib)).**
 O Qlib, a plataforma aberta mais completa de investimento quantitativo,
 não tenta adivinhar se o mercado sobe: todo dia ele ranqueia as ações
