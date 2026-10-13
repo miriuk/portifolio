@@ -1433,9 +1433,10 @@ uma linha traçada depois dos resultados cai onde eles estão.
   abertura, preenchimento parcial, mão na conta; não se mede enquanto uma
   ordem ainda espera a abertura) e quanto da carteira fica só no papel
   porque a corretora não lista o papel (SPY e QQQ não são vendidos a
-  contas do Reino Unido). A nova tentativa das 05:30 e qualquer reexecução
-  contam dentro da mesma noite. **Só contagens e proporções**: nenhum
-  saldo da conta vai para o banco público.
+  contas do Reino Unido). Uma noite vai de uma abertura do mercado à
+  seguinte: a nova tentativa das 05:30 e qualquer reexecução contam dentro
+  dela, e vale a pior medida da noite. **Só contagens e proporções**:
+  nenhum saldo da conta vai para o banco público.
 - **A Cleo** (chefe de gabinete) põe uma linha do placar em toda nota do
   dia e abre uma issue **só quando os quatro critérios forem atingidos**;
   se um deixar de valer, a issue fecha sozinha.

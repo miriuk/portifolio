@@ -18,6 +18,7 @@ is no setting, variable or argument that points it at a real account.
 from __future__ import annotations
 
 import base64
+import http.client
 import json
 import os
 import time
@@ -85,8 +86,8 @@ class PracticeAccount:
                 if exc.status not in (408, 429, 500, 502, 503, 504) or attempt == attempts - 1:
                     raise
                 self._sleep(6 * (attempt + 1))
-            except (urllib.error.URLError, TimeoutError, OSError):
-                if attempt == attempts - 1:
+            except (urllib.error.URLError, http.client.HTTPException, TimeoutError, OSError):
+                if attempt == attempts - 1:                  # a dropped or cut-off read
                     raise
                 self._sleep(6 * (attempt + 1))
         raise RuntimeError("unreachable")
@@ -120,6 +121,6 @@ class PracticeAccount:
                 if exc.status in (408, 500, 502, 503, 504):
                     raise OrderUncertain(str(exc)) from None
                 raise
-            except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            except (urllib.error.URLError, http.client.HTTPException, TimeoutError, OSError) as exc:
                 raise OrderUncertain(f"no answer after sending the order: {exc}") from None
         raise RuntimeError("unreachable")

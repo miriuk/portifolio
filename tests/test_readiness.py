@@ -98,6 +98,27 @@ def test_the_retry_and_reruns_fold_into_their_night():
     assert scorecard(rows, START, two, POLICY)["criteria"][3]["met"] is None
 
 
+def test_a_night_runs_from_one_market_open_to_the_next_and_keeps_its_worst_sample():
+    rows = ledger([100, 101, 102, 103, 104, 105], [50] * 6)
+    policy = ReadinessPolicy(benchmark="SPY", min_days=5, min_mirror_nights=2)
+    wed = START + 2 * DAY
+    log = [
+        {"ts": wed + 5400, "problems": 0, "tracking": 0.0},             # Wed 01:30: Tuesday's open
+        {"ts": wed + 5 * 3600 + 1800, "problems": 0, "tracking": None},  # Wed 05:30: orders queued
+        # Wed 16:00, a rerun by hand after the open: an order rejected at Wednesday's open
+        {"ts": wed + 16 * 3600, "problems": 0, "tracking": 0.2857},
+        {"ts": wed + DAY + 5400, "problems": 0, "tracking": 0.0},       # Thu 01:30: already re-sent
+    ]
+    card = scorecard(rows, START, log, policy)
+    assert card["criteria"][3]["value"].startswith("2 noites do espelho (2 medidas)")
+    assert "14.3%" in card["criteria"][3]["value"]          # (0 + 0.2857) / 2: not thrown away
+    # a Monday-afternoon rerun and Tuesday's 01:30 measure the same open: one night
+    mon = START + 7 * DAY
+    twice = [{"ts": mon + 16 * 3600, "problems": 0, "tracking": 0.0},
+             {"ts": mon + DAY + 5400, "problems": 0, "tracking": 0.0}]
+    assert scorecard(rows, START, twice, policy)["criteria"][3]["met"] is None
+
+
 def test_an_unreadable_account_is_a_missed_night_judged_as_a_share():
     rows = ledger([100, 101, 102, 103, 104, 105], [50] * 6)
     policy = ReadinessPolicy(benchmark="SPY", min_days=5, min_mirror_nights=10, max_missed=0.1)
@@ -376,6 +397,36 @@ def test_a_read_is_tried_again_after_a_passing_failure_and_an_order_never_is():
     with pytest.raises(OrderUncertain):
         acc.market_order("AAPL_US_EQ", 1.0)
     assert calls.count("POST") == 1                          # sent once, never again
+
+
+def test_a_read_cut_off_mid_body_is_retried_then_a_missed_night_and_after_an_order_uncertain():
+    import http.client
+    from cryptoarena.broker.mirror import AccountUnreadable, mirror
+    from cryptoarena.broker.trading212 import OrderUncertain, PracticeAccount
+
+    class Cut:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            raise http.client.IncompleteRead(b"[{", 4_000_000)
+
+    gets = []
+
+    def cut_once(req, timeout=None):
+        gets.append(req.get_method())
+        return Cut() if len(gets) == 1 else __import__("io").BytesIO(b"[]")
+
+    assert PracticeAccount("k", "s", opener=cut_once, sleep=lambda s: None).positions() == []
+    assert gets == ["GET", "GET"]
+    always = PracticeAccount("k", "s", opener=lambda req, timeout=None: Cut(), sleep=lambda s: None)
+    with pytest.raises(AccountUnreadable):
+        mirror(always, {"AAPL": 1.0}, ["AAPL"], execute=True)
+    with pytest.raises(OrderUncertain):
+        always.market_order("AAPL_US_EQ", 1.0)
 
 
 # ------------------------------------------------------------------ the chief

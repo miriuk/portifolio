@@ -12,11 +12,13 @@ results is drawn where they happen to be.
 3. **fall**: the colony's worst fall from a high no deeper than the
    benchmark's over the same sessions;
 4. **mirror**: the Trading 212 practice account following the colony,
-   judged night by night (the 05:30 retry and any rerun fold into their
-   night): at least `min_mirror_nights` nights measured, no order that
-   failed or went unanswered, the account unreadable on no more than
-   `max_missed` of the nights, and on average no more than `max_tracking`
-   of what the previous night aimed at missing from the account.
+   judged night by night — a night being every run between two market
+   opens, so the 05:30 retry and any rerun fold into the night whose open
+   they follow, and a night counts its worst measurement: at least
+   `min_mirror_nights` nights measured, no order that failed or went
+   unanswered, the account unreadable on no more than `max_missed` of the
+   nights, and on average no more than `max_tracking` of what the previous
+   night aimed at missing from the account.
 
 The clock is the rules' fingerprint (`fingerprint`): the floor's
 configuration, who its founders are, the seatbelt the floor gives each,
@@ -59,6 +61,7 @@ class ReadinessPolicy:
     max_tracking: float = 0.05    # mean share of the previous night's aim missing from the account
     min_mirror_nights: int = 20   # nights the mirror is measured before it can be judged
     max_missed: float = 0.10      # share of the nights the account may be unreadable
+    open_utc: float = 14.5        # hours: a night ends at the market open (NYSE, the later of its two UTC times)
 
 
 def _code(cls: type) -> str:
@@ -163,11 +166,12 @@ def scorecard(ledger: list[list[float]], since_ts: int | None, mirror_runs: list
     runs = sorted((m for m in mirror_runs if since_ts is not None and m["ts"] >= since_ts),
                   key=lambda m: m["ts"])
     nights: dict[int, list[dict]] = {}
+    cut = int(policy.open_utc * 3600)
     for m in runs:                                # the 01:30 run, the 05:30 retry, a rerun: one night
-        nights.setdefault(int(m["ts"]) // 86400, []).append(m)
+        nights.setdefault((int(m["ts"]) - cut) // 86400, []).append(m)
     bad = sum(1 for night in nights.values() if any(m.get("problems") for m in night))
     missed = sum(1 for night in nights.values() if all(m.get("missed") for m in night))
-    gaps = [next(m["tracking"] for m in night if m.get("tracking") is not None)
+    gaps = [max(m["tracking"] for m in night if m.get("tracking") is not None)
             for night in nights.values() if any(m.get("tracking") is not None for m in night)]
     tracking = sum(gaps) / len(gaps) if gaps else None
     paper = next((m["unlisted"] for m in reversed(runs) if m.get("unlisted") is not None), None)

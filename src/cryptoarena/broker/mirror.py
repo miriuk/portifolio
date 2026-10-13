@@ -23,6 +23,7 @@ followed the previous run's aim — as counts and ratios, never balances.
 """
 from __future__ import annotations
 
+import http.client
 import math
 import urllib.error
 from dataclasses import dataclass, field
@@ -124,7 +125,8 @@ def mirror(account: PracticeAccount, target: dict[str, float], universe: list[st
     try:
         instruments, positions, pending = (account.instruments(), account.positions(),
                                            account.pending_orders())
-    except (T212Error, urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
+    except (T212Error, urllib.error.URLError, http.client.HTTPException, TimeoutError, OSError,
+            ValueError) as exc:
         raise AccountUnreadable(str(exc)) from exc
     orders, notes = plan(target, universe, instruments, positions, pending, decimals)
     steps = list(notes)
