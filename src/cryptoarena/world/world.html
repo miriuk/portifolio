@@ -357,6 +357,8 @@ function scheduleAt(slot) {          // deterministic conversation for a 6s slot
   if (a.role === 'intern' && a.immune_until > 0 && kind < 0.35) return [{ who: a, text: pick(IMMUNE, s + 15)(a), at: 0 }];
   if (kind < 0.18 && STATE.events && STATE.events.length) { const e = STATE.events[STATE.events.length - 1 - Math.floor(rand(s + 2) * Math.min(3, STATE.events.length))]; return [{ who: a, text: EVENT_LINES(e), at: 0 }]; }
   if (kind < 0.30) return [{ who: a, text: REGIME_LINES[R] || REGIME_LINES.chop, at: 0 }];
+  const WISDOM = (STATE && STATE.wisdom) || [];
+  if (kind < 0.36 && WISDOM.length) { const w = WISDOM[Math.floor(rand(s + 16) * WISDOM.length)]; return [{ who: a, text: `As ${w.name} put it: ${w.lesson}.`, at: 0 }]; }
   const lines = LINES[a.mood] || LINES.calm; if (!lines.length) return null;
   const text = pick(lines, s + 3)(a);
   const talk = [{ who: a, text, at: 0 }];

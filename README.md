@@ -1195,6 +1195,118 @@ conselho não muda nada. A confiança dos agentes nessas técnicas está
 anos, outro mercado) der nota A a alguma técnica, ela ganha voz sozinha,
 sem mudar código.
 
+### Curso 7: os grandes traders, da série *Market Wizards* a Kotegawa
+
+Os agentes estudaram a trajetória de quem fez algo raro por muito tempo
+(`learning/wizards.py`). As fontes são a série de Jack Schwager (*Market
+Wizards* 1989, *The New Market Wizards* 1992, *Stock Market Wizards* 2001,
+*Hedge Fund Market Wizards* 2012, *Unknown Market Wizards* 2020) e os
+resumos públicos dela, *Pit Bull* (Marty Schwartz, 1998) e a imprensa
+japonesa sobre Takashi Kotegawa. Números que os traders nunca auditaram
+estão marcados como divulgados.
+
+| Mestre | Trajetória | Lições |
+|---|---|---|
+| Michael Marcus | Começou em 1972 com ~US$7 mil e quebrou mais de uma vez; aprendeu risco com Seykota; teria feito US$30 mil virarem US$80 milhões na Commodities Corporation (divulgado); formou Bruce Kovner | corte as perdas cedo; só os melhores setups; o trade forte é quando fundamento, gráfico e mercado concordam |
+| Ed Seykota | Pioneiro dos sistemas de tendência por computador, ~1970 | quem segue tendência perde na maioria dos trades e vive de cortar perdas e deixar os ganhos correrem |
+| Paul Tudor Jones | Tudor Investment (1980); ganhou no crash de 1987 | defesa antes de ataque; fora de tudo que estiver abaixo da média de 200 dias (dito a Tony Robbins) |
+| Richard Dennis e as Tartarugas | Ensinou novatos com regras fechadas em 1983 | rompimento de 20/55 dias, saída de 10/20, tamanho pela volatilidade |
+| Larry Hite | Mint Investment | nunca arrisque mais de 1% num trade |
+| Marty Schwartz | Só ficou lucrativo ao trocar fundamentos por técnica; campeão do U.S. Investing Championship | a média exponencial de 10 dias é sinal verde ou vermelho |
+| Bruce Kovner | Aprendiz de Marcus; Caxton | stop onde o mercado provaria o erro; risco pequeno |
+| Linda Raschke | Trader de curto prazo; o *Holy Grail* (*Street Smarts*, 1995) | poucos padrões, bem conhecidos |
+| Stanley Druckenmiller | Duquesne, Quantum | concentre com convicção; importa quanto ganha quando acerta |
+| William O'Neil e David Ryan | CAN SLIM; Ryan venceu o campeonato três vezes | compre força em máxima nova; corte a perda em 7–8% |
+| Mark Minervini | Campeão de 1997 | só ações no *trend template*; stop curto |
+| Takashi Kotegawa (BNF) | Comprava papéis 20–35% abaixo da média de 25 dias e vendia na volta (limite que ele disse ter mudado); o erro da Mizuho com a J-Com em 2005; nunca confirmou nome nem números | compre o pânico, venda a volta ao normal; segure pouco |
+
+As lições aparecem nas conversas do escritório ("As Michael Marcus put it:
+…"). As regras mecânicas o bastante para virar código foram testadas assim:
+
+- **Entrada e custo.** A entrada é na abertura seguinte, com custo de
+  negociação.
+- **Contra o quê.** A regra é comparada com segurar o ativo ou o índice e
+  com a mesma regra com as **entradas sorteadas**: mesmo número de
+  entradas, nos dias em que a posição poderia viver, e as mesmas saídas.
+  Se a regra não supera o próprio sorteio, o mérito não está no momento
+  de entrar.
+- **Sobre o sorteio.** As duas primeiras versões dele favoreciam as
+  regras: uma embaralhava também as saídas, a outra punha entradas em
+  dias em que a saída já mandava sair. As duas foram corrigidas antes do
+  veredito.
+
+**Regras de tempo num ativo só** (ETFs 2017–2026, BTC e ETH diários
+2021–2026; CAGR da regra / de segurar · queda máxima · supera quantas
+entradas sorteadas):
+
+| | SPY | QQQ | ACWI | GLD | BTC | ETH |
+|---|---|---|---|---|---|---|
+| **Paul Tudor Jones, média de 200** | +7,9% / +13,2% · 22% (34%) · 76% | +15,3% / +19,8% · 23% (36%) · 92% | +6,6% / +9,8% · 21% (34%) · 78% | +9,8% / +13,9% · 30% (26%) · 46% | **+30,6% / +14,6%** · 33% (66%) · 92% | **+22,7% / −5,4%** · 36% (72%) · 84% |
+| Tartarugas, 20/10 | +8,4% · **9%** (34%) · 14% | +11,7% · 15% (36%) · 12% | +3,0% · 15% · 14% | +3,6% · 22% · 26% | +11,1% · 35% · 64% | −13,5% · 65% · 26% |
+| Tartarugas, 55/20 | +2,3% · 26% · 0% | +8,5% · 18% · 4% | +2,0% · 19% · 2% | +7,8% · 19% · 32% | +8,1% · 33% · 42% | +18,1% · 34% · 66% |
+| Marty Schwartz, exponencial de 10 | +1,8% · 38% · 24% | +4,2% · 42% · 40% | +1,9% · 31% · 18% | +4,6% · 26% · 28% | −1,8% · 45% · 44% | −16,4% · 65% · 18% |
+
+- **A regra dos 200 dias de Tudor Jones é a lição que melhor se
+  sustenta**: a queda máxima é menor em 8 dos 9 ativos testados (só o
+  ouro piora), o Sharpe melhora em 5 dos 9 (QQQ, ACWI, TLT, BTC e ETH), e
+  as entradas dela superam de 76% a 92% das sorteadas em SPY, QQQ, ACWI,
+  EFA e BTC (nos emergentes, só 46%).
+  Nas ações ela custa retorno (SPY +7,9% contra +13,2% ao ano). No cripto
+  rende mais que segurar, mas isso vem de um único ciclo de 5 anos, com
+  uma única grande queda (2022). É "defesa antes de ataque", não uma
+  fonte de retorno.
+- **As Tartarugas no SPY têm o melhor Sharpe (0,85 contra 0,70) e a menor
+  queda (9% contra 34%)**, mas as entradas delas superam só 14% das
+  sorteadas. O que protege é a **saída** (o mínimo de 10 dias), ou seja,
+  "corte as perdas", não o rompimento.
+- **A exponencial de 10 dias de Schwartz perde para segurar em todos os
+  9 ativos**: entra e sai demais, e o custo come o resto. Ela fazia sentido
+  como filtro para um trader de curto prazo que lê o pregão, não como
+  sistema sozinho.
+
+**Regras de escolha de ações** (até 10 posições; CAGR contra o SPY, que
+fez +13,2% ao ano):
+
+| | 100 maiores (o universo fez +13,9%) | 27 ETFs (o universo fez +6,5%) |
+|---|---|---|
+| Kotegawa, 10% abaixo da média de 25 | +12,4% · supera 100% dos sorteios | +0,1% · 20% |
+| Kotegawa, 15% / 20% | +4,5% / +1,8% · 88% / 66% | −1,4% / −0,7% · 0% / 2% |
+| Minervini, *trend template* e stop de 8% | +8,3% · 26% | +1,6% · 98% (quase sempre fora) |
+| O'Neil/Ryan, máxima de 52 semanas com volume | +0,1% · 16% (quase sempre fora) | −0,6% · 18% |
+| Raschke, *Holy Grail* | −0,6% · 4% | 0,0% · 74% (quase nunca entra) |
+| Tartarugas 20/10 | +13,5% · 78% | +2,6% · 2% |
+| Tudor Jones, 200 dias (líderes de 12 meses) | **+19,9%** · 90% | +4,4% · 10% |
+
+- **Duas regras parecem boas nas 100 maiores**: comprar a queda forte
+  (Kotegawa, 10%) e voltar aos líderes acima da média de 200. As duas
+  apostam em empresas que *sobreviveram* até hoje: uma lista escolhida
+  em 2026 garante que cada queda comprada foi recuperada e que cada líder
+  continuou líder. Nos 27 ETFs, sem esse viés, as duas somem.
+- O limite original de Kotegawa (20% ou mais) quase não ocorre em grandes
+  empresas americanas e rende +1,8% ao ano. Ele mesmo disse que o número
+  era de um regime específico.
+
+**As regras de risco de Marcus, Seykota e Hite sozinhas**: entradas
+sorteadas nas 100 maiores, 20 vezes cada (contra o SPY, ao ano):
+
+| | média | pior | melhor |
+|---|---|---|---|
+| segurar 20 dias | −2,0% | −10,0% | +3,5% |
+| stop de 8% + *trailing* de 15% | −4,0% | −8,1% | +2,2% |
+| só stop de 8%, até 60 dias | −2,3% | −6,3% | +3,2% |
+
+Cortar perdas sem uma entrada boa não cria retorno. Ele **estreita os
+resultados**: o pior caso melhora de −10% para −6% a −8% ao ano, e a
+dispersão cai. É exatamente o que Marcus e Seykota dizem que ele faz: dá
+sobrevivência para que uma entrada boa tenha tempo de aparecer.
+
+**Veredito do curso 7**: o que os mestres têm em comum, e o que os testes
+confirmam, é **gestão de risco**, não um sinal mágico. A média de 200
+dias e a saída das Tartarugas reduzem quedas de verdade; nenhuma regra
+bate segurar o índice em retorno sem depender de um universo com viés ou
+de um único ciclo. `cryptoarena academy --course 7 --data DIR` mostra as
+trajetórias e refaz as regras de tempo.
+
 ### Pronto para dinheiro de verdade?
 
 Cada tick a colônia pergunta à Kraken o **menor pedido aceito** por

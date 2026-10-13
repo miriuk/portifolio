@@ -34,34 +34,61 @@ import pandas as pd
 
 def simulate(prices: pd.DataFrame, signal: pd.DataFrame, preference: pd.DataFrame,
              max_positions: int = 5, cash: float = 10_000.0, slippage: float = 0.0005,
-             fee: float = 0.0) -> pd.Series:
-    """The equity curve, one value per row of `prices` (dates × symbols)."""
+             fee: float = 0.0, exec_prices: pd.DataFrame | None = None,
+             stop_loss: float | None = None, trail: float | None = None,
+             take_profit: float | None = None, max_hold: int | None = None) -> pd.Series:
+    """The equity curve, one value per row of `prices` (dates × symbols).
+
+    Decisions are made on each row's close. By default they fill at that
+    close; `exec_prices` (say, the next day's opens on the decision row)
+    fills them there instead. A position is also closed when its close
+    falls `stop_loss` below the entry, `trail` below its highest close,
+    rises `take_profit` above the entry, or has been held `max_hold` rows:
+    the risk rules a trader adds to any entry signal."""
     px = prices.to_numpy(float)
+    ex = exec_prices.reindex_like(prices).to_numpy(float) if exec_prices is not None else px
     sig = signal.reindex_like(prices).to_numpy(float)
     pref = preference.reindex_like(prices).to_numpy(float)
     n_days, n_sym = px.shape
     units = np.zeros(n_sym)
+    entry = np.zeros(n_sym)
+    high = np.zeros(n_sym)
+    since = np.zeros(n_sym, dtype=int)
     last = np.zeros(n_sym)                     # a name with no price today keeps its last one
     equity = np.empty(n_days)
     for t in range(n_days):
         p = px[t]
         ok = ~np.isnan(p)
+        fill = np.where(np.isnan(ex[t]), p, ex[t])
         last = np.where(ok, p, last)
         held = units > 0
-        for i in np.where(held & ok & (sig[t] < 0))[0]:      # sell to close
-            cash += units[i] * p[i] * (1 - slippage) - fee
+        high = np.where(held & ok, np.maximum(high, p), high)
+        since = np.where(held, since + 1, 0)
+        out = held & ok & (sig[t] < 0)
+        if stop_loss:
+            out |= held & ok & (p <= entry * (1 - stop_loss))
+        if trail:
+            out |= held & ok & (p <= high * (1 - trail))
+        if take_profit:
+            out |= held & ok & (p >= entry * (1 + take_profit))
+        if max_hold:
+            out |= held & ok & (since >= max_hold)
+        for i in np.where(out)[0]:                           # sell to close
+            cash += units[i] * fill[i] * (1 - slippage) - fee
             units[i] = 0.0
         held = units > 0
         free = max_positions - int(held.sum())
         if free > 0:
-            cands = np.where(ok & ~held & (sig[t] > 0) & ~np.isnan(pref[t]))[0]
+            cands = np.where(ok & ~held & (sig[t] > 0) & ~np.isnan(pref[t]) & ~np.isnan(fill))[0]
             if len(cands):
                 pick = cands[np.argsort(-pref[t][cands], kind="stable")][:free]
                 budget = cash / free
                 for i in pick:
                     if budget <= fee:
                         continue
-                    units[i] = (budget - fee) / (p[i] * (1 + slippage))
+                    units[i] = (budget - fee) / (fill[i] * (1 + slippage))
+                    entry[i] = high[i] = fill[i]
+                    since[i] = 0
                     cash -= budget
         equity[t] = cash + float((units * last).sum())
     return pd.Series(equity, index=prices.index)

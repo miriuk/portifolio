@@ -36,6 +36,10 @@ COURSES = {
         "Fibonacci, rompimentos, reversões, Elliott, FVG, candles, Heikin-Ashi, lua, Renko, "
         "harmônicos, suporte e resistência, suporte dinâmico, LTA/LTB, Gann, IFR, divergência, "
         "volume, oferta e demanda, estrutura, BOS, CHoCH — a confiança de cada uma vem da prova"),
+    7: ("Os grandes traders", "a série Market Wizards, Pit Bull, Kotegawa",
+        "trajetórias e lições de Marcus, Seykota, Tudor Jones, Dennis e as Tartarugas, Hite, "
+        "Schwartz, Kovner, Raschke, Druckenmiller, O'Neil e Ryan, Minervini, Kotegawa; as regras "
+        "mecânicas testadas contra o índice e contra entradas sorteadas"),
 }
 
 

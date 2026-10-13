@@ -298,6 +298,21 @@ def _academy(args) -> None:
         print(format_results(res, 20))
         for name, g in grades(res).items():
             print(f"  {name:<14} nota {g['grade']} · confiança {g['confidence']:.2f}")
+    elif args.course == 7:
+        from .learning import wizards as wz
+        for prof in wz.PROFILES:
+            print(f"{prof['name']} — {prof['books']}\n  {prof['path']}\n  lições: "
+                  + "; ".join(prof["lessons"]))
+        frames = load_tape(data, align=False)
+        frames = {s: df.dropna(subset=["close"]).reset_index(drop=True) for s, df in frames.items()}
+        p = wz.panels(frames)
+        if args.benchmark in p["close"]:
+            for rule in ("schwartz10", "ptj200", "turtle20", "turtle55"):
+                sc = wz.timing_exam(p, args.benchmark, rule)
+                print(f"{wz.RULES[rule][0]} em {args.benchmark}: CAGR {sc.cagr:+.1%} (segurar "
+                      f"{sc.hold_cagr:+.1%}) · Sharpe {sc.sharpe:+.2f} ({sc.hold_sharpe:+.2f}) · queda "
+                      f"máx. {sc.max_drawdown:.0%} ({sc.hold_drawdown:.0%}) · supera "
+                      f"{sc.luck_pct:.0%} das entradas sorteadas")
     elif args.course == 5:
         from .forecast.events import ml_exam
         for r in ml_exam(load_tape(data, align=False)):
@@ -630,7 +645,7 @@ def main() -> None:
 
     ac = sub.add_parser("academy", help="the agents' courses (Algorithmic Trading with Python) "
                                          "and their exams")
-    ac.add_argument("--course", type=int, default=0, choices=[0, 1, 2, 3, 4, 5, 6])
+    ac.add_argument("--course", type=int, default=0, choices=[0, 1, 2, 3, 4, 5, 6, 7])
     ac.add_argument("--floor", default="stocks", choices=["crypto", "stocks"])
     ac.add_argument("--data", default=None, help="directory of CSVs (default: the floor's)")
     ac.add_argument("--top", type=int, default=None, help="course 2: a point-in-time top N")

@@ -99,7 +99,7 @@ def test_course_5_events_labels_and_uniqueness():
 
 
 def test_the_curriculum_and_a_report_card(tmp_path):
-    assert set(COURSES) == {1, 2, 3, 4, 5, 6}
+    assert set(COURSES) == {1, 2, 3, 4, 5, 6, 7}
     from cryptoarena.arena.backtest import load_tape
     from cryptoarena.arena.survival import SurvivalConfig
     from cryptoarena.cli import build_agents

@@ -8,6 +8,7 @@ from pathlib import Path
 import pandas as pd
 
 from .needs import compute_vitals
+from ..learning.wizards import PROFILES
 from .personas import DESK, persona
 
 _TEMPLATE = Path(__file__).with_name("world.html")
@@ -60,6 +61,8 @@ def build_state(data: dict[str, pd.DataFrame], running: bool = False) -> dict:
         "events": events,
         "party": party_state(survival, day),
         "senior": senior_state(survival),
+        # the masters' lessons the agents studied (learning/wizards.py), quoted now and then
+        "wisdom": [{"name": w["name"], "lesson": lesson} for w in PROFILES for lesson in w["lessons"]],
         # what each id is shown as (personas.py), for the ids the office mentions
         "names": {**{v.agent_id: persona(v.agent_id, v.parent_id).name for v in vitals},
                   **{k: persona(k).name for k in DESK}},
