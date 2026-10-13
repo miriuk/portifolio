@@ -17,7 +17,9 @@ SIGNAL_VETO = 0.5
 # (240 hourly bars = 10 days of crypto; the stocks floor sets 40 sessions),
 # and the technical council (agents/technical.py; 0 = off), whose voices
 # weigh only as much confidence as the exam gave them.
-SHARED_DEFAULTS: dict[str, float] = {"wyckoff": 0.0, "wyckoff_range": 240, "ta": 0.0}
+SHARED_DEFAULTS: dict[str, float] = {"wyckoff": 0.0, "wyckoff_range": 240, "ta": 0.0,
+                                     # an agent's own seatbelt (portfolio/risk.py; 0 = the default)
+                                     "risk_position": 0.0, "risk_order": 0.0, "risk_stop": 0.0}
 
 
 class ParamAgent(TradingAgent):
@@ -765,10 +767,13 @@ class BuyAndHoldAgent(ParamAgent):
     """The passive investor: buys `hold_symbols` (or everything) in equal
     weights on the first bar it can, then sits. No exits, no signals — the
     yardstick every active specialist on the floor is measured against,
-    and in a long bull market the one the interns end up imitating."""
+    and in a long bull market the one the interns end up imitating.
+    `exit_ma` (0 = off) adds Paul Tudor Jones' one rule: out of a symbol
+    while it closes below its `exit_ma`-day average, back in above it."""
 
     DEFAULTS = {"order_frac": 0.45, "cooldown": 1, "stop_trail": 0.0, "trend_filter": 0,
-                "max_buys": 0, "max_exposure": 0.0, "market_gate": 0, "rank_top": 0}
+                "max_buys": 0, "max_exposure": 0.0, "market_gate": 0, "rank_top": 0,
+                "exit_ma": 0}
 
     def __init__(self, *args, hold_symbols: list[str] | None = None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -779,12 +784,25 @@ class BuyAndHoldAgent(ParamAgent):
         if not wanted:
             return []
         orders = []
+        ma = int(self.params.get("exit_ma", 0) or 0)
         for symbol in wanted:
-            if self.wallet.positions.get(symbol, 0.0) > 0 or not self._can_buy():
+            held = self.wallet.positions.get(symbol, 0.0)
+            if ma:                               # Paul Tudor Jones: out below the long average
+                avg = self.sma(symbol, ma)
+                if avg is None:
+                    continue
+                below = view.candles[symbol].close < avg
+                if held > 0 and below:
+                    orders.append(Order(self.agent_id, symbol, "sell", held,
+                                        reason=f"below the {ma}-day average"))
+                    continue
+                if below:
+                    continue
+            if held > 0 or not self._can_buy():
                 continue
             orders.append(Order(self.agent_id, symbol, "buy",
                                 self.wallet.equity(view.prices) * self.params["order_frac"],
-                                reason="buy and hold"))
+                                reason="buy and hold" if not ma else f"above the {ma}-day average"))
         return orders
 
     def learn(self, lessons: list[str]) -> None:

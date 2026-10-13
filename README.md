@@ -1300,6 +1300,37 @@ resultados**: o pior caso melhora de −10% para −6% a −8% ao ano, e a
 dispersão cai. É exatamente o que Marcus e Seykota dizem que ele faz: dá
 sobrevivência para que uma entrada boa tenha tempo de aparecer.
 
+**A regra dos 200 dias na Inês.** A Inês (`index-1`) é o índice do
+andar: compra SPY e QQQ e não vende. O teste mostrou que ela nunca foi o
+índice inteiro, por causa de três limites:
+- cada ordem vai a no máximo 25% do patrimônio, e ela só compra quando
+  está zerada;
+- o limite de 35% por nome;
+- o stop de 12% do risco, que a vendia em toda queda maior que isso.
+
+Agora um agente pode ter os próprios limites (`risk_position`,
+`risk_order`, `risk_stop`), e a Inês ganhou a regra de Tudor Jones
+(`exit_ma`: fora enquanto fecha abaixo da média de 200, de volta acima
+dela). Ela sozinha, de forma contínua, sem a mesa:
+
+| | SPY+QQQ 2017–2026: CAGR · Sharpe · queda máx. | andar de ações 2021–2026 |
+|---|---|---|
+| A · hoje (cerca de 60% investida) | +11,0% · 0,82 · 21,9% | +8,4% · 0,75 · 16,4% |
+| B · hoje + 200 dias | +6,7% · 0,83 · 12,9% | +6,0% · 0,82 · 11,6% |
+| C · carteira cheia (sem os três limites) | **+17,0%** · 0,81 · 31,2% | **+13,3%** · 0,67 · 30,2% |
+| D · cheia + 200 dias | +12,2% · **0,85** · 21,9% | +11,1% · **0,83** · 21,7% |
+| segurar 50/50 SPY+QQQ | +17,1% · 0,81 · 31,2% | +13,3% · 0,67 · 30,2% |
+
+Os números acima são sem o custo de vida; com ele, todas perdem de 1,5 a
+5,4 pontos ao ano, e mais as que ficam parte do tempo em caixa.
+
+- **C é o índice de verdade**: rende o mesmo que segurar, dentro de 0,1
+  ponto. Era o que a Inês deveria ter sido desde o começo.
+- **D troca retorno por defesa**: 5 pontos a menos por ano em 2017–2026
+  (2 pontos em 2021–2026), um terço a menos de queda máxima e o melhor
+  Sharpe das cinco linhas.
+- A colônia ao vivo continua com a Inês de hoje até o dono escolher.
+
 **Veredito do curso 7**: o que os mestres têm em comum, e o que os testes
 confirmam, é **gestão de risco**, não um sinal mágico. A média de 200
 dias e a saída das Tartarugas reduzem quedas de verdade; nenhuma regra

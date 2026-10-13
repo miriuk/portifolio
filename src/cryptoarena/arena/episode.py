@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from ..agents.base import MarketView, TradingAgent
 from ..learning.memory import TradeJournal, TradeRecord
 from ..market.exchange import Fill, Order, SimulatedExchange
-from ..portfolio.risk import RiskManager
+from ..portfolio.risk import RiskManager, limits_for
 
 
 @dataclass
@@ -74,7 +74,10 @@ def run_episode(
     if risk is None:
         risk = {}
     for a in agents:
-        risk.setdefault(a.agent_id, RiskManager())
+        rm = risk.setdefault(a.agent_id, RiskManager())
+        own = limits_for(a)
+        if own is not None:
+            rm.limits = own
     result = EpisodeResult(episode=episode)
     for a in agents:
         result.equity_curves[a.agent_id] = []

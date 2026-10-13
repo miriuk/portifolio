@@ -14,6 +14,21 @@ class RiskLimits:
     max_drawdown_pct: float = 0.50   # kill switch: liquidate & halt below peak equity
 
 
+def limits_for(agent) -> RiskLimits | None:
+    """An agent's own seatbelt, when its parameters ask for one:
+    `risk_position`, `risk_order` and `risk_stop` (fractions; 0 = the
+    default). The index investor uses it to hold the index whole."""
+    params = getattr(agent, "params", None) or {}
+    pos, order, stop = (float(params.get(k, 0) or 0) for k in ("risk_position", "risk_order", "risk_stop"))
+    if not (pos or order or stop):
+        return None
+    base = RiskLimits()
+    return RiskLimits(max_position_pct=pos or base.max_position_pct,
+                      max_order_pct=order or base.max_order_pct,
+                      stop_loss_pct=stop or base.stop_loss_pct,
+                      max_drawdown_pct=base.max_drawdown_pct)
+
+
 class RiskManager:
     """Hard limits outside the agent's control — the seatbelt.
 

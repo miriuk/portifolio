@@ -73,3 +73,27 @@ def test_the_office_quotes_the_masters():
     from cryptoarena.world.render import build_state
     st = build_state({})
     assert any(x["name"] == "Michael Marcus" for x in st["wisdom"])
+
+
+def test_ines_can_hold_the_index_whole_and_step_aside_below_200_days():
+    from collections import deque
+    from cryptoarena.agents.base import MarketView
+    from cryptoarena.agents.rules import BuyAndHoldAgent
+    from cryptoarena.market.candle import Candle
+    from cryptoarena.portfolio.risk import RiskLimits, limits_for
+    plain = BuyAndHoldAgent("index-1", 100.0, hold_symbols=["SPY"])
+    assert limits_for(plain) is None                                  # the default seatbelt
+    full = BuyAndHoldAgent("index-1", 100.0, hold_symbols=["SPY"],
+                           params={"risk_position": 1.0, "risk_order": 1.0, "risk_stop": 1.0})
+    assert limits_for(full) == RiskLimits(1.0, 1.0, 1.0, 0.5)
+    ines = BuyAndHoldAgent("index-1", 100.0, hold_symbols=["SPY"], params={"exit_ma": 5})
+    closes = [10, 10, 10, 10, 10, 9.0]
+    ines.history = {"SPY": deque(Candle("SPY", i, c, c, c, c, 1.0) for i, c in enumerate(closes))}
+    view = MarketView({"SPY": ines.history["SPY"][-1]}, ines.history, {"SPY": 9.0}, step=10)
+    assert ines.decide(view) == []                                    # below the average: stays out
+    ines.wallet.positions["SPY"] = 1.0
+    assert [o.side for o in ines.decide(view)] == ["sell"]
+    ines.history["SPY"].append(Candle("SPY", 6, 12, 12, 12, 12.0, 1.0))
+    ines.wallet.positions["SPY"] = 0.0
+    up = MarketView({"SPY": ines.history["SPY"][-1]}, ines.history, {"SPY": 12.0}, step=11)
+    assert [o.side for o in ines.decide(up)] == ["buy"]
