@@ -557,6 +557,8 @@ def main() -> None:
                     help="comma-separated symbols kept in every window on top of --top")
     bt.add_argument("--benchmark", default=None,
                     help="a symbol held over the same windows for comparison (e.g. SPY)")
+    bt.add_argument("--wyckoff", type=float, default=0.0,
+                    help="weight of the Wyckoff lens on every rule agent (0 = off, the default)")
     bt.add_argument("--fill", default=None, choices=["close", "next_open"],
                     help="fill at the close the agents saw (default) or at the next bar's open")
 
@@ -668,7 +670,14 @@ def main() -> None:
                          align=args.aligned or (floor.name != "crypto" and not args.top))
         sentiment = load_sentiment(args.data or floor.data_dir) if floor.name == "crypto" else {}
         cfg = floor.config(**_overrides(args))
-        report = run_backtest(tape, lambda: build_agents(cfg.budget, False, "", floor=floor.name),
+        def founders():
+            agents = build_agents(cfg.budget, False, "", floor=floor.name)
+            if args.wyckoff:                     # the Wyckoff lens on every rule agent
+                for a in agents:
+                    if hasattr(a, "params"):
+                        a.params["wyckoff"] = args.wyckoff
+            return agents
+        report = run_backtest(tape, founders,
                               cfg, days=args.days or floor.backtest_days,
                               stride_days=args.stride or floor.backtest_stride,
                               warmup_bars=args.warmup or (720 if floor.name == "crypto" else 250),

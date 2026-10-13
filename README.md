@@ -91,6 +91,7 @@ salvo. Um estagiário herda o nome de quem o contratou, com "Jr." e o número:
 | 🐻 | Bruno Urso | Vendedor a descoberto (contratável) | Ganha quando os preços caem | `bear-*` |
 | 🔄 | Rosa Rotação | Rotadora de setores (contratável) | Move o dinheiro para o que está mais forte agora | `rotation-*` |
 | 🎯 | Paulo Recuo | Comprador de recuos (contratável) | Compra quedas, só dentro de uma tendência de alta | `pullback-*` |
+| 📊 | Walter Volume | Leitor de Wyckoff (contratável) | Compra o spring e o sinal de força, sai no upthrust e no sinal de fraqueza | `wyckoff-*` |
 | 🤖 | Clara IA | Analista de IA | Lê o mercado e escreve o próprio plano com um modelo de linguagem | `claude-trader` |
 
 A mesa acima deles: 🚧 **Rick Guarda**, oficial de risco (diz não quando
@@ -944,6 +945,60 @@ dinheiro de verdade vai para o índice.
 ```bash
 cryptoarena backtest --floor stocks --data data/global/etf --benchmark SPY --quiet
 cryptoarena backtest --floor stocks --data <stocks + SPY + QQQ> --top 20 --always SPY,QQQ --benchmark SPY --quiet
+```
+
+### Wyckoff: todos os agentes aprenderam, e o teste mandou desligar
+
+O método de Richard Wyckoff lê o rastro do "grande operador" no preço e
+no volume. Ele **acumula** numa faixa de negociação depois de uma queda e
+**distribui** numa faixa depois de uma alta, deixando eventos no caminho.
+`agents/wyckoff.py` lê esses eventos de forma mecânica:
+
+- **spring**: fura o suporte da faixa e fecha de volta dentro;
+- **sinal de força (SOS)**: fecha acima da resistência com volume 1,5×
+  a média da faixa;
+- **último ponto de suporte (LPS)**: recuo calmo que segura acima da
+  antiga resistência;
+- **upthrust**: passa da resistência e fecha de volta dentro, com volume;
+- **sinal de fraqueza (SOW)**: fecha abaixo do suporte com volume.
+
+Cada leitura vira uma nota de +1 (acumulação concluída) a −1
+(distribuição concluída). Os agentes usam isso de dois jeitos:
+
+- **A lente, em todos os agentes de regra** (`wyckoff`, 0 = desligada;
+  `wyckoff_range` em barras, 40 pregões nas ações e 240 horas no
+  cripto). Ela vende no upthrust e no sinal de fraqueza, nunca compra
+  dentro de um, e põe na frente da fila o nome com spring, SOS ou LPS.
+  Sobrevive a salvar e restaurar a colônia, e os estagiários a herdam.
+- **📊 Walter Volume** (`WyckoffAgent`), um especialista que só opera os
+  eventos.
+
+| Contra a colônia sem Wyckoff | 6 ações (60) | 27 ETFs (111) | top 20 da época (111) | cripto (184) |
+|---|---|---|---|---|
+| colônia sem Wyckoff | +0,52% | −0,68% | +1,81% | +0,55% |
+| todos com a lente | +0,17% (−0,35 pt, t −1,7) | −1,02% (−0,34 pt, t −1,8) | +1,67% (−0,14 pt, t −0,6) | +0,15% (−0,39 pt, t −1,2) |
+| Walter sozinho | +0,32% | −1,16% | +1,52% | **−5,60%** |
+| segurar o índice (SPY / BTC) | +2,70% | +3,30% | +3,30% | +1,98% |
+
+Por janela: 60 pregões nas ações e 30 dias no cripto.
+
+- **A lente piorou a colônia nos quatro universos.** Ela vende em
+  "sinais de fraqueza" que, na maioria das vezes, não continuam, e
+  aumenta as taxas (no cripto, 48 contra 33 no livro do PM).
+- **O Walter sozinho perde do índice em todos**, e no cripto perde feio:
+  em velas de hora aparecem muitos springs e rompimentos falsos.
+- **Não é falta de ajuste.** Faixas de 20, 60 e 100 pregões nas ações e
+  de 120 a 320 horas no cripto dão o mesmo veredito: nenhuma combinação
+  bate o SPY ou o BTC, e a melhor (lente com 60 pregões no top 20, +1,82%)
+  só empata com a colônia sem Wyckoff (+1,81%).
+
+**Veredito**: os agentes sabem Wyckoff, mas a lente fica **desligada**
+(`wyckoff` 0) e o Walter fica **contratável**, não fundador. Ligar é uma
+linha, se um dia o boletim das estratégias mostrar que os eventos
+predizem alguma coisa:
+
+```bash
+cryptoarena backtest --floor stocks --wyckoff 1 --benchmark SPY --quiet    # a lente em todos
 ```
 
 ### Pronto para dinheiro de verdade?

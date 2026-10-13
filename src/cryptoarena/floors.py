@@ -70,7 +70,7 @@ def crypto_founders(cash: float) -> list:
 # run for these names) said the crypto floor's gates only cost
 # participation here: a short 3-month trend filter, full exposure allowed,
 # no market gate, no rank filter, bigger orders.
-STOCK_SHARED = {"trend_filter": 60, "cooldown": 3, "market_gate": 0, "rank_top": 0,
+STOCK_SHARED = {"wyckoff_range": 40, "trend_filter": 60, "cooldown": 3, "market_gate": 0, "rank_top": 0,
                 "max_exposure": 1.0, "order_frac": 0.5}
 
 

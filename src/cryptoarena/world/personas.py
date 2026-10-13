@@ -64,6 +64,9 @@ BY_STRATEGY: dict[str, Persona] = {
                         "Move o dinheiro para o que está mais forte agora."),
     "pullback": Persona("Paulo Recuo", "🎯", "Comprador de recuos",
                         "Compra quedas, mas só dentro de uma tendência de alta."),
+    "wyckoff": Persona("Walter Volume", "📊", "Leitor de Wyckoff",
+                       "Lê o rastro do grande operador: compra o spring e o sinal de força, "
+                       "sai no upthrust e no sinal de fraqueza."),
     "claude-trader": Persona("Clara IA", "🤖", "Analista de IA",
                              "Lê o mercado e escreve o próprio plano de trade com um modelo de linguagem."),
 }

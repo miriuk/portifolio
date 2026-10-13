@@ -2,12 +2,19 @@ from __future__ import annotations
 
 from ..market.exchange import Order
 from .base import MarketView, TradingAgent
+from .wyckoff import BEAR_EVENTS, BULL_EVENTS, cached_read
 
 
 # What a fully trusted source is worth in the ranking: a signal of 1.0 reads
 # like 10 points of extra momentum, and a signal below -0.5 vetoes the buy.
 SIGNAL_TILT = 0.10
 SIGNAL_VETO = 0.5
+
+
+# Disciplines every rule agent carries, whatever its strategy: the Wyckoff
+# lens (agents/wyckoff.py; 0 = off) and the bars its trading range spans
+# (240 hourly bars = 10 days of crypto; the stocks floor sets 40 sessions).
+SHARED_DEFAULTS: dict[str, float] = {"wyckoff": 0.0, "wyckoff_range": 240}
 
 
 class ParamAgent(TradingAgent):
@@ -19,13 +26,17 @@ class ParamAgent(TradingAgent):
     def __init__(self, agent_id: str, starting_cash: float = 10_000.0,
                  params: dict | None = None):
         super().__init__(agent_id, starting_cash)
-        self.params = {**self.DEFAULTS, **(params or {})}
+        self.params = {**SHARED_DEFAULTS, **self.DEFAULTS, **(params or {})}
+
+    def _default(self, key: str):
+        return self.DEFAULTS[key] if key in self.DEFAULTS else SHARED_DEFAULTS.get(key)
 
     def get_params(self) -> dict:
         return dict(self.params)
 
     def set_params(self, params: dict) -> None:
-        self.params.update({k: v for k, v in params.items() if k in self.DEFAULTS})
+        self.params.update({k: v for k, v in params.items()
+                            if k in self.DEFAULTS or k in SHARED_DEFAULTS})
 
     def clone(self, agent_id: str, starting_cash: float, rng=None,
               mutate: bool = False) -> "ParamAgent":
@@ -42,13 +53,12 @@ class ParamAgent(TradingAgent):
 
     def imitate(self, params: dict, rate: float) -> None:
         for key, target in params.items():
-            if key not in self.DEFAULTS or isinstance(target, bool) \
-                    or not isinstance(target, (int, float)):
+            base = self._default(key)
+            if base is None or isinstance(target, bool) or not isinstance(target, (int, float)):
                 continue
-            mine = self.params.get(key, self.DEFAULTS[key])
+            mine = self.params.get(key, base)
             moved = mine + rate * (target - mine)
-            self.params[key] = type(self.DEFAULTS[key])(round(moved) if isinstance(
-                self.DEFAULTS[key], int) else moved)
+            self.params[key] = type(base)(round(moved) if isinstance(base, int) else moved)
 
     def _can_buy(self) -> bool:
         """Enough cash to place an order worth having — relative to the
@@ -94,15 +104,39 @@ class ParamAgent(TradingAgent):
         vetoes new buys while the Crypto Fear & Greed index is above it.
         `signal_bias` (0 = deaf) scales what the sources say: a coin a
         trusted source calls long ranks higher, one it calls short is not
-        bought while the call stands."""
+        bought while the call stands. `wyckoff` (0 = off) reads each name
+        the agent holds or wants as Richard Wyckoff would: it sells on an
+        upthrust or a sign of weakness, never buys into one, and ranks a
+        spring, a sign of strength or a last point of support first."""
         orders = self._protective_exits(view)
         stopped = {o.symbol for o in orders}
+        wy = float(self.params.get("wyckoff", 0) or 0)
+        reads: dict = {}
+
+        def wyckoff(sym: str):
+            if sym not in reads:
+                reads[sym] = cached_read(sym, self.history.get(sym),
+                                         int(self.params.get("wyckoff_range", 240) or 240))
+            return reads[sym]
+        sold = set()
+        if wy:
+            for sym, qty in self.wallet.positions.items():
+                if qty > 0 and sym in view.candles and sym not in stopped \
+                        and wyckoff(sym).event in BEAR_EVENTS:
+                    orders.append(Order(self.agent_id, sym, "sell", qty,
+                                        reason=f"wyckoff {wyckoff(sym).event}"))
+                    sold.add(sym)
         buys: list[Order] = []
         for order in self._decide(view):
             if order.side == "buy" and not order.base_qty:
-                if order.symbol in stopped or not self._trend_ok(order.symbol):
+                if order.symbol in stopped or order.symbol in sold \
+                        or not self._trend_ok(order.symbol):
                     continue
+                if wy and wyckoff(order.symbol).bearish:
+                    continue                     # never buy into distribution
                 buys.append(order)
+            elif order.symbol in sold:
+                continue                         # already on its way out
             else:                                # sells, and covers of a short, pass as they are
                 orders.append(order)
         if buys and not self._market_ok():
@@ -112,6 +146,9 @@ class ParamAgent(TradingAgent):
             buys = []                            # no new longs while the crowd is greedy
         bias = float(self.params.get("signal_bias", 0) or 0)
         lean = {sym: bias * v for sym, v in (view.signals or {}).items()} if bias else {}
+        if wy:
+            for o in buys:
+                lean[o.symbol] = lean.get(o.symbol, 0.0) + wy * wyckoff(o.symbol).score
         if buys and lean:
             buys = [o for o in buys if lean.get(o.symbol, 0.0) > -SIGNAL_VETO]
         top = int(self.params.get("rank_top", 0) or 0)
@@ -575,6 +612,40 @@ class BearAgent(ParamAgent):
             orders.append(Order(self.agent_id, sym, "sell", self._order_amount(view) / price,
                                 reason=f"short {mom:+.1%}"))
             self._last_trade_step = view.step
+        return orders
+
+
+class WyckoffAgent(ParamAgent):
+    """Trades Richard Wyckoff's events and nothing else (agents/wyckoff.py):
+    buys a spring, a sign of strength or a last point of support; sells an
+    upthrust, a sign of weakness, or a close under the range (markdown).
+    No trend filter: a spring comes after a fall by definition."""
+
+    DEFAULTS = {"order_frac": 0.30, "cooldown": 24, "stop_trail": 0.08, "trend_filter": 0,
+                "wyckoff": 1.0, "wyckoff_range": 240,
+                "max_buys": 1, "max_exposure": 0.6, "market_gate": 0, "rank_top": 0,
+                "greed_gate": 0, "signal_bias": 1.0}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._last_trade_step = -999
+
+    def _decide(self, view: MarketView) -> list[Order]:
+        orders = []
+        if view.step - self._last_trade_step < int(self.params["cooldown"]):
+            return orders
+        bars = int(self.params.get("wyckoff_range", 240) or 240)
+        for symbol in view.candles:
+            r = cached_read(symbol, self.history.get(symbol), bars)
+            held = self.wallet.positions.get(symbol, 0.0)
+            if r.event in BULL_EVENTS and held <= 0 and self._can_buy():
+                orders.append(Order(self.agent_id, symbol, "buy", self._order_amount(view),
+                                    reason=f"wyckoff {r.event} ({r.phase})"))
+                self._last_trade_step = view.step
+            elif held > 0 and (r.event in BEAR_EVENTS or r.phase == "markdown"):
+                orders.append(Order(self.agent_id, symbol, "sell", held,
+                                    reason=f"wyckoff {r.event or r.phase}"))
+                self._last_trade_step = view.step
         return orders
 
 
