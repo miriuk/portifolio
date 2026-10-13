@@ -18,7 +18,9 @@ Two roles sit above the agents:
   weighted by its equity), drops symbols too few agents hold
   (`consensus`), and trades only when a weight drifts more than `band`
   from its target. Agent A selling what agent B buys nets out inside the
-  book instead of paying fees twice. The book is a shadow: it does not
+  book instead of paying fees twice. `weighting` can keep the votes'
+  choice of names and their total but split that total by risk instead
+  (portfolio/allocation.py: equal, inverse volatility, HRP). The book is a shadow: it does not
   move the agents' wallets, so the colony and the PM can be compared on
   the same bars — and the backtest decides which one the floor follows.
 """
@@ -26,7 +28,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+import numpy as np
+
 from ..market.exchange import Order
+from ..portfolio.allocation import split
 from ..portfolio.wallet import Wallet
 
 PM_ID = "pm"
@@ -58,8 +63,14 @@ class PMBook:
     """One portfolio built from the agents' holdings (see the module doc)."""
 
     def __init__(self, capital: float, consensus: float = 0.0, band: float = 0.05,
-                 daily_cost: float = 0.0, exchange=None):
+                 daily_cost: float = 0.0, exchange=None, weighting: str = "votes",
+                 lookback: int = 120, refresh: int = 1):
         self.capital = capital
+        self.weighting = weighting
+        self.lookback = lookback             # bars of history the risk split reads
+        self.refresh = refresh               # bars between two risk splits (same names)
+        self._split: dict[str, float] = {}
+        self._split_age = 0
         # its own fills, so the shadow book never touches the agents' slippage draws
         self.exchange = exchange
         self.consensus = consensus
@@ -89,12 +100,28 @@ class PMBook:
         return {sym: v / total for sym, v in value.items()
                 if not self.consensus or holders[sym] / n >= self.consensus - 1e-9}
 
+    def target_weights(self, agents, prices: dict[str, float]) -> dict[str, float]:
+        """The votes, or with a risk `weighting` the same names and the same
+        total invested, split by the names' risk over `lookback` bars."""
+        votes = self.votes(agents, prices)
+        if self.weighting == "votes" or len(votes) < 2:
+            return votes
+        names = sorted(votes)
+        self._split_age += 1
+        if sorted(self._split) != names or self._split_age >= self.refresh:
+            rets = _returns(agents, names, self.lookback)
+            if rets is None:
+                return votes
+            self._split, self._split_age = split(self.weighting, names, rets, votes), 0
+        gross = sum(votes.values())
+        return {s: gross * self._split[s] for s in names}
+
     def rebalance(self, agents, latest: dict, prices: dict[str, float], exchange,
                   ts: int = 0) -> list[dict]:
         """Move the book towards the votes: sells first (they pay for the
         buys), each only when its weight is off by more than `band` — or
         when the desk no longer holds the symbol at all."""
-        targets = self.votes(agents, prices)
+        targets = self.target_weights(agents, prices)
         self.targets = targets
         equity = self.wallet.equity(prices)
         if equity <= 0:
@@ -152,7 +179,8 @@ class PMBook:
     def dump(self) -> dict:
         w = self.wallet
         return {"capital": self.capital, "consensus": self.consensus, "band": self.band,
-                "daily_cost": self.daily_cost,
+                "daily_cost": self.daily_cost, "weighting": self.weighting,
+                "lookback": self.lookback, "refresh": self.refresh,
                 "wallet": {"cash": w.cash, "positions": dict(w.positions),
                            "cost_basis": dict(w.cost_basis), "fees_paid": w.fees_paid},
                 "equity_per_day": self.equity_per_day, "fills": self.fills,
@@ -161,7 +189,8 @@ class PMBook:
     @classmethod
     def load(cls, d: dict) -> "PMBook":
         book = cls(d["capital"], d.get("consensus", 0.0), d.get("band", 0.05),
-                   d.get("daily_cost", 0.0))
+                   d.get("daily_cost", 0.0), weighting=d.get("weighting", "votes"),
+                   lookback=d.get("lookback", 120), refresh=d.get("refresh", 1))
         w = d.get("wallet") or {}
         book.wallet = Wallet(cash=w.get("cash", d["capital"]),
                              positions=dict(w.get("positions", {})),
@@ -171,6 +200,22 @@ class PMBook:
         book.fills = list(d.get("fills", []))
         book.targets = dict(d.get("targets", {}))
         return book
+
+
+def _returns(agents, names: list[str], lookback: int) -> np.ndarray | None:
+    """Log returns of `names` over the last `lookback` bars, from the
+    longest candle history any agent keeps (all agents see the same bars);
+    None when fewer than ten bars are shared."""
+    cols = []
+    for sym in names:
+        hist = max((a.history.get(sym, ()) for a in agents), key=len, default=())
+        cols.append([c.close for c in list(hist)[-(lookback + 1):]])
+    m = min((len(c) for c in cols), default=0)
+    if m < 11:
+        return None
+    closes = np.array([c[-m:] for c in cols], float).T
+    with np.errstate(divide="ignore", invalid="ignore"):
+        return np.diff(np.log(closes), axis=0)
 
 
 @dataclass

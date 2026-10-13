@@ -710,6 +710,161 @@ cryptoarena live --floor stocks --status | jq .desk,.chief                  # a 
 cryptoarena chief --floor stocks                                            # a nota do dia
 ```
 
+### Três ideias de projetos abertos: futuro espiado, boletim dos sinais e HRP
+
+O REA (engenharia reversa de programas fechados) não serve aqui: os
+projetos que valem a pena estudar já são abertos. Por isso as ideias
+foram reescritas a partir do código e dos artigos, sem copiar código.
+
+**1. O backteste espiou o futuro? (a ideia do `lookahead-analysis` do
+[freqtrade](https://github.com/freqtrade/freqtrade))** —
+`arena/lookahead.py`, `cryptoarena lookahead --floor stocks|crypto`.
+
+- **Futuro embaralhado.** Cada janela roda duas vezes. Na segunda, tudo
+  depois de um corte vira outro futuro: os mesmos movimentos embaralhados
+  e com sinal trocado ao acaso, volumes e dias do Fear & Greed também
+  embaralhados. Todo trade e todo evento da colônia até o corte
+  (contratação, dispensa, prêmio, veto) tem de sair idêntico. Uma decisão
+  que muda quando só o futuro mudou estava lendo o futuro. Um teste
+  planta um vazamento de propósito (o volume da barra carregando o
+  fechamento seguinte) para provar que o auditor o pega.
+- **Execução atrasada.** O simulador executa a ordem no fechamento da
+  barra que o agente acabou de ver. Na vida real ela só chega ao mercado
+  na abertura seguinte: uma hora depois no cripto, no pregão seguinte
+  nas ações, depois do gap da noite. `--fill next_open` roda as mesmas
+  janelas executando na próxima abertura, para o agente e para o PM.
+- **Universo.** Conta as vezes em que uma janela deixa de fora um nome
+  que existia no início dela e sumiu antes do fim.
+
+| Resultado | Ações (60 janelas) | Cripto (184 janelas) |
+|---|---|---|
+| Futuro embaralhado, colônia (3 janelas × 3 cortes) | limpo: 308 trades, 3.989 eventos | limpo: 762 trades, 2.044 eventos |
+| Futuro embaralhado, saída por tendência e previsões (drift, LightGBM) | limpo | limpo |
+| Colônia, fechamento → próxima abertura | +0,52% → +0,48% por janela | +0,55% → +0,54% |
+| Livro do PM, idem | +0,50% → +0,44% | +0,67% → +0,67% |
+| Saída por tendência de 20/28 dias, idem | +1,88% → +1,81% | +1,49% → +1,49% |
+| Nomes deixados de fora por sumirem no meio da janela | 0 | 0 |
+
+- **Nada vazou.** Os números que este README mostra não dependem de
+  informação do futuro.
+- **A execução no mesmo fechamento quase não pesa**: nas ações custa
+  0,04 ponto em 60 pregões; no cripto, 0,01 ponto em 30 dias, porque uma
+  hora depois o preço é quase o mesmo. A colônia ao vivo, que executa no
+  papel ao último fechamento, está otimista nessa mesma ordem de
+  grandeza.
+- **O viés que nenhum código remove é a escolha dos nomes.** As 6 ações
+  do andar foram escolhidas hoje. Segurar só a Nvidia rendeu +14,3% por
+  janela de 60 pregões, o SPY +2,7%, e as 6 juntas +5,1%: o "segurar"
+  que a colônia não alcança já carrega o vencedor que só se conhecia
+  depois. No cripto, os CSVs têm só moedas ainda listadas: as que
+  morreram não estão lá.
+
+**2. Boletim dos sinais (a ideia do
+[alphalens](https://github.com/quantopian/alphalens))** —
+`arena/signals.py`, `cryptoarena signals --floor stocks|crypto`.
+
+Os agentes não publicam notas, eles seguram posições: o que cada
+estratégia segura a cada fechamento (o fundador mais os estagiários que
+contratou) é o sinal dela. Em janelas que não se sobrepõem, o boletim
+mede:
+
+- **IC**: a correlação de postos, entre os nomes, entre o peso e o
+  retorno que veio depois (1, 5 e 20 pregões; no cripto, 1, 7 e 28
+  dias). O *t* conta horizontes sobrepostos uma vez só.
+- **escolha**: o que os nomes segurados fizeram depois, menos o
+  universo com pesos iguais.
+- **timing**: se ela estava mais investida antes das altas.
+- **giro**: a fração da carteira negociada por dia.
+
+| Ações, 20 janelas de 60 pregões | IC 20d | t | escolha 20d | t | timing | giro/dia |
+|---|---|---|---|---|---|---|
+| breakout | +0,057 | +0,8 | +0,19% | +0,4 | +0,04 | 1,4% |
+| index | −0,040 | −0,8 | −0,67% | −1,9 | −0,06 | 0,3% |
+| meanrev | −0,026 | −0,2 | +0,09% | +0,0 | −0,02 | 0,5% |
+| momentum | +0,059 | +0,8 | +1,14% | +1,2 | +0,03 | 1,2% |
+| regime | −0,017 | −0,2 | −0,31% | −0,5 | +0,01 | 2,2% |
+| trend | +0,014 | +0,2 | +0,23% | +0,4 | −0,05 | 1,8% |
+| voltarget | −0,148 | −2,2 | −0,54% | −1,0 | +0,01 | 0,8% |
+| colônia | −0,035 | −0,6 | −0,20% | −1,1 | +0,00 | 1,0% |
+
+| Cripto, 62 janelas de 30 dias | IC 28d | t | escolha 1d | t | escolha 7d | t | timing | giro/dia |
+|---|---|---|---|---|---|---|---|---|
+| breakout | +0,033 | +0,7 | +0,10% | +0,7 | +0,85% | +0,8 | +0,09 | 4,0% |
+| meanrev | −0,013 | −0,2 | +0,27% | +1,5 | +0,45% | +0,3 | −0,11 | 1,5% |
+| momentum | −0,001 | −0,0 | +0,17% | +1,5 | +1,05% | +1,4 | +0,09 | 3,1% |
+| regime | +0,011 | +0,2 | +0,43% | +2,9 | +1,71% | +1,5 | +0,09 | 4,9% |
+| trend | +0,021 | +0,5 | +0,17% | +1,6 | +1,23% | +1,6 | +0,10 | 4,6% |
+| voltarget | +0,026 | +0,7 | +0,15% | +1,7 | +0,99% | +1,6 | +0,11 | 3,8% |
+| colônia | +0,022 | +0,6 | +0,13% | +1,8 | +0,78% | +1,6 | +0,09 | 3,0% |
+
+- **Nas ações, nenhuma estratégia escolhe.** Os ICs ficam em torno de
+  zero, e o único *t* acima de 2 em valor absoluto é negativo (voltarget,
+  −2,2). Entre 42 medidas, isso é o que o acaso entrega. O que separa as
+  estratégias no placar é **quanto** elas ficam investidas numa alta,
+  não **o que** escolhem.
+- **No cripto, os nomes escolhidos rendem um pouco mais que a média no
+  dia seguinte e na semana**, todas as estratégias na mesma direção
+  (regime +0,43% num dia, *t* 2,9). Mas o IC de 1 dia é levemente
+  negativo (momentum *t* −2,7), e é o mesmo efeito visto pelo outro lado:
+  o retorno vem de **segurar** o que está subindo, não de **dosar** pelo
+  tamanho da aposta. O ganho é pequeno diante dos 0,26% de taxa por lado
+  e de um giro de 3% a 5% ao dia.
+- O boletim é o que faltava para julgar uma fonte nova (FMP, Quiver) do
+  mesmo jeito: ela entraria aqui antes de ganhar peso na colônia.
+
+**3. HRP e paridade de risco no PM (as ideias do
+[PyPortfolioOpt](https://github.com/robertmartin8/PyPortfolioOpt) e do
+[skfolio](https://github.com/skfolio/skfolio))** —
+`portfolio/allocation.py`, `--pm-weighting votes|equal|inverse_vol|hrp`.
+
+O PM continua usando os votos para decidir **quais** nomes segurar e
+**quanto** investir no total. A diferença está em como esse total é
+dividido entre os nomes:
+
+- **votes**: na proporção dos votos (o atual);
+- **equal**: fatias iguais (o controle);
+- **inverse_vol**: inverso da volatilidade;
+- **hrp**: Hierarchical Risk Parity (López de Prado, 2016). Agrupa os
+  nomes por como andam juntos e divide a árvore de cima para baixo,
+  galho contra galho, pelo inverso da variância de cada galho. Dois
+  nomes que são a mesma aposta (QQQ e Nvidia, BTC e ETH) dividem uma
+  fatia em vez de levar duas. Usa só numpy.
+
+| Ações, 60 janelas | média/janela | desvio entre janelas | queda média na janela | vol. diária | contra os votos |
+|---|---|---|---|---|---|
+| votes (atual) | +0,50% | 5,25% | 3,99% | 0,50% | |
+| equal | +0,29% | 4,59% | 3,75% | 0,46% | −0,21 pt (t −0,8) |
+| inverse_vol | −0,06% | 3,71% | 3,35% | 0,39% | −0,55 pt (t −1,2) |
+| hrp | −0,04% | 3,98% | 3,52% | 0,41% | −0,54 pt (t −1,3) |
+
+| Cripto, 184 janelas | média/janela | pior janela | queda média na janela | vol. diária | taxas |
+|---|---|---|---|---|---|
+| votes (atual) | +0,67% | −10,5% | 5,08% | 0,98% | 33 |
+| equal | +0,22% | −12,6% | 5,03% | 0,91% | 43 |
+| inverse_vol | +0,13% | −11,8% | 4,82% | 0,87% | 44 |
+| hrp | −0,12% | −12,1% | 4,90% | 0,87% | 57 |
+
+- **O HRP faz o que promete: tira risco.** A volatilidade cai de 0,50%
+  para 0,41% ao dia e a queda média na janela de 4,0% para 3,5%. Só que
+  o retorno cai mais do que o risco (por unidade de desvio, +0,095
+  contra −0,011). Nas ações, a divisão por risco tira peso justamente
+  da Nvidia, a mais volátil e a maior vencedora.
+  No cripto o corte de risco é pequeno (0,98% para 0,87% ao dia), a
+  pior janela fica até pior, e o retorno cai 0,79 ponto por janela.
+  Parte disso são taxas: reequilibrar por risco todo dia gira a
+  carteira (57 contra 33). A vantagem do PM no cripto vinha de
+  **compensar** as ordens dos agentes, e qualquer divisão que se afasta
+  dos votos desfaz isso.
+- **O PM segue com os votos.** O HRP fica disponível para o backteste, e
+  o boletim do item 2 é o juiz se um dia o universo mudar.
+
+```bash
+cryptoarena lookahead --floor stocks                       # o auditor completo
+cryptoarena backtest --floor stocks --fill next_open       # execução na abertura seguinte
+cryptoarena signals --floor crypto                         # o boletim das estratégias
+cryptoarena backtest --floor crypto --pm-weighting hrp     # o PM dividindo por risco
+```
+
 ### Pronto para dinheiro de verdade?
 
 Cada tick a colônia pergunta à Kraken o **menor pedido aceito** por

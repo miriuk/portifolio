@@ -20,7 +20,7 @@ from ..agents.base import TradingAgent
 from ..learning.memory import TradeJournal
 from ..learning.reflection import compute_stats, reflect_on_episode
 from ..market.endogenous import EndogenousMarket
-from ..market.exchange import SimulatedExchange
+from ..market.exchange import NextOpenExchange, SimulatedExchange
 from ..market.synthetic import SyntheticMarket
 from .desk import Desk, DeskLimits, PMBook
 from .episode import run_episode
@@ -57,6 +57,8 @@ class SurvivalConfig:
     pm: bool = False                # keep the PM's shadow book (one portfolio from the agents' votes)
     pm_consensus: float = 0.0       # the PM holds a symbol only if this share of the agents do
     pm_band: float = 0.05           # the PM trades a symbol only when it is this far off its target weight
+    pm_weighting: str = "votes"     # split the PM's total by the votes, or "equal" / "inverse_vol" / "hrp"
+    fill: str = "close"             # "close": at the close the agent saw; "next_open": at the next bar's open
 
 
 @dataclass
@@ -117,21 +119,31 @@ def run_survival(
     config: SurvivalConfig | None = None,
     verbose: bool = True,
     market=None,
+    on_bar=None,
 ) -> SurvivalResult:
     """`market` may be given (a replay of real candles, say); otherwise one
-    continuous endogenous or synthetic market is generated."""
+    continuous endogenous or synthetic market is generated. `on_bar` is
+    handed to every day's episode (see run_episode)."""
     cfg = config or SurvivalConfig()
     rng = np.random.default_rng(cfg.seed)
     if market is None:
         symbols = cfg.symbols or {"BTCUSDT": 60_000.0, "ETHUSDT": 3_000.0, "SOLUSDT": 150.0}
         market_cls = EndogenousMarket if cfg.endogenous else SyntheticMarket
         market = market_cls(symbols, seed=int(rng.integers(1 << 31)))  # one continuous market
-    exchange = None if hasattr(market, "execute") else \
-        SimulatedExchange(fee_rate=cfg.fee_rate, seed=int(rng.integers(1 << 31)))
+    next_open = None
+    if getattr(cfg, "fill", "close") == "next_open":
+        next_open = getattr(market, "next_open", None)
+        if next_open is None:
+            raise ValueError("fill='next_open' needs a market that can show the next bar's open")
+    exchange = None
+    if not hasattr(market, "execute"):
+        seed = int(rng.integers(1 << 31))
+        exchange = (NextOpenExchange(next_open, fee_rate=cfg.fee_rate, seed=seed) if next_open
+                    else SimulatedExchange(fee_rate=cfg.fee_rate, seed=seed))
 
     result = SurvivalResult()
     next_id = _next_id_factory(founders)
-    result.desk = make_desk(cfg, journal, capital=cfg.budget * len(founders))
+    result.desk = make_desk(cfg, journal, capital=cfg.budget * len(founders), next_open=next_open)
 
     for agent in founders:
         agent.starting_cash = cfg.budget
@@ -156,19 +168,27 @@ def run_survival(
             result.desk.day = day
         ep = run_episode(day, market, [i.agent for i in alive], journal,
                          steps=cfg.steps_per_day, verbose=False, exchange=exchange,
-                         step_offset=(day - 1) * cfg.steps_per_day, desk=result.desk)
+                         step_offset=(day - 1) * cfg.steps_per_day, desk=result.desk,
+                         on_bar=on_bar)
         _end_of_day(day, alive, ep, cfg, rng, journal, next_id, result, verbose)
         if result.desk is not None and result.desk.pm is not None:
             result.desk.pm.end_day(ep.last_prices)
     return result
 
 
-def make_desk(cfg: SurvivalConfig, journal: TradeJournal, capital: float) -> Desk | None:
-    """The desk the configuration asks for, or None when every role is off."""
+def make_desk(cfg: SurvivalConfig, journal: TradeJournal, capital: float,
+              next_open=None) -> Desk | None:
+    """The desk the configuration asks for, or None when every role is off.
+    `next_open` (the market's peek) makes the PM fill at the next bar's
+    open, like the agents under `fill='next_open'`."""
     limits = DeskLimits(getattr(cfg, "desk_symbol_cap", 0.0) or 0.0,
                         getattr(cfg, "desk_gross_cap", 0.0) or 0.0)
-    pm = (PMBook(capital, cfg.pm_consensus, cfg.pm_band, cfg.daily_cost,
-                 exchange=SimulatedExchange(fee_rate=cfg.fee_rate, seed=cfg.seed))
+    pm_exchange = (NextOpenExchange(next_open, fee_rate=cfg.fee_rate, seed=cfg.seed) if next_open
+                   else SimulatedExchange(fee_rate=cfg.fee_rate, seed=cfg.seed))
+    pm = (PMBook(capital, cfg.pm_consensus, cfg.pm_band, cfg.daily_cost, exchange=pm_exchange,
+                 weighting=getattr(cfg, "pm_weighting", "votes") or "votes",
+                 # a month of hourly bars on crypto, half a year of sessions on stocks
+                 lookback=720 if cfg.steps_per_day > 1 else 120, refresh=cfg.steps_per_day)
           if getattr(cfg, "pm", False) else None)
     if not limits.active and pm is None:
         return None

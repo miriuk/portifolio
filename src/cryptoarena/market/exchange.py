@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 
@@ -73,3 +73,23 @@ class SimulatedExchange:
             quantity=quantity, price=price, fee=fee,
             timestamp=candle.timestamp, reason=order.reason,
         )
+
+
+class NextOpenExchange(SimulatedExchange):
+    """Fills at the *next* bar's open instead of the close the agent just
+    saw. A decision made on a bar's close can only reach the market when it
+    opens again: an hour later on a crypto tape, the next session on a
+    daily stock tape, with the overnight gap in between. `next_open(symbol,
+    ts)` is the market's peek at that open (None at the tape's end, where
+    the close stands in). The fill keeps the decision bar's timestamp."""
+
+    def __init__(self, next_open, fee_rate: float = 0.001, slippage_base: float = 0.0005,
+                 seed: int | None = None):
+        super().__init__(fee_rate=fee_rate, slippage_base=slippage_base, seed=seed)
+        self.next_open = next_open
+
+    def execute(self, order: Order, candle: Candle) -> Fill:
+        px = self.next_open(candle.symbol, candle.timestamp)
+        if px is None or px != px or px <= 0:
+            return super().execute(order, candle)
+        return super().execute(order, replace(candle, close=float(px)))

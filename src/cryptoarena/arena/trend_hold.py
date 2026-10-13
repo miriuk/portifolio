@@ -16,8 +16,9 @@ Signals, each over `days` of hourly closes:
 - btc:    BTC only, while BTC is up
 
 Fees are charged on every buy and sell. The signal uses the bar's close
-and fills at that close; on an hourly crypto tape the next open is the
-same price to within noise.
+and, by default, fills at that close; `fill="next_open"` fills at the next
+bar's open instead, which on a daily stock tape is the next session, past
+the overnight gap (`arena/lookahead.py` measures what that costs).
 """
 from __future__ import annotations
 
@@ -113,19 +114,34 @@ class Run:
 
 
 def simulate(tape: Tape, sig: np.ndarray, start: int, end: int, universe: list[int],
-             fee: float = 0.0026) -> Run:
+             fee: float = 0.0026, fill: str = "close") -> Run:
+    """`fill="close"`: a decision on a bar's close fills at that close.
+    `fill="next_open"`: it fills at the next bar's open (the last bar's
+    decision, with no next bar, is not traded)."""
+    if fill not in ("close", "next_open"):
+        raise ValueError(f"unknown fill {fill!r}")
     idx = np.array(universe)
     decide = np.zeros(len(tape.ts), dtype=bool)
     decide[tape.day_closes()] = True              # once a day, at the close
     cash, units = 1.0, np.zeros(tape.close.shape[1])
     fees, trades, invested = 0.0, 0, 0
     curve = np.empty(end - start + 1)
+    pending = None                                # next_open: the row of signals to act on
     for k, t in enumerate(range(start, end + 1)):
         px = tape.close[t]
-        if t == start or decide[t]:
+        wants = None
+        if fill == "close" and (t == start or decide[t]):
+            wants = sig[t]
+        elif fill == "next_open":
+            if pending is not None:
+                wants, px = pending, tape.open[t]
+                pending = None
+            if t == start or decide[t]:
+                pending = sig[t]
+        if wants is not None:
             slice_ = (cash + np.nansum(units[idx] * px[idx])) / len(idx)
             for i in idx:
-                on = bool(sig[t, i])
+                on = bool(wants[i])
                 if not on and units[i] > 0:
                     proceeds = units[i] * px[i]
                     cash += proceeds * (1 - fee)
@@ -138,6 +154,7 @@ def simulate(tape: Tape, sig: np.ndarray, start: int, end: int, universe: list[i
                     cash -= spend
                     fees += spend * fee
                     trades += 1
+        px = tape.close[t]
         curve[k] = cash + np.nansum(units[idx] * px[idx])
         invested += bool(units[idx].any())
     return Run(curve, fees, trades, invested / len(curve))

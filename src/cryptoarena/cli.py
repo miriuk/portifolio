@@ -159,6 +159,97 @@ def _call(args) -> None:
         journal.close()
 
 
+def _lookahead(args) -> None:
+    """Did a backtest peek at the future? (arena/lookahead.py)"""
+    import importlib.util
+
+    import pandas as pd
+
+    from .arena import trend_hold as th
+    from .arena.backtest import load_sentiment, load_tape
+    from .arena.lookahead import (audit_colony, audit_series, delay_report, format_delay,
+                                  universe_check)
+    from .floors import get_floor
+    from .forecast import daily_closes, walk_forward
+    from .forecast import models as fm
+
+    floor = get_floor(args.floor)
+    crypto = floor.name == "crypto"
+    data = args.data or floor.data_dir
+    frames = load_tape(data, align=not crypto)
+    sentiment = (load_sentiment(data) if crypto else {}) or None
+    cfg = floor.config(**_overrides(args))
+    days = args.days or floor.backtest_days
+    stride = args.stride or floor.backtest_stride
+    warm = args.warmup or (720 if crypto else 250)
+    spd = cfg.steps_per_day
+    make = lambda: build_agents(cfg.budget, False, "", floor=floor.name)   # noqa: E731
+    n = len(next(iter(frames.values())))
+    starts = list(range(0, n - (warm + days * spd) + 1, stride * spd))
+    k = max(1, min(args.probes, len(starts)))
+    picks = sorted({starts[round(i * (len(starts) - 1) / max(1, k - 1))] for i in range(k)})
+
+    print(f"1. scrambled future ({floor.name}: {len(picks)} colony windows, 3 cuts each)")
+    for s0 in picks:
+        a = audit_colony(frames, make, cfg, s0, days, warm, sentiment=sentiment)
+        checked = sum(p.trades_checked for p in a.probes), sum(p.events_checked for p in a.probes)
+        verdict = "clean" if a.clean else "; ".join(p.mismatch for p in a.probes if p.mismatch)
+        print(f"   window from {pd.Timestamp(a.start_ts, unit='s'):%Y-%m-%d}: {verdict} "
+              f"({checked[0]} trades, {checked[1]} colony events checked)")
+    lead = "SPY" if not crypto else None
+    trend_days = 28 if crypto else 20
+    cuts = [n // 3, n // 2, 4 * n // 5]
+    series = {f"trend exit ({kind}, {trend_days}d)": (lambda fr, kind=kind: pd.DataFrame(
+        th.signal(th.Tape.from_frames(fr, lead=lead), kind, trend_days).astype(float),
+        index=th.Tape.from_frames(fr, lead=lead).ts)) for kind in ("btc", "coin")}
+    models = {"drift": fm.Drift}
+    if importlib.util.find_spec("lightgbm"):
+        models["lgbm"] = fm.BoostedLags
+
+    def forecast(fr, model):
+        dl = daily_closes(th.Tape.from_frames(fr, lead=lead))
+        return pd.Series(walk_forward(dl, model(), start=400, horizon=7 if crypto else 5, every=5),
+                         index=dl.ts)
+    for name, model in models.items():
+        series[f"forecast ({name})"] = lambda fr, model=model: forecast(fr, model)
+    for name, compute in series.items():
+        found = audit_series(compute, frames, cuts)
+        print(f"   {name}: {'clean' if not found else '; '.join(found)}")
+
+    print(f"\n2. delayed fill: every window at the close the agents saw, then at the next open")
+    print(format_delay(delay_report(frames, make, cfg, days, stride, warm,
+                                    max_windows=args.windows, sentiment=sentiment)))
+
+    u = universe_check(frames, days, stride, warm, spd)
+    print(f"\n3. universe: {u['windows']} windows, {u['left_out']} times a symbol trading at a "
+          f"window's start was left out because it vanished before the end"
+          + (f" ({', '.join(f'{s} {c}' for s, c in u['symbols'].items())})" if u["symbols"] else ""))
+    print("   the symbols themselves were chosen today: the tape holds only what is still "
+          "listed (survivors), a hindsight no code audit removes")
+
+
+def _signals(args) -> None:
+    """The strategies' tear sheet over non-overlapping backtest windows."""
+    from .arena.backtest import load_sentiment, load_tape
+    from .arena.signals import format_tear_sheet, holdings, tear_sheet
+    from .floors import get_floor
+
+    floor = get_floor(args.floor)
+    crypto = floor.name == "crypto"
+    data = args.data or floor.data_dir
+    frames = load_tape(data, align=not crypto)
+    cfg = floor.config(**_overrides(args))
+    days = args.days or floor.backtest_days
+    hold = holdings(frames, lambda: build_agents(cfg.budget, False, "", floor=floor.name), cfg,
+                    days=days, warmup_bars=args.warmup or (720 if crypto else 250),
+                    max_windows=args.windows,
+                    sentiment=(load_sentiment(data) if crypto else {}) or None)
+    horizons = (1, 7, 28) if crypto else (1, 5, 20)
+    print(f"{hold['window'].nunique()} windows of {days} days, books read at every close; "
+          f"IC and pick spread over the next {', '.join(map(str, horizons))} days")
+    print(format_tear_sheet(tear_sheet(hold, frames, horizons, cfg.steps_per_day)))
+
+
 def _forecasters() -> dict:
     """name -> factory(stocks: bool): the models the forecast bench can run."""
     from .forecast import models as m
@@ -282,7 +373,7 @@ _OVERRIDES = {"budget": "budget", "target": "daily_target", "death": "death_belo
               "pressure": "pressure", "max_pop": "max_population", "seed": "seed",
               "fee": "fee_rate", "learn": "learn", "desk_cap": "desk_symbol_cap",
               "desk_gross": "desk_gross_cap", "pm": "pm", "pm_consensus": "pm_consensus",
-              "pm_band": "pm_band"}
+              "pm_band": "pm_band", "fill": "fill", "pm_weighting": "pm_weighting"}
 
 
 def _overrides(args) -> dict:
@@ -459,6 +550,28 @@ def main() -> None:
     bt.add_argument("--seed", type=int, default=1)
     bt.add_argument("--quiet", action="store_true")
 
+    bt.add_argument("--fill", default=None, choices=["close", "next_open"],
+                    help="fill at the close the agents saw (default) or at the next bar's open")
+
+    la = sub.add_parser("lookahead", help="audit the backtests for peeks at the future")
+    la.add_argument("--floor", default="stocks", choices=["crypto", "stocks"])
+    la.add_argument("--data", default=None, help="directory of CSVs (default: the floor's)")
+    la.add_argument("--days", type=int, default=None)
+    la.add_argument("--stride", type=int, default=None)
+    la.add_argument("--warmup", type=int, default=None)
+    la.add_argument("--probes", type=int, default=3, help="colony windows to scramble")
+    la.add_argument("--windows", type=int, default=None,
+                    help="delayed fill: only the last N windows (default all)")
+    la.add_argument("--seed", type=int, default=1)
+
+    sg = sub.add_parser("signals", help="tear sheet: does each strategy's book predict returns?")
+    sg.add_argument("--floor", default="stocks", choices=["crypto", "stocks"])
+    sg.add_argument("--data", default=None, help="directory of CSVs (default: the floor's)")
+    sg.add_argument("--days", type=int, default=None, help="days per window (windows do not overlap)")
+    sg.add_argument("--warmup", type=int, default=None)
+    sg.add_argument("--windows", type=int, default=None, help="only the last N windows")
+    sg.add_argument("--seed", type=int, default=1)
+
     for p in (live, bt):
         p.add_argument("--desk-cap", type=float, default=None,
                        help="the desk's cap on one symbol, all agents together, as a share of "
@@ -471,6 +584,9 @@ def main() -> None:
                        help="the PM holds a symbol only if this share of the agents do")
         p.add_argument("--pm-band", type=float, default=None,
                        help="the PM trades a symbol only when this far off its target weight")
+        p.add_argument("--pm-weighting", default=None,
+                       choices=["votes", "equal", "inverse_vol", "hrp"],
+                       help="how the PM splits its total among the names the votes chose")
 
     lessons = sub.add_parser("lessons", help="show an agent's learned lessons")
     lessons.add_argument("agent_id")
@@ -530,6 +646,10 @@ def main() -> None:
         _t212(args)
     elif args.command == "chief":
         _chief(args)
+    elif args.command == "lookahead":
+        _lookahead(args)
+    elif args.command == "signals":
+        _signals(args)
     elif args.command == "backtest":
         from .arena.backtest import (format_by_year, format_summary, load_sentiment, load_tape,
                                      run_backtest)

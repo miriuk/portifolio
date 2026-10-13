@@ -86,7 +86,8 @@ class TapeSlice:
 
     def __init__(self, tape: dict[str, pd.DataFrame], start: int, length: int,
                  sentiment: dict[int, int] | None = None):
-        self._rows = {sym: df.iloc[start:start + length].to_numpy() for sym, df in tape.items()}
+        # one row past the window, so a delayed fill can peek at the next open
+        self._rows = {sym: df.iloc[start:start + length + 1].to_numpy() for sym, df in tape.items()}
         self._cols = {sym: list(df.columns) for sym, df in tape.items()}
         self._i = 0
         self._length = length
@@ -99,6 +100,13 @@ class TapeSlice:
             if day - back in self._sentiment:
                 return self._sentiment[day - back]
         return None
+
+    def next_open(self, symbol: str, ts: int) -> float | None:
+        """The open of the bar after the one just served (None past the tape)."""
+        rows = self._rows.get(symbol)
+        if rows is None or self._i >= len(rows):
+            return None
+        return float(rows[self._i][self._cols[symbol].index("open")])
 
     def next_candles(self) -> list[Candle]:
         if self._i >= self._length:
@@ -129,6 +137,8 @@ class WindowResult:
     symbols: int = 0                        # coins that existed for the whole window
     pm_return: float | None = None          # the PM's shadow book over the same days, when kept
     pm_fees: float = 0.0
+    pm_drawdown: float = 0.0                # the PM book's worst fall from a daily high in the window
+    pm_vol: float = 0.0                     # the standard deviation of its daily returns
     vetoes: int = 0                         # orders the desk's risk officer refused
     clipped: int = 0                        # orders it cut down to the room left
 
@@ -198,6 +208,9 @@ class BacktestReport:
                 "pm_beats_hold": sum(r > w.hold_return for r, w in pm) / len(pm),
                 "pm_beats_colony": sum(r > w.colony_return for r, w in pm) / len(pm),
                 "pm_fees": sum(w.pm_fees for _, w in pm),
+                "pm_drawdown": statistics.fmean(w.pm_drawdown for _, w in pm),
+                "pm_vol": statistics.fmean(w.pm_vol for _, w in pm),
+                "pm_worst": min(rets),
             })
         return out
 
@@ -235,6 +248,14 @@ def run_backtest(tape: dict[str, pd.DataFrame], make_founders, cfg: SurvivalConf
                     prices = {sym: float(df.iloc[last]["close"]) for sym, df in sub.items()}
                     w.pm_return = res.desk.pm.wallet.equity(prices) / res.desk.pm.capital - 1
                     w.pm_fees = res.desk.pm.wallet.fees_paid
+                    curve = [res.desk.pm.capital] + list(res.desk.pm.equity_per_day)
+                    peak, dd = curve[0], 0.0
+                    for v in curve:
+                        peak = max(peak, v)
+                        dd = max(dd, 1 - v / peak if peak > 0 else 0.0)
+                    w.pm_drawdown = dd
+                    daily = [b / a - 1 for a, b in zip(curve, curve[1:]) if a > 0]
+                    w.pm_vol = statistics.pstdev(daily) if len(daily) > 1 else 0.0
             report.windows.append(w)
         finally:
             journal.close()
@@ -309,6 +330,8 @@ def format_summary(summary: dict) -> str:
         lines.append(f"PM book mean {summary['pm_mean']:+.2%} (median {summary['pm_median']:+.2%}, "
                      f"positive {summary['pm_positive']:.0%}) · beats hold {summary['pm_beats_hold']:.0%} "
                      f"· beats the colony {summary['pm_beats_colony']:.0%} · fees {summary['pm_fees']:.2f}")
+        lines.append(f"PM risk: worst window {summary['pm_worst']:+.2%} · mean fall in a window "
+                     f"{summary['pm_drawdown']:.2%} · daily volatility {summary['pm_vol']:.2%}")
     for s, d in summary["strategies"].items():
         lines.append(f"  {s:<14} mean {d['mean']:+.2%}  median {d['median']:+.2%}  "
                      f"positive {d['positive']:.0%}  beats hold {d['beats_hold']:.0%}")

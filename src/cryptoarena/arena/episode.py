@@ -42,6 +42,7 @@ def run_episode(
     record_step_offset: int = 0,
     risk: dict[str, RiskManager] | None = None,
     desk=None,
+    on_bar=None,
 ) -> EpisodeResult:
     """One episode: agents live through `steps` hourly candles.
 
@@ -64,6 +65,9 @@ def run_episode(
     rebalances a shadow book after each bar. With a risk officer on, the
     agents take turns being first in line, so the room under a cap does
     not always go to the same one.
+
+    `on_bar(agents, prices, ts)` is called after every bar's trades: a
+    read-only window on the books for an observer (arena/signals.py).
     """
     if exchange is None:
         exchange = market if hasattr(market, "execute") else SimulatedExchange()
@@ -155,6 +159,8 @@ def run_episode(
         if desk is not None:
             desk.after_bar(agents, latest, prices, exchange,
                            ts=candles[0].timestamp if candles else 0)
+        if on_bar is not None and candles:
+            on_bar(agents, prices, candles[0].timestamp)
 
     for agent in agents:
         result.halted[agent.agent_id] = risk[agent.agent_id].halted
