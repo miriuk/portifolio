@@ -418,7 +418,7 @@ def _t212(args) -> None:
     import os
     import time
 
-    from .broker.mirror import colony_holdings, mirror, report, summarize
+    from .broker.mirror import AccountUnreadable, colony_holdings, mirror, report, summarize
     from .broker.trading212 import PracticeAccount
     from .floors import get_floor
 
@@ -443,8 +443,14 @@ def _t212(args) -> None:
     log = args.execute and not paused              # only a run that reaches the account counts
     try:
         steps = mirror(account, target, universe, execute=args.execute, paused=paused)
+    except AccountUnreadable:
+        if log:                                    # nothing sent: a missed night, not an incident
+            _log_mirror_run(args.db or floor.default_db,
+                            {"orders": 0, "problems": 0, "missed": 1, "tracking": None,
+                             "unlisted": None, "aim": {}}, time.time())
+        raise
     except Exception:
-        if log:                                    # the account could not even be read: an incident
+        if log:                                    # something broke mid-run: an incident
             _log_mirror_run(args.db or floor.default_db,
                             {"orders": 0, "problems": 1, "tracking": None, "unlisted": None,
                              "aim": {}}, time.time())
@@ -459,7 +465,8 @@ def _t212(args) -> None:
         _log_mirror_run(args.db or floor.default_db, run, time.time())
         print(f"readiness log: {run['orders']} order(s) sent, {run['problems']} problem(s)"
               + (f", {run['tracking']:.1%} of the last aim not held"
-                 if run["tracking"] is not None else ", first run (nothing to compare yet)"))
+                 if run["tracking"] is not None
+                 else ", tracking not measured (first run, or orders still waiting for the open)"))
 
 
 def _log_mirror_run(db: str, run: dict, ts: float) -> None:

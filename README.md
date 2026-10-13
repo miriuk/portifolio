@@ -1415,22 +1415,27 @@ uma linha traçada depois dos resultados cai onde eles estão.
 | **tempo** | 126 pregões (seis meses; o ideal é 252, um ano) **sob as mesmas regras** |
 | **retorno** | a colônia à frente de segurar o SPY no mesmo período, já descontadas as próprias taxas |
 | **queda** | a pior queda da colônia, de um pico ao fundo, não mais funda que a do SPY no período |
-| **espelho** | a conta Practice da Trading 212 acompanhando: 20 execuções no mínimo, nenhuma com ordem falhada ou sem resposta, e em média no máximo 5% do que a execução anterior mirou faltando na conta |
+| **espelho** | a conta Practice da Trading 212 acompanhando, noite a noite: 20 noites medidas no mínimo, nenhuma ordem falhada ou sem resposta, a conta ilegível em no máximo 10% das noites, e em média no máximo 5% do que a noite anterior mirou faltando na conta |
 
 - **O relógio zera sozinho** quando as regras mudam: a configuração do
-  andar, quem são os fundadores, o cinto que o andar dá a cada um e o
-  **código** das estratégias (sem comentários nem docstrings) viram uma
-  impressão digital. Mudou, a contagem recomeça do fechamento seguinte, e
-  a mudança aparece no feed da mesa. O que a impressão não enxerga (como as
-  ordens são executadas, a mesa, o gerente de risco) se declara à mão,
-  subindo `REVISION`.
+  andar (comparada com o retrato tirado quando o relógio começou), quem
+  são os fundadores, o cinto que o andar dá a cada um, o **código** das
+  estratégias (sem comentários nem docstrings), as fontes que eles escutam
+  e o próprio placar viram uma impressão digital. Mudou, a contagem
+  recomeça do fechamento seguinte, e a mudança aparece no feed da mesa.
+  Mexer num critério também zera: a linha não se move depois de traçada.
+  O que a impressão não enxerga (como as ordens são executadas, a mesa, o
+  gerente de risco) se declara à mão, subindo `REVISION`.
 - **O espelho deixa um registro por execução** no diário da colônia:
-  ordens enviadas, ordens com problema, quanto do que a execução anterior
-  mirou a conta não tinha (pega ordem recusada na abertura, preenchimento
-  parcial, mão na conta) e quanto da carteira fica só no papel porque a
-  corretora não lista o papel (SPY e QQQ não são vendidos a contas do Reino
-  Unido). **Só contagens e proporções**: nenhum saldo da conta vai para o
-  banco público.
+  ordens enviadas, ordens com problema, se a conta não pôde ser lida
+  (nada enviado: conta como noite perdida, não como incidente), quanto do
+  que a execução anterior mirou a conta não tinha (pega ordem recusada na
+  abertura, preenchimento parcial, mão na conta; não se mede enquanto uma
+  ordem ainda espera a abertura) e quanto da carteira fica só no papel
+  porque a corretora não lista o papel (SPY e QQQ não são vendidos a
+  contas do Reino Unido). A nova tentativa das 05:30 e qualquer reexecução
+  contam dentro da mesma noite. **Só contagens e proporções**: nenhum
+  saldo da conta vai para o banco público.
 - **A Cleo** (chefe de gabinete) põe uma linha do placar em toda nota do
   dia e abre uma issue **só quando os quatro critérios forem atingidos**;
   se um deixar de valer, a issue fecha sozinha.

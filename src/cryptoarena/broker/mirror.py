@@ -24,9 +24,14 @@ followed the previous run's aim — as counts and ratios, never balances.
 from __future__ import annotations
 
 import math
+import urllib.error
 from dataclasses import dataclass, field
 
 from .trading212 import OrderUncertain, PracticeAccount, T212Error
+
+
+class AccountUnreadable(RuntimeError):
+    """The account could not be read: nothing was sent."""
 
 
 @dataclass
@@ -83,7 +88,8 @@ def plan(target: dict[str, float], universe: list[str], instruments: list[dict],
          positions: list[dict], pending: list[dict], decimals: int = 2) -> tuple[list, list[Step]]:
     """(orders to send as (symbol, ticker, quantity, book), sells first; notes).
     `book` is {"want": the colony's shares, "have": the account's, pending
-    orders included}, kept on every step of a listed symbol."""
+    orders included, "queued": the pending part}, kept on every step of a
+    listed symbol."""
     held = {p.get("ticker") or (p.get("instrument") or {}).get("ticker"): p for p in positions}
     queued = _pending(pending)
     orders, notes = [], []
@@ -97,7 +103,8 @@ def plan(target: dict[str, float], universe: list[str], instruments: list[dict],
             continue
         pos = held.get(ticker) or {}
         have = float(pos.get("quantity") or 0.0) + queued.get(ticker, 0.0)
-        book = {"want": round(want, 6), "have": round(have, 6)}
+        book = {"want": round(want, 6), "have": round(have, 6),
+                "queued": round(queued.get(ticker, 0.0), 6)}
         qty = _trunc(want - have, decimals)
         if qty < 0:
             sellable = float(pos.get("quantityAvailableForTrading", pos.get("quantity", 0.0)) or 0.0)
@@ -114,8 +121,12 @@ def mirror(account: PracticeAccount, target: dict[str, float], universe: list[st
            execute: bool = False, paused: bool = False, decimals: int = 2) -> list[Step]:
     if paused:
         return [Step("-", "hold", {"reason": "paused (T212_PAUSE)"})]
-    orders, notes = plan(target, universe, account.instruments(), account.positions(),
-                         account.pending_orders(), decimals)
+    try:
+        instruments, positions, pending = (account.instruments(), account.positions(),
+                                           account.pending_orders())
+    except (T212Error, urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
+        raise AccountUnreadable(str(exc)) from exc
+    orders, notes = plan(target, universe, instruments, positions, pending, decimals)
     steps = list(notes)
     stopped = False
     for sym, ticker, qty, book in orders:
@@ -129,7 +140,7 @@ def mirror(account: PracticeAccount, target: dict[str, float], universe: list[st
             continue
         try:
             order = account.market_order(ticker, qty)
-        except OrderUncertain as exc:
+        except (OrderUncertain, ValueError) as exc:  # sent, but no answer that reads as one
             steps.append(Step(sym, "uncertain", {"ticker": ticker, "quantity": qty, **book,
                                                  "error": str(exc)}))
             stopped = True
@@ -148,11 +159,12 @@ def summarize(steps: list[Step], prices: dict[str, float], previous: dict[str, f
 
     - `orders`: orders sent; `problems`: orders that failed or went
       unanswered (a run with none is `ok`);
-    - `tracking`: before this run sent anything, how far the account (held
-      plus still queued) was from what the previous run aimed it at, as a
-      share of that aim's value at today's prices. It catches what the run
-      itself cannot see: an order rejected at the open, a partial fill, a
-      hand in the account. None on the first run;
+    - `tracking`: before this run sent anything, how far the account was
+      from what the previous run aimed it at, as a share of that aim's
+      value at today's prices. It catches what the run itself cannot see:
+      an order rejected at the open, a partial fill, a hand in the account.
+      None on the first run, and while an order still waits for the open
+      (the 05:30 retry after the 01:30 run): it cannot be judged yet;
     - `unlisted`: the share of the colony's positions the broker does not
       list, which stays on paper;
     - `aim`: the shares this run aimed the account at, for tomorrow's
@@ -160,7 +172,8 @@ def summarize(steps: list[Step], prices: dict[str, float], previous: dict[str, f
     """
     book = {s.symbol: s.detail for s in steps if "want" in s.detail}
     tracking = None
-    if previous is not None and book:
+    waiting = any(d.get("queued") for d in book.values())
+    if previous is not None and book and not waiting:
         base = sum(abs(previous.get(sym, 0.0)) * prices.get(sym, 0.0) for sym in book)
         gap = sum(abs(previous.get(sym, 0.0) - d["have"]) * prices.get(sym, 0.0)
                   for sym, d in book.items())
@@ -170,6 +183,7 @@ def summarize(steps: list[Step], prices: dict[str, float], previous: dict[str, f
                 for s in steps if s.action == "missing")
     return {"orders": sum(1 for s in steps if s.action in ("buy", "sell")),
             "problems": sum(1 for s in steps if s.action in ("error", "uncertain")),
+            "missed": 0,
             "tracking": None if tracking is None else round(tracking, 6),
             "unlisted": round(paper / (listed + paper), 6) if listed + paper > 0 else 0.0,
             "aim": {sym: d["want"] for sym, d in book.items()}}

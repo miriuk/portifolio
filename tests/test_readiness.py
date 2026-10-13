@@ -17,17 +17,19 @@ from test_chief import QUIET, FakeGitHub, status
 from test_live_colony import HOUR, T0, FakeClient, cfg, make_feed
 
 POLICY = ReadinessPolicy(benchmark="SPY", min_days=5, ideal_days=10, max_tracking=0.05,
-                         min_mirror_runs=3)
+                         min_mirror_nights=3)
 DAY = 86400
+START = 12 * DAY                                  # a UTC midnight
 
 
-def ledger(colony, spy, founding=None, t0=1_000_000):
+def ledger(colony, spy, founding=None, t0=START):
     founding = founding or [colony[0]] * len(colony)
     return [[t0 + i * DAY, c, f, s] for i, (c, f, s) in enumerate(zip(colony, founding, spy))]
 
 
-def runs(n, ok=True, tracking=0.0, t0=1_000_000):
-    return [{"ts": t0 + i * DAY + 3600, "ok": ok, "problems": 0 if ok else 1,
+def runs(n, ok=True, tracking=0.0, t0=START):
+    """One run a night, at 01:30."""
+    return [{"ts": t0 + i * DAY + 5400, "ok": ok, "problems": 0 if ok else 1, "missed": False,
              "tracking": tracking, "unlisted": 0.4} for i in range(n)]
 
 
@@ -42,7 +44,7 @@ def test_nothing_yet_is_nothing_met():
 def test_every_criterion_met_is_ready():
     # six sessions after the baseline: the colony up 6% with a 1% dip, SPY up 3% with a 2% dip
     card = scorecard(ledger([100, 101, 100, 102, 104, 105, 106], [50, 49, 50, 51, 51, 51, 51.5]),
-                     1_000_000, runs(3), POLICY)
+                     START, runs(3), POLICY)
     assert card["days"] == 6
     assert [c["met"] for c in card["criteria"]] == [True, True, True, True]
     assert card["ready"] and card["colony_return"] == pytest.approx(0.06)
@@ -51,17 +53,17 @@ def test_every_criterion_met_is_ready():
 
 
 def test_behind_or_falling_deeper_than_the_benchmark_is_not_ready():
-    behind = scorecard(ledger([100] * 7, [50, 50, 50, 50, 50, 50, 51]), 1_000_000, runs(3), POLICY)
+    behind = scorecard(ledger([100] * 7, [50, 50, 50, 50, 50, 50, 51]), START, runs(3), POLICY)
     assert behind["criteria"][1]["met"] is False and not behind["ready"]
     deeper = scorecard(ledger([100, 90, 95, 100, 105, 108, 110], [50, 49, 50, 51, 51, 51, 51]),
-                       1_000_000, runs(3), POLICY)
+                       START, runs(3), POLICY)
     assert deeper["criteria"][1]["met"] is True and deeper["criteria"][2]["met"] is False
 
 
 def test_money_added_is_not_return():
     # a hire on day 3 brings 50 of fresh money: the colony itself was flat
     card = scorecard(ledger([100, 100, 150, 150, 150, 150], [50] * 5 + [51],
-                            founding=[100, 100, 150, 150, 150, 150]), 1_000_000, runs(3), POLICY)
+                            founding=[100, 100, 150, 150, 150, 150]), START, runs(3), POLICY)
     assert card["colony_return"] == pytest.approx(0.0)
 
 
@@ -72,14 +74,44 @@ def test_only_sessions_under_the_current_rules_count():
     assert card["colony_return"] == pytest.approx(0.05)  # the crash before it is not counted
 
 
-def test_the_mirror_needs_enough_runs_no_incident_and_close_tracking():
+def test_the_mirror_needs_enough_nights_no_incident_and_close_tracking():
     rows = ledger([100, 101, 102, 103, 104, 105], [50, 50, 50, 50, 50, 50])
-    assert scorecard(rows, 1_000_000, runs(2), POLICY)["criteria"][3]["met"] is None
+    assert scorecard(rows, START, runs(2), POLICY)["criteria"][3]["met"] is None
     trouble = runs(3)
     trouble[1].update(ok=False, problems=1)
-    assert scorecard(rows, 1_000_000, trouble, POLICY)["criteria"][3]["met"] is False
-    loose = scorecard(rows, 1_000_000, runs(3, tracking=0.08), POLICY)
+    assert scorecard(rows, START, trouble, POLICY)["criteria"][3]["met"] is False
+    loose = scorecard(rows, START, runs(3, tracking=0.08), POLICY)
     assert loose["criteria"][3]["met"] is False and "8.0%" in loose["criteria"][3]["value"]
+
+
+def test_the_retry_and_reruns_fold_into_their_night():
+    rows = ledger([100, 101, 102, 103, 104, 105], [50] * 6)
+    nightly = runs(3, tracking=0.08)
+    # the 05:30 retry and a rerun at noon the same days, everything already in line
+    again = [{**m, "ts": m["ts"] + 4 * 3600, "tracking": 0.0} for m in nightly] + \
+            [{**m, "ts": m["ts"] + 10 * 3600, "tracking": 0.0} for m in nightly]
+    card = scorecard(rows, START, nightly + again, POLICY)
+    assert card["criteria"][3]["met"] is False                  # 8%, not diluted to 2.7%
+    assert card["criteria"][3]["value"].startswith("3 noites do espelho (3 medidas)")
+    # two runs a night do not make a night count twice towards the minimum
+    two = runs(1) + [{**runs(1)[0], "ts": runs(1)[0]["ts"] + 4 * 3600}]
+    assert scorecard(rows, START, two, POLICY)["criteria"][3]["met"] is None
+
+
+def test_an_unreadable_account_is_a_missed_night_judged_as_a_share():
+    rows = ledger([100, 101, 102, 103, 104, 105], [50] * 6)
+    policy = ReadinessPolicy(benchmark="SPY", min_days=5, min_mirror_nights=10, max_missed=0.1)
+    missed = {"problems": 0, "missed": True, "tracking": None, "unlisted": None}
+    one = runs(10) + [{**missed, "ts": START + 20 * DAY}]
+    assert scorecard(rows, START, one, policy)["criteria"][3]["met"] is True   # 1 of 11
+    three = runs(10) + [{**missed, "ts": START + (20 + i) * DAY} for i in range(3)]
+    card = scorecard(rows, START, three, policy)
+    assert card["criteria"][3]["met"] is False and "3 sem conseguir ler a conta" in \
+        card["criteria"][3]["value"]
+    # a retry that reads the account the same night saves it
+    saved = runs(10) + [{**missed, "ts": START + 20 * DAY},
+                        {**runs(1)[0], "ts": START + 20 * DAY + 4 * 3600}]
+    assert "sem conseguir" not in scorecard(rows, START, saved, policy)["criteria"][3]["value"]
 
 
 def test_the_stocks_floor_agreed_on_six_months_against_spy():
@@ -108,13 +140,29 @@ def test_the_fingerprint_ignores_the_run_and_sees_the_rules():
     assert fingerprint(floor.config(), tuned, POLICY_PARAMS) == base
 
 
-def test_a_new_option_with_a_neutral_default_changes_nothing():
+def test_the_config_is_compared_with_the_snapshot_the_clock_started_with():
+    floor = FLOORS["stocks"]
+    cfg_ = floor.config()
+    snapshot = rd.rules_config(cfg_)
+    assert rd.rules_config(cfg_, snapshot) == snapshot          # nothing changed
+    # a snapshot taken before an option existed: the option at its default changes nothing
+    older = {k: v for k, v in snapshot.items() if k != "pm_weighting"}
+    assert rd.rules_config(cfg_, older) == older
+    assert rd.rules_config(floor.config(pm_weighting="hrp"), older) != older
+    # a field the floor never set, whose value moved (a new default the tick copies in)
+    moved = floor.config(desk_gross_cap=0.8)
+    assert rd.rules_config(moved, snapshot) != snapshot
+
+
+def test_the_sources_and_the_policy_are_part_of_the_rules():
     floor = FLOORS["stocks"]
     founders = floor.build_founders(100.0)
-    cfg_ = floor.config()
-    # what the floor leaves at the default is not part of the hash
-    assert fingerprint(cfg_, founders, POLICY_PARAMS) == \
-        fingerprint(floor.config(pm_weighting="votes"), founders, POLICY_PARAMS)
+    base = fingerprint(floor.config(), founders, POLICY_PARAMS, floor.sources, floor.readiness)
+    assert fingerprint(floor.config(), founders, POLICY_PARAMS, [], floor.readiness) != base
+    louder = [type(s)(**{**s.__dict__, "prior": 0.5}) for s in floor.sources]
+    assert fingerprint(floor.config(), founders, POLICY_PARAMS, louder, floor.readiness) != base
+    qqq = ReadinessPolicy(benchmark="QQQ")
+    assert fingerprint(floor.config(), founders, POLICY_PARAMS, floor.sources, qqq) != base
 
 
 def _twin_a():
@@ -157,7 +205,7 @@ def _open(path, client, founders, readiness=POLICY):
 
 
 def test_the_live_colony_keeps_the_ledger_and_restarts_the_clock_on_new_rules(tmp_path):
-    policy = ReadinessPolicy(benchmark="BTCUSD", min_days=2, min_mirror_runs=1)
+    policy = ReadinessPolicy(benchmark="BTCUSD", min_days=2, min_mirror_nights=1)
     client = FakeClient()
     client.now = T0 + 120 * HOUR                     # the first closed bar ends day 1
     db = tmp_path / "live.db"
@@ -214,7 +262,7 @@ def test_a_bare_resume_and_a_floor_without_a_policy_touch_nothing(tmp_path):
 
 
 def test_the_mirror_runs_count_from_the_moment_the_rules_took_over(tmp_path, monkeypatch):
-    policy = ReadinessPolicy(benchmark="BTCUSD", min_days=1, min_mirror_runs=1)
+    policy = ReadinessPolicy(benchmark="BTCUSD", min_days=1, min_mirror_nights=1)
     client = FakeClient()
     client.now = T0 + 120 * HOUR
     db = tmp_path / "live.db"
@@ -245,6 +293,10 @@ def test_a_mirror_run_is_counts_and_ratios():
            Step("NVDA", "buy", {"ticker": "NVDA_US_EQ", "quantity": 2.0, "want": 2.0, "have": 0.0})]
     run = summarize(nxt, prices, first["aim"])
     assert run["tracking"] == pytest.approx(200 / 800) and run["problems"] == 0
+    # the 05:30 retry: the 01:30 orders wait for the open, nothing to judge yet
+    waiting = [Step("AAPL", "hold", {"shares": 3.0, "want": 3.0, "have": 3.0, "queued": 0.0}),
+               Step("NVDA", "hold", {"shares": 2.0, "want": 2.0, "have": 2.0, "queued": 2.0})]
+    assert summarize(waiting, prices, run["aim"])["tracking"] is None
 
 
 def test_the_journal_keeps_the_runs_and_the_last_aim(tmp_path):
@@ -252,10 +304,11 @@ def test_the_journal_keeps_the_runs_and_the_last_aim(tmp_path):
     assert journal.last_mirror_aim() is None
     journal.record_mirror_run(10, {"orders": 2, "problems": 0, "tracking": None, "unlisted": 0.5,
                                    "aim": {"AAPL": 1.5}})
-    journal.record_mirror_run(20, {"orders": 0, "problems": 1, "tracking": None, "aim": {}})
+    journal.record_mirror_run(20, {"orders": 0, "problems": 0, "missed": 1, "tracking": None,
+                                   "aim": {}})
     assert journal.last_mirror_aim() == {"AAPL": 1.5}       # a run that never read the account
     got = journal.mirror_runs(since=15)
-    assert [(r["ts"], r["ok"], r["problems"]) for r in got] == [(20, False, 1)]
+    assert [(r["ts"], r["ok"], r["problems"], r["missed"]) for r in got] == [(20, False, 0, True)]
     journal.close()
 
 
@@ -290,13 +343,46 @@ def test_the_cli_logs_an_executed_run_but_not_a_rehearsal(tmp_path, monkeypatch,
     assert got[0]["tracking"] is None and got[1]["tracking"] == pytest.approx(0.0)
     assert got[0]["aim"] == {"AAPL": 2.0} and got[0]["unlisted"] == pytest.approx(500 / 900)
     assert "readiness log" in capsys.readouterr().out
+    # the account cannot be read: the night is logged as missed, not as an incident
+    def down(req, timeout=None):
+        raise OSError("connection reset")
+    monkeypatch.setattr(trading212.PracticeAccount, "from_env",
+                        classmethod(lambda cls, env=None: cls("k", "s", opener=down,
+                                                              sleep=lambda s: None)))
+    with pytest.raises(Exception):
+        cli.main()
+    journal = TradeJournal(db)
+    last = journal.mirror_runs()[-1]
+    journal.close()
+    assert last["missed"] and last["problems"] == 0 and last["orders"] == 0
+
+
+def test_a_read_is_tried_again_after_a_passing_failure_and_an_order_never_is():
+    import io
+    import urllib.error
+    from cryptoarena.broker.trading212 import OrderUncertain, PracticeAccount
+    calls = []
+
+    def flaky(req, timeout=None):
+        calls.append(req.get_method())
+        if len(calls) == 1:
+            raise urllib.error.HTTPError(req.full_url, 502, "bad gateway", {}, io.BytesIO(b""))
+        if req.get_method() == "POST":
+            raise urllib.error.URLError("reset")
+        return io.BytesIO(b"[]")
+
+    acc = PracticeAccount("k", "s", opener=flaky, sleep=lambda s: None)
+    assert acc.positions() == [] and calls == ["GET", "GET"]
+    with pytest.raises(OrderUncertain):
+        acc.market_order("AAPL_US_EQ", 1.0)
+    assert calls.count("POST") == 1                          # sent once, never again
 
 
 # ------------------------------------------------------------------ the chief
 def test_the_chief_carries_the_line_and_calls_the_owner_only_when_all_are_met():
     policy = ChiefPolicy(benchmark="SPY", min_days=10)
     ready = scorecard(ledger([100, 101, 102, 103, 104, 105, 106], [50] * 6 + [51]),
-                      1_000_000, runs(3), POLICY)
+                      START, runs(3), POLICY)
     ready["rules_day"] = 4
     note = report(status(1010.0, 101.0), QUIET, {"price": 100.0}, 1000.0, policy,
                   now=1_790_000_000.0, readiness=ready)
@@ -305,7 +391,7 @@ def test_the_chief_carries_the_line_and_calls_the_owner_only_when_all_are_met():
     assert "nunca opera dinheiro real" in note["decisions"][0]["body"]
     gh = FakeGitHub()
     assert sync_issues(gh, "stocks", note)[0].startswith("opened #1")
-    not_yet = scorecard(ledger([100, 101], [50, 51]), 1_000_000, [], POLICY)
+    not_yet = scorecard(ledger([100, 101], [50, 51]), START, [], POLICY)
     later = report(status(1010.0, 101.0, day=13), QUIET, {"price": 100.0}, 1000.0, policy,
                    now=1_790_000_000.0, readiness=not_yet)
     assert later["decisions"] == []

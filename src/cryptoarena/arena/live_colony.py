@@ -35,7 +35,7 @@ from ..world.personas import persona
 from .chief import ChiefPolicy, bench_start, day_activity, report
 from .desk import PMBook
 from .episode import EpisodeResult, run_episode
-from .readiness import ReadinessPolicy, fingerprint, scorecard
+from .readiness import ReadinessPolicy, fingerprint, rules_config, scorecard
 from .survival import (Individual, SurvivalConfig, SurvivalResult, _end_of_day,
                        _next_id_factory, _strategy_name, make_desk)
 
@@ -154,8 +154,11 @@ class LiveColony:
         colony.chief = chief
         colony.readiness_policy = readiness
         if readiness is not None:                 # the clock starts with the first closed session
-            colony.rules = {"fingerprint": fingerprint(cfg, founders, POLICY_PARAMS),
-                            "since": None, "day": colony.day, "at": int(time.time())}
+            config = rules_config(cfg)
+            colony.rules = {"fingerprint": fingerprint(config, founders, POLICY_PARAMS,
+                                                       colony.sources, readiness),
+                            "config": config, "since": None, "day": colony.day,
+                            "at": int(time.time())}
             journal.record_survival_event(
                 colony.day, "chief", "rules_changed", sum(i.budget for i in colony.result.population),
                 detail=f"regras {colony.rules['fingerprint']}: o relógio da prontidão para "
@@ -247,11 +250,19 @@ class LiveColony:
         the new baseline, and the change goes on the desk feed."""
         if not founders or self.readiness_policy is None:
             return
-        fp = fingerprint(self.cfg, founders, POLICY_PARAMS)
-        if self.rules is not None and self.rules.get("fingerprint") == fp:
+        args = (founders, POLICY_PARAMS, self.sources, self.readiness_policy)
+        if self.rules is not None and self.rules.get("config") is not None and \
+                fingerprint(rules_config(self.cfg, self.rules["config"]), *args) == \
+                self.rules.get("fingerprint"):
             return
         before = (self.rules or {}).get("fingerprint")
-        self.rules = {"fingerprint": fp, "since": None, "day": self.day, "at": int(time.time())}
+        config = rules_config(self.cfg)            # the new snapshot the clock compares with
+        fp = fingerprint(config, *args)
+        if fp == before:                           # the same rules, only the snapshot was missing
+            self.rules["config"] = config
+            return
+        self.rules = {"fingerprint": fp, "config": config, "since": None, "day": self.day,
+                      "at": int(time.time())}
         self.ledger = []
         self._ledger_row()                          # the last close is the new baseline
         equity = sum(i.agent.wallet.equity(self.last_prices) for i in self.alive)

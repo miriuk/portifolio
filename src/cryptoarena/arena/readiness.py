@@ -11,17 +11,23 @@ results is drawn where they happen to be.
    sessions, net of its own fees;
 3. **fall**: the colony's worst fall from a high no deeper than the
    benchmark's over the same sessions;
-4. **mirror**: the Trading 212 practice account following the colony —
-   no execution incident in its runs, and on average no more than
-   `max_tracking` of the colony's position value left uncovered.
+4. **mirror**: the Trading 212 practice account following the colony,
+   judged night by night (the 05:30 retry and any rerun fold into their
+   night): at least `min_mirror_nights` nights measured, no order that
+   failed or went unanswered, the account unreadable on no more than
+   `max_missed` of the nights, and on average no more than `max_tracking`
+   of what the previous night aimed at missing from the account.
 
 The clock is the rules' fingerprint (`fingerprint`): the floor's
 configuration, who its founders are, the seatbelt the floor gives each,
-and the code of their strategies, hashed. Any change to them — a new
-agent, a bigger seatbelt, another target, an edited strategy — starts the
-count again from the session that closes next. A change the hash cannot
-see (how fills are priced, the desk, a helper the strategies call) is
-declared by bumping `REVISION`. Nothing here can trade: the colony and
+the code of their strategies, the sources they listen to, and this
+policy itself, hashed. Any change to them — a new agent, a bigger
+seatbelt, another target, an edited strategy, a criterion moved — starts
+the count again from the session that closes next. The configuration is
+compared with the snapshot the clock started with (`rules_config`), so
+an option added later with a neutral default changes nothing. A change
+the hash cannot see (how fills are priced, the desk, a helper the
+strategies call) is declared by bumping `REVISION`. Nothing here can trade: the colony and
 the mirror stay on paper and on the practice account, and meeting every
 criterion only opens an issue for the owner to decide by hand.
 """
@@ -50,8 +56,9 @@ class ReadinessPolicy:
     benchmark: str = "SPY"
     min_days: int = 126           # about six months of sessions
     ideal_days: int = 252         # a year
-    max_tracking: float = 0.05    # mean share of the colony's position value the account leaves uncovered
-    min_mirror_runs: int = 20     # runs of the mirror before it can be judged
+    max_tracking: float = 0.05    # mean share of the previous night's aim missing from the account
+    min_mirror_nights: int = 20   # nights the mirror is measured before it can be judged
+    max_missed: float = 0.10      # share of the nights the account may be unreadable
 
 
 def _code(cls: type) -> str:
@@ -75,17 +82,32 @@ def _code(cls: type) -> str:
     return hashlib.sha256("\n".join(out).encode()).hexdigest()[:16]
 
 
-def fingerprint(cfg, founders, params: tuple[str, ...] | None = None) -> str:
-    """A short hash of the floor's rules: its configuration (the values
-    that differ from the defaults, so a new option added with a neutral
-    default changes nothing; minus what varies between runs), every
-    founder's id and kind, the `params` the floor imposes on it (all of
-    them when None), the code of each kind, and `REVISION`."""
+def _plain(value):
+    return json.loads(json.dumps(value, default=str))
+
+
+def rules_config(cfg, baseline: dict | None = None) -> dict:
+    """The configuration the clock counts, as JSON: every field minus what
+    varies between runs when the clock starts (`baseline` None); after
+    that, the fields in the snapshot it started with plus any field added
+    since whose value is not its neutral default."""
+    current = _plain({k: v for k, v in asdict(cfg).items() if k not in _NOT_RULES})
+    if baseline is None:
+        return current
     defaults = {f.name: (f.default if f.default is not MISSING else
                          f.default_factory() if f.default_factory is not MISSING else MISSING)
                 for f in fields(cfg)}
-    config = {k: v for k, v in asdict(cfg).items()
-              if k not in _NOT_RULES and (defaults.get(k, MISSING) is MISSING or v != defaults[k])}
+    return {k: v for k, v in current.items()
+            if k in baseline or defaults.get(k, MISSING) is MISSING or v != _plain(defaults[k])}
+
+
+def fingerprint(cfg, founders, params: tuple[str, ...] | None = None, sources=(),
+                policy: "ReadinessPolicy | None" = None) -> str:
+    """A short hash of the floor's rules: its configuration (`cfg`, or a
+    `rules_config` dict), every founder's id and kind, the `params` the
+    floor imposes on it (all of them when None), the code of each kind,
+    the sources' trust settings, this policy, and `REVISION`."""
+    config = cfg if isinstance(cfg, dict) else rules_config(cfg)
     people, kinds = [], {}
     for f in sorted(founders, key=lambda a: a.agent_id):
         given = (f.get_params() if hasattr(f, "get_params") else None) or {}
@@ -93,8 +115,11 @@ def fingerprint(cfg, founders, params: tuple[str, ...] | None = None) -> str:
             given = {k: v for k, v in given.items() if k in params}
         people.append([f.agent_id, type(f).__name__, given])
         kinds.setdefault(type(f).__name__, _code(type(f)))
+    listen = sorted([s.handle, s.prior, s.horizon_days, s.min_resolved] for s in sources)
     blob = json.dumps({"revision": REVISION, "config": config, "founders": people,
-                       "code": kinds}, sort_keys=True, default=str)
+                       "code": kinds, "sources": listen,
+                       "policy": asdict(policy) if policy is not None else None},
+                      sort_keys=True, default=str)
     return hashlib.sha256(blob.encode()).hexdigest()[:16]
 
 
@@ -124,22 +149,29 @@ def scorecard(ledger: list[list[float]], since_ts: int | None, mirror_runs: list
     """The four criteria from `since_ts` on. `ledger` rows: [close ts,
     colony equity, founders' budget, benchmark close] per closed session,
     the first one the baseline the others are measured from; `mirror_runs`:
-    {ts, ok, problems, tracking, unlisted} per run of the mirror."""
+    {ts, problems, missed, tracking, unlisted} per run of the mirror."""
     rows = [r for r in ledger if since_ts is not None and r[0] >= since_ts
             and r[1] and r[3]]
     days = max(len(rows) - 1, 0)                 # sessions after the baseline
     colony_ret = bench_ret = colony_fall = bench_fall = None
-    if days >= 2:
+    if days >= 1:
         index = _chain(rows)
         colony_ret = index[-1] - 1
         bench_ret = rows[-1][3] / rows[0][3] - 1
         colony_fall = _max_fall(index)
         bench_fall = _max_fall([r[3] for r in rows])
-    runs = [m for m in mirror_runs if since_ts is not None and m["ts"] >= since_ts]
-    problems = sum(1 for m in runs if not m["ok"])
-    gaps = [m["tracking"] for m in runs if m.get("tracking") is not None]
+    runs = sorted((m for m in mirror_runs if since_ts is not None and m["ts"] >= since_ts),
+                  key=lambda m: m["ts"])
+    nights: dict[int, list[dict]] = {}
+    for m in runs:                                # the 01:30 run, the 05:30 retry, a rerun: one night
+        nights.setdefault(int(m["ts"]) // 86400, []).append(m)
+    bad = sum(1 for night in nights.values() if any(m.get("problems") for m in night))
+    missed = sum(1 for night in nights.values() if all(m.get("missed") for m in night))
+    gaps = [next(m["tracking"] for m in night if m.get("tracking") is not None)
+            for night in nights.values() if any(m.get("tracking") is not None for m in night)]
     tracking = sum(gaps) / len(gaps) if gaps else None
-    paper = runs[-1].get("unlisted") if runs else None
+    paper = next((m["unlisted"] for m in reversed(runs) if m.get("unlisted") is not None), None)
+    missed_share = missed / len(nights) if nights else 0.0
 
     criteria = [
         {"key": "time", "label": "tempo sob as mesmas regras",
@@ -154,15 +186,18 @@ def scorecard(ledger: list[list[float]], since_ts: int | None, mirror_runs: list
          "value": ("sem dados ainda" if colony_fall is None else
                    f"colônia {colony_fall:.1%} contra {policy.benchmark} {bench_fall:.1%}")},
         {"key": "mirror", "label": "conta Practice acompanhando, sem incidente",
-         "met": (None if len(runs) < policy.min_mirror_runs else
-                 problems == 0 and tracking is not None and tracking <= policy.max_tracking),
-         "value": (f"{len(runs)} execuções do espelho, {problems} com problema"
-                   + (f", {tracking:.1%} da posição descoberta em média" if tracking is not None
-                      else "")
+         "met": (None if len(gaps) < policy.min_mirror_nights else
+                 bad == 0 and missed_share <= policy.max_missed
+                 and tracking <= policy.max_tracking),
+         "value": (f"{len(nights)} noites do espelho ({len(gaps)} medidas), {bad} com ordem "
+                   "falhada ou sem resposta"
+                   + (f", {missed} sem conseguir ler a conta" if missed else "")
+                   + (f", {tracking:.1%} do que a noite anterior mirou faltando em média"
+                      if tracking is not None else "")
                    + (f", {paper:.0%} da carteira só no papel (fora da lista da corretora)"
                       if paper else "")
-                   + (f" (julga a partir de {policy.min_mirror_runs})"
-                      if len(runs) < policy.min_mirror_runs else ""))},
+                   + (f" (julga a partir de {policy.min_mirror_nights} noites medidas)"
+                      if len(gaps) < policy.min_mirror_nights else ""))},
     ]
     met = sum(1 for c in criteria if c["met"] is True)
     return {"since": since_ts, "days": days, "criteria": criteria, "met": met,

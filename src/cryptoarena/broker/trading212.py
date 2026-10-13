@@ -76,11 +76,17 @@ class PracticeAccount:
         return json.loads(raw) if raw else None
 
     def _get(self, path: str, query: dict | None = None, attempts: int = 3):
+        """A read, tried again on a rate limit or a passing failure: unlike
+        an order, asking twice changes nothing."""
         for attempt in range(attempts):
             try:
                 return self._call("GET", path, query=query)
             except T212Error as exc:
-                if exc.status != 429 or attempt == attempts - 1:
+                if exc.status not in (408, 429, 500, 502, 503, 504) or attempt == attempts - 1:
+                    raise
+                self._sleep(6 * (attempt + 1))
+            except (urllib.error.URLError, TimeoutError, OSError):
+                if attempt == attempts - 1:
                     raise
                 self._sleep(6 * (attempt + 1))
         raise RuntimeError("unreachable")
