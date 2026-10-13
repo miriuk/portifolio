@@ -19,11 +19,13 @@ def test_the_feed_orders_a_day_trades_then_desk_then_the_chief_and_escapes_html(
         dict(day=4, agent_id="momentum-2", event="survived", detail="cost 0.03"),   # not on the feed
     ])
     rows = build_feed(trades, events)
-    assert [r["tag"] for r in rows] == ["CHIEF", "PM", "RISK", "MOMENTUM-1", "MEANREV-1"]
-    assert rows[2]["text"].startswith("trend-1 · buy NVDA refused") and rows[2]["tone"] == "red"
+    assert [r["tag"] for r in rows] == ["CHIEF", "PM", "RISK", "🏃 Rita", "🪃 Bea"]
+    assert [r.get("who") for r in rows[:3]] == ["🗂️ Cleo", "📒 Pam", "🚧 Rick"]
+    assert rows[2]["text"].startswith("Tomás Bússola · buy NVDA refused") and rows[2]["tone"] == "red"
     assert rows[3]["text"] == "buy NVDA 36.38 · momentum +4.49%"
     html = render_feed(rows)
     assert "<b>" not in html and "&lt;b&gt;" in html
+    assert "🚧 Rick" in html and "🏃 Rita" in html
 
 
 def test_an_empty_journal_says_so():

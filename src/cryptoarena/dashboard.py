@@ -28,6 +28,7 @@ from cryptoarena.agents.llm import ClaudeTraderAgent
 from cryptoarena.arena import background
 from cryptoarena.arena.background import RunConfig
 from cryptoarena.world.feed import build_feed, render_feed
+from cryptoarena.world.personas import display, persona
 from cryptoarena.world.render import build_state, render_world
 
 
@@ -120,12 +121,13 @@ def lineage_dot(events: pd.DataFrame) -> str:
              '  edge [color="#888888"];']
     for _, r in born.iterrows():
         aid = r["agent_id"]
+        pid = r["parent_id"] if isinstance(r["parent_id"], str) else None
         color = palette.get(r["strategy"], "#94a3b8")
         if aid in died.index:
-            label = f"{aid}\\nlet go · day {int(died[aid])}"
+            label = f"{persona(aid, pid).name}\\nlet go · day {int(died[aid])}"
             lines.append(f'  "{aid}" [label="{label}", fillcolor="#3f3f46", fontcolor="#a1a1aa"];')
         else:
-            label = f"{aid}\\ngen {int(r['generation'])} · {latest_equity[aid]:,.0f}"
+            label = f"{persona(aid, pid).name}\\ngen {int(r['generation'])} · {latest_equity[aid]:,.0f}"
             lines.append(f'  "{aid}" [label="{label}", fillcolor="{color}", fontcolor="white"];')
         if isinstance(r["parent_id"], str) and r["parent_id"]:
             lines.append(f'  "{r["parent_id"]}" -> "{aid}" [label="day {int(r["day"])}", '
@@ -184,7 +186,8 @@ def colony_view(events: pd.DataFrame) -> None:
         "spared": "spared by immunity", "trained": "weekly training",
         "senior": "senior specialist"})
     with st.expander(f"event log ({len(notable)} events)"):
-        st.dataframe(notable[["day", "agent_id", "event", "equity", "detail"]]
+        notable["who"] = [display(a) for a in notable["agent_id"]]
+        st.dataframe(notable[["day", "who", "agent_id", "event", "equity", "detail"]]
                      .sort_values("day", ascending=False),
                      width="stretch", hide_index=True, height=260)
 
@@ -197,7 +200,8 @@ def leaderboard(summary: pd.DataFrame) -> pd.DataFrame:
     for agent_id, sub in summary.groupby("agent_id"):
         wins, losses = sub["n_wins"].sum(), sub["n_losses"].sum()
         rows.append({
-            "agent": agent_id,
+            "agent": display(agent_id),
+            "id": agent_id,
             "episodes": len(sub),
             "return": compound_return(sub),
             "win_rate": wins / (wins + losses) if (wins + losses) else float("nan"),
@@ -358,7 +362,8 @@ def main() -> None:
                        "state and never stored")
             if state["agents"]:
                 vitals = pd.DataFrame(state["agents"])[
-                    ["agent_id", "role", "alive", "generation", "mood", "activity", "energy",
+                    ["name", "title", "power", "agent_id", "role", "alive", "generation", "mood",
+                     "activity", "energy",
                      "stress", "focus", "motivation", "ego", "equity", "day_return", "streak",
                      "misses", "parties", "awards", "immune_until", "spared", "lessons",
                      "mentor"]].replace(
@@ -500,6 +505,7 @@ def data_view(equity: pd.DataFrame, summary: pd.DataFrame, trades: pd.DataFrame,
         equity = equity.sort_values(["agent_id", "episode", "step"]).copy()
         equity["t"] = equity.groupby("agent_id").cumcount()
         pivot = equity.pivot(index="t", columns="agent_id", values="equity")
+        pivot.columns = [display(c) for c in pivot.columns]
         st.line_chart(pivot)
 
     col1, col2 = st.columns(2)
@@ -507,7 +513,8 @@ def data_view(equity: pd.DataFrame, summary: pd.DataFrame, trades: pd.DataFrame,
         st.subheader("Recent trades")
         if not trades.empty:
             st.dataframe(
-                trades[["agent_id", "episode", "symbol", "side", "price",
+                trades.assign(who=[display(a) for a in trades["agent_id"]])[
+                    ["who", "agent_id", "episode", "symbol", "side", "price",
                         "pnl", "regime", "reason"]],
                 width="stretch", height=380, hide_index=True,
             )

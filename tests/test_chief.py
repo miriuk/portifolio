@@ -43,7 +43,7 @@ def test_the_days_trades_and_the_desks_refusals_are_in_the_note():
     note = report(status(1000.0, 100.0), activity, {"price": 100.0}, 1000.0, POLICY, now=NOW)
     text = " ".join(note["lines"])
     assert "comprou NVDA (4× $146.00)" in text and "vendeu AAPL" in text
-    assert "barrou ou cortou 1" in text and "trend-1" in text
+    assert "barrou ou cortou 1" in text and "Tomás Bússola" in text
 
 
 def test_the_benchmark_starts_at_the_founding_bar():

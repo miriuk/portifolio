@@ -31,6 +31,7 @@ from ..market import sec
 from ..market.sources import Call, Post, Source, parse_calls, signals, trust
 from ..portfolio.risk import RiskManager
 from ..portfolio.wallet import Wallet
+from ..world.personas import persona
 from .chief import ChiefPolicy, bench_start, day_activity, report
 from .desk import PMBook
 from .episode import EpisodeResult, run_episode
@@ -637,7 +638,9 @@ class LiveColony:
             "sources": self.sources_summary(),
             "readiness": self.readiness(),
             "desk": self.desk_status(),
-            "agents": [{"id": i.agent_id, "gen": i.generation, "budget": round(i.budget, 4),
+            "agents": [{"id": i.agent_id, "name": persona(i.agent_id, i.parent_id).name,
+                        "title": persona(i.agent_id, i.parent_id).title,
+                        "gen": i.generation, "budget": round(i.budget, 4),
                         "equity": round(equity[i.agent_id], 4), "streak": i.streak,
                         "misses": i.misses, "immune_until": i.immune_until}
                        for i in alive],

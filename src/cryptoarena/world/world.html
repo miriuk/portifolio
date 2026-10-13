@@ -79,6 +79,9 @@ interns.forEach((a, i) => {
   a.desk = { x: ROOM.x + 0.6 + col * 1.7, y: ROOM.y + 0.5 + row * 1.15 };
 });
 const byId = Object.fromEntries(alive.map(a => [a.agent_id, a]));
+const NAMES = (STATE && STATE.names) || {};
+const nm = id => (id && NAMES[id]) || id;
+const first = a => (a.name || a.agent_id).split(' ')[0];
 const mentorOf = a => byId[a.mentor] || byId[a.parent_id] || seniors[hash(a.agent_id) % Math.max(1, seniors.length)] || null;
 // happy hour: the evening of a party day everyone gathers at the lounge
 const PARTY = (STATE && STATE.party) || { active: false, winners: [], employee: null, week: 0 };
@@ -163,7 +166,7 @@ function drawDesk(a, t) {
   const glow = a.day_return > 0 ? '#22c55e' : a.day_return < 0 ? '#ef4444' : '#38bdf8';
   const s = iso(x + 0.8, y + 0.19, (small ? 12 : 14) + 10); ctx.fillStyle = glow; ctx.globalAlpha = .55 + .25 * Math.sin(t / 300 + hash(a.agent_id));
   ctx.fillRect(s.x - 9, s.y - 6, 18, 8); ctx.globalAlpha = 1;
-  label(a.agent_id, x + 0.8, y + (small ? 0.7 : 0.9), -2, '#cbd5e1', small ? 9 : 10);
+  label(a.name || a.agent_id, x + 0.8, y + (small ? 0.7 : 0.9), -2, '#cbd5e1', small ? 9 : 10);
 }
 function drawCouch() { cube(couch.x, couch.y, 2.2, 0.9, 10, '#6b3a3a'); cube(couch.x, couch.y, 2.2, 0.25, 22, '#7a4444'); }
 function drawCoffee() { cube(coffee.x, coffee.y, 0.7, 0.7, 26, '#475569'); const p = iso(coffee.x + .35, coffee.y + .35, 30); ctx.fillStyle = '#fbbf24'; ctx.fillRect(p.x - 2, p.y - 2, 4, 4); }
@@ -181,7 +184,7 @@ function drawFrame() {   // employee of the week, on the back wall where everyon
   if (PARTY.employee) {
     const e = byId[PARTY.employee] || { strategy: 'other' };
     ctx.fillStyle = strategyColor(e.strategy); ctx.fillRect(w / 2 - 7, -h + 19, 14, 10); ctx.fillStyle = '#f5d0b0'; ctx.fillRect(w / 2 - 4, -h + 12 + 0, 0, 0);
-    ctx.fillStyle = '#0f172a'; ctx.font = 'bold 8px ui-sans-serif'; ctx.fillText(PARTY.employee, w / 2, -h + 38);
+    ctx.fillStyle = '#0f172a'; ctx.font = 'bold 8px ui-sans-serif'; ctx.fillText(nm(PARTY.employee), w / 2, -h + 38);
     ctx.fillStyle = '#64748b'; ctx.font = '7px ui-sans-serif'; ctx.fillText('week ' + PARTY.week, w / 2, -h + 47);
   } else { ctx.fillStyle = '#94a3b8'; ctx.font = '7px ui-sans-serif'; ctx.fillText('(nobody yet)', w / 2, -h + 30); }
   ctx.restore();
@@ -198,7 +201,7 @@ function drawExit() {    // door on the left wall, and the notice about who was 
   if (gone.length) {
     const n = iso(exit.x, exit.y + 2.6, 46); ctx.fillStyle = '#e2e8f0'; ctx.fillRect(n.x - 46, n.y - 30, 92, 12 + gone.length * 11);
     ctx.fillStyle = '#334155'; ctx.font = 'bold 8px ui-sans-serif'; ctx.fillText('LET GO · missed target', n.x, n.y - 21);
-    ctx.font = '8px ui-sans-serif'; gone.forEach((g, i) => ctx.fillText(g.agent_id, n.x, n.y - 10 + i * 11));
+    ctx.font = '8px ui-sans-serif'; gone.forEach((g, i) => ctx.fillText(g.name || g.agent_id, n.x, n.y - 10 + i * 11));
   }
 }
 
@@ -289,9 +292,9 @@ const LINES = {
               a => `Saw someone from HR looking at my desk. Not a good sign.`],
   exhausted: [a => `${a.trades_today} trades today. I need the couch.`,
               a => `Drawdown ate my energy. Waking me up only for ${sym(a)} breakouts.`],
-  determined: [a => `${recentlyGone[0] ? recentlyGone[0] + ' got let go this week.' : 'Someone got let go.'} Not me. Target today, no excuses.`,
+  determined: [a => `${recentlyGone[0] ? nm(recentlyGone[0]) + ' got let go this week.' : 'Someone got let go.'} Not me. Target today, no excuses.`,
                a => `Worried? Yes. Stopping? No. ${sym(a)} owes me ${(a.budget * 0.005).toFixed(0)} bucks by close.`,
-               a => `The frame on the wall says ${PARTY.employee || 'nobody'}. Next week it says ${a.agent_id}.`],
+               a => `The frame on the wall says ${nm(PARTY.employee) || 'nobody'}. Next week it says ${a.name}.`],
   proud: [a => `${a.awards ? "Frame's got my name on it." : "Two parties in a row."} Ask me anything.`,
           a => `${a.strategy} pays. I keep telling the interns.`,
           a => `Ego? No. Track record. ${(a.window_return * 100).toFixed(1)}% this week.`],
@@ -322,16 +325,16 @@ const REPLIES = {
 };
 const REGIME_LINES = { crash: `Regime flipped to crash. Who's still long?`, mania: `Mania. This is where clones are made — and buried.`,
   bull: `Bull tape. Even meanrev is smiling.`, bear: `Bear tape. Targets are going to be brutal.`, chop: `Chop again. Fees win in chop.` };
-const EVENT_LINES = e => e.event === 'born' ? `Welcome to the intern room, ${e.agent_id}. Same target, smaller budget.`
-  : e.event === 'died' ? `Heads up: ${e.agent_id} was let go for missing the target. Desk's empty.`
-  : e.event === 'retired' ? `${e.agent_id} retired today: the floor dropped that specialty. Five years of tape said so.`
-  : e.event === 'spared' ? `${e.agent_id} was below the line today — last week's win kept them here.`
-  : e.event === 'trained' ? `${e.agent_id} rewrote half their playbook after ${e.other || 'the best specialist'}'s week.`
-  : `${e.agent_id} hired an intern. Someone actually made money.`;
-const ASK = [(a, m) => `${m.agent_id}, got a minute? Missed the target ${a.misses > 1 ? a.misses + ' days running' : 'yesterday'}.`,
-             (a, m) => isSenior(m) ? `${m.agent_id}, you're the only book in the green. How do you size it?` : `${m.agent_id}, what am I doing wrong in ${R}?`,
-             (a, m) => `Any tips on ${sym(a)}, ${m.agent_id}? My book says buy and my gut says run.`,
-             (a, m) => `How do you survive ${R}, ${m.agent_id}?`];
+const EVENT_LINES = e => e.event === 'born' ? `Welcome to the intern room, ${nm(e.agent_id)}. Same target, smaller budget.`
+  : e.event === 'died' ? `Heads up: ${nm(e.agent_id)} was let go for missing the target. Desk's empty.`
+  : e.event === 'retired' ? `${nm(e.agent_id)} retired today: the floor dropped that specialty. Five years of tape said so.`
+  : e.event === 'spared' ? `${nm(e.agent_id)} was below the line today — last week's win kept them here.`
+  : e.event === 'trained' ? `${nm(e.agent_id)} rewrote half their playbook after ${nm(e.other) || 'the best specialist'}'s week.`
+  : `${nm(e.agent_id)} hired an intern. Someone actually made money.`;
+const ASK = [(a, m) => `${first(m)}, got a minute? Missed the target ${a.misses > 1 ? a.misses + ' days running' : 'yesterday'}.`,
+             (a, m) => isSenior(m) ? `${first(m)}, you're the only book in the green. How do you size it?` : `${first(m)}, what am I doing wrong in ${R}?`,
+             (a, m) => `Any tips on ${sym(a)}, ${first(m)}? My book says buy and my gut says run.`,
+             (a, m) => `How do you survive ${R}, ${first(m)}?`];
 const tipText = a => a.tip ? 'Tip: ' + (a.tip.split('—').pop() || a.tip).trim().replace(/\.$/, '') + '.'
   : 'Tip: trade less. Fees win in chop, patience wins the rest.';
 
@@ -346,7 +349,7 @@ function scheduleAt(slot) {          // deterministic conversation for a 6s slot
     const w = PARTY.winners[Math.floor(rand(s + 8) * PARTY.winners.length)];
     if (winnerIds.has(a.agent_id) && rand(s + 9) < 0.5) return [{ who: a, text: pick(BRAG, s + 10)(a), at: 0 }];
     const fan = alive.filter(x => !winnerIds.has(x.agent_id))[Math.floor(rand(s + 11) * Math.max(1, alive.length - winnerIds.size))] || a;
-    const talk = [{ who: fan, text: pick(PRAISE, s + 12)(w.agent_id, fmtRet(w.ret)), at: 0 }];
+    const talk = [{ who: fan, text: pick(PRAISE, s + 12)(nm(w.agent_id), fmtRet(w.ret)), at: 0 }];
     if (byId[w.agent_id]) talk.push({ who: byId[w.agent_id], text: pick(BRAG, s + 13)(byId[w.agent_id]), at: 2600 });
     return talk;
   }
@@ -360,7 +363,7 @@ function scheduleAt(slot) {          // deterministic conversation for a 6s slot
   if (alive.length > 1 && rand(s + 4) < 0.6) {
     let b = alive[Math.floor(rand(s + 5) * alive.length)]; if (b === a) b = alive[(alive.indexOf(a) + 1) % alive.length];
     const key = Object.keys(REPLIES).find(k => b.strategy.startsWith(k)) || 'other';
-    talk.push({ who: b, text: pick(REPLIES[key], s + 6)(a.agent_id.split('-')[0]), at: 2600 });
+    talk.push({ who: b, text: pick(REPLIES[key], s + 6)(first(a)), at: 2600 });
   }
   return talk;
 }
@@ -405,8 +408,8 @@ function renderHud() {
     (interns.length ? `<span>interns <b>${interns.length}</b></span>` : '') +
     (gone.length ? `<span>let go <b>${gone.length}</b></span>` : '') +
     (partyOn ? `<span style="color:#fbbf24">🎉 happy hour · week ${PARTY.week}</span>` : '') +
-    (PARTY.employee ? `<span>🏆 <b>${PARTY.employee}</b></span>` : '') +
-    (SENIOR ? `<span>🌟 senior <b>${SENIOR.agent_id}</b> ${pct(SENIOR.ret)}</span>` : '') +
+    (PARTY.employee ? `<span>🏆 <b>${nm(PARTY.employee)}</b></span>` : '') +
+    (SENIOR ? `<span>🌟 senior <b>${nm(SENIOR.agent_id)}</b> ${pct(SENIOR.ret)}</span>` : '') +
     `<span>colony <b>${fmt(c.equity)}</b></span>` + (STATE.running ? '<span style="color:#22c55e">● live</span>' : '');
   tick.innerHTML = ((STATE.market && STATE.market.symbols) || []).map(s =>
     `<span>${s.symbol.replace(/USDT?$/, '')} ${fmt(s.close)} <span class="${s.change >= 0 ? 'up' : 'down'}">${pct(s.change)}</span></span>`).join('') +
@@ -416,7 +419,8 @@ function showPanel(a) {
   if (!a) { panel.style.display = 'none'; return; }
   const bar = (c, v) => `<div class="bar"><i style="width:${Math.round(v * 100)}%;background:${c}"></i></div>`;
   panel.style.display = 'block';
-  panel.innerHTML = `<h3 style="color:${strategyColor(a.strategy)}">${a.agent_id} <small style="color:#94a3b8">${a.role === 'intern' ? 'intern' : isSenior(a) ? '🌟 senior specialist' : 'specialist'} · gen ${a.generation}${a.parent_id ? ' · hired by ' + a.parent_id : ''}${a.mentor ? ' · mentor ' + a.mentor : ''}</small></h3>` +
+  panel.innerHTML = `<h3 style="color:${strategyColor(a.strategy)}">${a.emoji || ''} ${a.name || a.agent_id} <small style="color:#94a3b8">${a.agent_id} · ${a.role === 'intern' ? 'intern' : isSenior(a) ? '🌟 senior specialist' : 'specialist'} · gen ${a.generation}${a.parent_id ? ' · hired by ' + nm(a.parent_id) : ''}${a.mentor ? ' · mentor ' + nm(a.mentor) : ''}</small></h3>` +
+    (a.title ? `<div style="color:#e5e7eb"><b>${a.title}</b></div><div style="color:#94a3b8;font-size:11px;margin-bottom:4px">⚡ ${a.power}</div>` : '') +
     `<div>${a.mood} · ${a.activity} · equity ${fmt(a.equity)} (${pct(a.day_return)} today)` +
     (a.immune_until > 0 ? ` · 🛡️ safe until day ${a.immune_until}` : '') + `</div>` +
     `<div style="margin-top:6px;color:#94a3b8">energy</div>${bar('#22c55e', a.energy)}` +
@@ -430,7 +434,7 @@ function showPanel(a) {
 const spoken = [];
 function pushFeed(u) {
   const key = u.who.agent_id + '|' + u.text; if (spoken.includes(key)) return; spoken.push(key); if (spoken.length > 40) spoken.shift();
-  const d = document.createElement('div'); d.innerHTML = `<b>${u.who.agent_id}</b> ${u.text}`; feed.prepend(d);
+  const d = document.createElement('div'); d.innerHTML = `<b>${u.who.name || u.who.agent_id}</b> ${u.text}`; feed.prepend(d);
   while (feed.children.length > 6) feed.removeChild(feed.lastChild);
 }
 

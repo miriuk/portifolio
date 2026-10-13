@@ -69,6 +69,37 @@ cryptoarena reset
 | `trend-1` | média de 3 dias acima da de 10 dias: comprado; senão, caixa | idem |
 | `claude-trader` | decide via LLM (saída estruturada) | lições injetadas no prompt + auto-reflexão pós-episódio escrita pelo próprio modelo |
 
+### Quem é quem
+
+Cada agente tem nome, cargo e um superpoder (`world/personas.py`). Eles
+aparecem no escritório, no feed da mesa, no dashboard, no `status.json` e na
+nota do chefe de gabinete. Os ids continuam os mesmos no diário e no estado
+salvo. Um estagiário herda o nome de quem o contratou, com "Jr." e o número:
+`momentum-3`, contratado pela Rita, aparece como **Rita Jr. 3**.
+
+| | Nome | Cargo | Superpoder | id |
+|---|---|---|---|---|
+| 🏃 | Rita Rush | Trader de momentum (tiro curto) | Embarca na arrancada curta de um papel antes da multidão | `momentum-1` |
+| 🏔️ | Marco Maratona | Trader de momentum (fôlego longo) | Segue a tendência longa e ignora o barulho do dia a dia | `momentum-2` |
+| 🪃 | Bea Bounce | Caçadora de quedas | Compra quando um papel cai bem abaixo da média recente e vende no repique | `meanrev-1` |
+| 🧘 | Theo Paciência | Contrarian profundo | Espera um tombo fundo abaixo da média longa e compra o que todos vendem | `meanrev-2` |
+| ⚡ | Nina Faísca | Caçadora de rompimentos | Compra a máxima nova e protege o ganho com um stop móvel de 8% | `breakout-1` |
+| 🌦️ | Otto Clima | Estrategista de regime | Lê se o mercado está em tendência ou de lado e troca de manual | `regime-1` |
+| 🎚️ | Vera Calma | Gestora de volatilidade | Dosa cada aposta pelo quanto o papel balança e sai quando fica bravo demais | `voltarget-1` |
+| 🧭 | Tomás Bússola | Seguidor de tendência | Fica comprado enquanto a média curta está acima da longa | `trend-1` |
+| 🗿 | Inês Índice | Investidora passiva (só ações) | Compra SPY e QQQ uma vez e nunca vende | `index-1` |
+| 🐻 | Bruno Urso | Vendedor a descoberto (contratável) | Ganha quando os preços caem | `bear-*` |
+| 🔄 | Rosa Rotação | Rotadora de setores (contratável) | Move o dinheiro para o que está mais forte agora | `rotation-*` |
+| 🎯 | Paulo Recuo | Comprador de recuos (contratável) | Compra quedas, só dentro de uma tendência de alta | `pullback-*` |
+| 🤖 | Clara IA | Analista de IA | Lê o mercado e escreve o próprio plano com um modelo de linguagem | `claude-trader` |
+
+A mesa acima deles: 🚧 **Rick Guarda**, oficial de risco (diz não quando
+a colônia inteira corre para o mesmo papel); 📒 **Pam Livro**, gestora do
+livro do PM (junta os votos num livro só e economiza taxas); 🗂️ **Cleo
+Pauta**, chefe de gabinete (escreve a nota do dia e só chama o dono quando
+há decisão). Para trocar um nome, edite `FOUNDERS`, `BY_STRATEGY` ou `DESK`
+em `world/personas.py`.
+
 Todos os agentes de regra compartilham duas disciplinas, ajustáveis por
 parâmetro: um **portão de tendência** (`trend_filter`, 28 dias por padrão:
 só compram um ativo que está acima de onde estava 4 semanas atrás) e um

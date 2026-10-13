@@ -29,6 +29,8 @@ import urllib.request
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+from ..world.personas import persona
+
 LABEL = "mesa"
 
 
@@ -96,12 +98,14 @@ def report(status: dict, activity: dict, start: dict | None, founding: float,
     refused = [e for e in activity["events"] if e[1] in ("vetoed", "clipped")]
     if refused:
         lines.append(f"O risco da mesa barrou ou cortou {len(refused)} ordem(ns): "
-                     + "; ".join(f"{a} — {d.removeprefix('desk: ')}" for a, _, d in refused[:3]) + ".")
+                     + "; ".join(f"{persona(a).name} — {d.removeprefix('desk: ')}"
+                                 for a, _, d in refused[:3]) + ".")
     for agent, event, detail in activity["events"]:
         if event in ("born", "died", "retired", "senior", "employee_of_week"):
             label = {"born": "contratado", "died": "dispensado", "retired": "aposentado",
                      "senior": "sênior da semana", "employee_of_week": "funcionário da semana"}
-            lines.append(f"{agent}: {label[event]}" + (f" ({detail})" if detail else "") + ".")
+            lines.append(f"{persona(agent).name}: {label[event]}"
+                         + (f" ({detail})" if detail else "") + ".")
     desk = status.get("desk") or {}
     pm = desk.get("pm") or {}
     pm_gap = None

@@ -19,6 +19,8 @@ from dataclasses import asdict, dataclass
 
 import pandas as pd
 
+from .personas import persona
+
 WINDOW_DAYS = 3
 
 
@@ -59,7 +61,9 @@ class AgentVitals:
     activity: str
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        p = persona(self.agent_id, self.parent_id)
+        return {**asdict(self), "name": p.name, "emoji": p.emoji, "title": p.title,
+                "power": p.power}
 
 
 def _clamp(x: float) -> float:
