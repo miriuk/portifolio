@@ -92,6 +92,9 @@ salvo. Um estagiário herda o nome de quem o contratou, com "Jr." e o número:
 | 🔄 | Rosa Rotação | Rotadora de setores (contratável) | Move o dinheiro para o que está mais forte agora | `rotation-*` |
 | 🎯 | Paulo Recuo | Comprador de recuos (contratável) | Compra quedas, só dentro de uma tendência de alta | `pullback-*` |
 | 📊 | Walter Volume | Leitor de Wyckoff (contratável) | Compra o spring e o sinal de força, sai no upthrust e no sinal de fraqueza | `wyckoff-*` |
+| 〽️ | Maria MACD | Cruzadora de médias (formada no curso 2) | Compra no cruzamento da média curta para cima, vende no cruzamento para baixo | `macd-*` |
+| 📏 | Bento Bollinger | Caçador de extremos (formado no curso 2) | Compra abaixo da banda inferior de Bollinger, vende acima da superior | `bollinger-*` |
+| 💧 | Chica Chaikin | Leitora do fluxo de dinheiro (formada no curso 2) | Compra quando o fluxo de dinheiro de Chaikin entra, vende quando sai | `chaikin-*` |
 | 🤖 | Clara IA | Analista de IA | Lê o mercado e escreve o próprio plano com um modelo de linguagem | `claude-trader` |
 
 A mesa acima deles: 🚧 **Rick Guarda**, oficial de risco (diz não quando
@@ -1000,6 +1003,113 @@ predizem alguma coisa:
 ```bash
 cryptoarena backtest --floor stocks --wyckoff 1 --benchmark SPY --quiet    # a lente em todos
 ```
+
+### A academia: cursos do livro *Algorithmic Trading with Python*
+
+Os agentes fizeram os cursos de *Algorithmic Trading with Python* (Chris
+Conlan, 2020; código em
+[chrisconlan/algorithmic-trading-with-python](https://github.com/chrisconlan/algorithmic-trading-with-python)).
+O objetivo não é fortuna: é que cada agente saiba dizer como está indo,
+conheça as ferramentas clássicas e saiba separar habilidade de sorte.
+
+**Sobre a licença.** O código do livro é "freeware" para uso pessoal e
+proíbe redistribuição em material educativo sem permissão do autor.
+Como este repositório é público, **nenhuma linha dele foi copiada**:
+cada curso é a ideia do capítulo escrita de novo aqui, com crédito, e
+os dados do livro também não vêm junto.
+
+| Curso | Capítulo | O que os agentes aprendem | Onde mora |
+|---|---|---|---|
+| 1 · Medir desempenho | 2 | CAGR, volatilidade, Sharpe, Sortino, queda máxima, Calmar, *pure profit score*, beta e alfa de Jensen | `portfolio/metrics.py` |
+| 2 · Indicadores e sinais | 3 | MACD, Bandas de Bollinger, Chaikin Money Flow: três especialistas formados | `agents/rules.py` |
+| 3 · Simular uma carteira | 4 | vagas limitadas, preferência entre candidatos, slippage e taxa fixa | `arena/booksim.py` |
+| 4 · Não se enganar | 5 | testes de ruído branco e de bootstrap | `arena/booksim.py` |
+| 5 · Aprendizado de máquina financeiro | 6 e 7 | filtro CUSUM, barreira tripla, peso por exclusividade, walk-forward com purga | `forecast/events.py` |
+
+`cryptoarena academy` lista o currículo; `cryptoarena academy --course N
+[--data DIR]` aplica a prova.
+
+**Prova do curso 1: o boletim de cada um** (andar de ações, uma colônia
+contínua de 2021 a 2026, contra segurar o SPY):
+
+| | CAGR | vol. | Sharpe | Sortino | queda máx. | beta | alfa/ano |
+|---|---|---|---|---|---|---|---|
+| 🏔️ Marco Maratona | +10,2% | 20,2% | +0,50 | +0,76 | 42,4% | 0,51 | +5,4% |
+| ⚡ Nina Faísca | +6,5% | 14,6% | +0,45 | +0,67 | 21,0% | 0,40 | +2,4% |
+| 🧭 Tomás Bússola | +5,8% | 16,8% | +0,34 | +0,52 | 31,3% | 0,46 | +1,3% |
+| 🏃 Rita Rush | +5,5% | 15,9% | +0,35 | +0,51 | 26,4% | 0,35 | +2,2% |
+| 🗿 Inês Índice | +4,2% | 12,4% | +0,34 | +0,48 | 20,4% | 0,69 | −3,8% |
+| 🎚️ Vera Calma | +1,7% | 8,7% | +0,19 | +0,27 | 19,0% | 0,29 | −1,6% |
+| 🌦️ Otto Clima | 0,0% | 12,6% | 0,00 | 0,00 | 28,3% | 0,29 | −2,8% |
+| 🧘 Theo Paciência | −5,1% | 3,7% | −1,39 | −2,05 | 24,2% | 0,05 | −5,8% |
+| 🪃 Bea Bounce | −6,5% | 5,5% | −1,18 | −1,50 | 30,9% | 0,10 | −7,8% |
+| 🏢 colônia | +3,5% | 10,2% | +0,35 | +0,51 | 20,5% | 0,35 | −0,4% |
+| segurar SPY | +11,6% | 17,2% | +0,68 | +0,98 | 25,4% | 1,00 | 0 |
+
+O boletim mostrou duas coisas que o placar escondia:
+
+- **O custo de vida pesa.** Cada agente paga 0,02% do orçamento por dia,
+  cerca de 5% ao ano. Sem esse custo, a colônia sobe +1,2 ponto por
+  janela de 60 pregões: nas 6 ações vai de +0,52% para +1,72%, nos ETFs
+  de −0,68% para +0,55% e no top 20 da época de +1,81% para +3,04%,
+  quase o SPY (+3,30%). Na conta Practice não existe aluguel. O custo é
+  uma regra do jogo de sobrevivência, não do mercado.
+- **O cinto de cada agente limita o investimento.** O funil de risco
+  permite no máximo 35% do patrimônio num nome. A Inês, que só segura SPY
+  e QQQ, fica com no máximo 70% investido: daí o beta de 0,69 e o alfa
+  negativo, que são só a parte parada em caixa.
+- Os alfas positivos (Marco +5,4%/ano) vêm de uma única fita de 5 anos
+  nas 6 ações escolhidas hoje. O teste justo mostra que eles não
+  sobrevivem fora delas.
+
+**Prova do curso 2: os formandos** (sozinhos, janelas de 60 pregões,
+contra o SPY):
+
+| | 6 de hoje | 27 ETFs | top 20 da época |
+|---|---|---|---|
+| 〽️ Maria MACD | −4,02 pt (t −3,4) | −3,89 pt (t −3,9) | −2,12 pt (t −1,8) |
+| 📏 Bento Bollinger | −2,21 pt (t −1,9) | −4,15 pt (t −4,5) | −3,39 pt (t −3,1) |
+| 💧 Chica Chaikin | −1,94 pt (t −1,5) | −3,66 pt (t −3,9) | −0,18 pt (t −0,1) |
+
+Nenhum bate o índice. A Chica Chaikin empata no top 20, num universo que
+ainda favorece quem compra as maiores de hoje.
+
+**Provas dos cursos 3 e 4: habilidade ou sorte?** É o simulador do
+livro: 5 vagas, sinal de Bollinger ou MACD, preferência pelo Sharpe dos
+últimos 20 dias. Cada carteira roda de novo com uma preferência que não
+sabe nada: ruído branco (200 vezes) ou Sharpe de retornos reamostrados
+(100 vezes).
+
+| | contra o SPY, ao ano | supera, das que não sabem nada |
+|---|---|---|
+| 27 ETFs · Bollinger | −7,75% | 12% (ruído) · 11% (bootstrap) |
+| 27 ETFs · MACD | −8,56% | 78% · 75% |
+| 100 maiores · Bollinger | +0,18% | 71% · 66% |
+| 100 maiores · MACD | +0,44% | 60% · 60% |
+
+Para contar como habilidade, a preferência teria de superar uns 95%
+delas. Nenhuma passa disso: **escolher pelo Sharpe recente não é
+diferente de escolher ao acaso**. Nas 100 maiores, as carteiras ao acaso
+já ficam perto do SPY, porque a lista é a das sobreviventes de hoje.
+
+**Prova do curso 5: aprendizado de máquina com cuidado.** Eventos pelo
+filtro CUSUM, rótulos de barreira tripla (±1 volatilidade × √20, ou 20
+pregões), pesos por exclusividade, floresta aleatória com 10
+características de preço e volume. Treino só com o que já tinha
+terminado antes de cada ano:
+
+- **100 maiores, 2018–2026 (63 mil eventos):** acerto de 43% a 54% por
+  ano. Sempre chutar o rótulo mais comum acerta de 47% a 66%, e o modelo
+  só empata ou perde. Os eventos que o modelo escolheu rendem o mesmo que
+  todos (em 2026, +1,07% contra +0,75%; em 2024, +1,09% contra +1,23%).
+- **27 ETFs (18 mil eventos):** mesmo quadro, com acerto de 40% a 54%.
+
+**Veredito da academia**: os agentes agora medem, simulam e testam como
+o livro ensina, e as provas confirmam o que o resto deste README já
+dizia. Nenhuma técnica do livro dá vantagem sobre segurar o índice
+nestes dados. O que a academia ganhou foi método: o boletim do curso 1
+achou o custo de vida e o cinto de 35%, que já explicam boa parte da
+distância.
 
 ### Pronto para dinheiro de verdade?
 

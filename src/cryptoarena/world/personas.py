@@ -67,6 +67,12 @@ BY_STRATEGY: dict[str, Persona] = {
     "wyckoff": Persona("Walter Volume", "📊", "Leitor de Wyckoff",
                        "Lê o rastro do grande operador: compra o spring e o sinal de força, "
                        "sai no upthrust e no sinal de fraqueza."),
+    "macd": Persona("Maria MACD", "〽️", "Cruzadora de médias (formada no curso 2)",
+                    "Compra quando a média curta cruza a longa para cima e vende no cruzamento para baixo."),
+    "bollinger": Persona("Bento Bollinger", "📏", "Caçador de extremos (formado no curso 2)",
+                         "Compra abaixo da banda inferior de Bollinger e vende acima da superior."),
+    "chaikin": Persona("Chica Chaikin", "💧", "Leitora do fluxo de dinheiro (formada no curso 2)",
+                       "Compra quando o fluxo de dinheiro de Chaikin entra e vende quando ele sai."),
     "claude-trader": Persona("Clara IA", "🤖", "Analista de IA",
                              "Lê o mercado e escreve o próprio plano de trade com um modelo de linguagem."),
 }

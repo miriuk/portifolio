@@ -649,6 +649,108 @@ class WyckoffAgent(ParamAgent):
         return orders
 
 
+# ---- course 2 of the academy: the indicators of chapter 3 of *Algorithmic
+# Trading with Python* (Chris Conlan, 2020), written from their textbook
+# definitions. Hourly defaults; the stocks floor passes daily lengths.
+TEXTBOOK = {"order_frac": 0.30, "cooldown": 24, "stop_trail": 0.0, "trend_filter": 0,
+            "max_buys": 1, "max_exposure": 0.6, "market_gate": 0, "rank_top": 0,
+            "greed_gate": 0, "signal_bias": 1.0}
+
+
+class _TextbookAgent(ParamAgent):
+    """Buys on the indicator's +1, sells what it holds on its -1."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._last_trade_step = -999
+
+    def signal(self, symbol: str) -> tuple[int, str]:
+        raise NotImplementedError
+
+    def _decide(self, view: MarketView) -> list[Order]:
+        orders = []
+        if view.step - self._last_trade_step < int(self.params["cooldown"]):
+            return orders
+        for symbol in view.candles:
+            sig, why = self.signal(symbol)
+            held = self.wallet.positions.get(symbol, 0.0)
+            if sig > 0 and held <= 0 and self._can_buy():
+                orders.append(Order(self.agent_id, symbol, "buy", self._order_amount(view),
+                                    reason=why))
+                self._last_trade_step = view.step
+            elif sig < 0 and held > 0:
+                orders.append(Order(self.agent_id, symbol, "sell", held, reason=why))
+                self._last_trade_step = view.step
+        return orders
+
+
+class MacdAgent(_TextbookAgent):
+    """MACD crossover: the fast average crossing above the slow one is a
+    buy, crossing below a sell (momentum)."""
+
+    DEFAULTS = {**TEXTBOOK, "fast": 120, "slow": 672}
+
+    def signal(self, symbol: str) -> tuple[int, str]:
+        fast, slow = int(self.params["fast"]), int(self.params["slow"])
+        closes = self.closes(symbol, slow + 1)
+        if len(closes) < slow + 1:
+            return 0, ""
+        now = sum(closes[-fast:]) / fast - sum(closes[-slow:]) / slow
+        before = sum(closes[-fast - 1:-1]) / fast - sum(closes[:-1]) / slow
+        if now > 0 >= before:
+            return 1, "macd crossed up"
+        if now < 0 <= before:
+            return -1, "macd crossed down"
+        return 0, ""
+
+
+class BollingerAgent(_TextbookAgent):
+    """Bollinger reversal: under the lower band (mean - 2 sd) is a buy,
+    over the upper band a sell."""
+
+    DEFAULTS = {**TEXTBOOK, "n": 480, "width": 2.0}
+
+    def signal(self, symbol: str) -> tuple[int, str]:
+        n = int(self.params["n"])
+        closes = self.closes(symbol, n)
+        if len(closes) < n:
+            return 0, ""
+        mean = sum(closes) / n
+        sd = (sum((c - mean) ** 2 for c in closes) / (n - 1)) ** 0.5
+        band = float(self.params["width"]) * sd
+        if closes[-1] < mean - band:
+            return 1, "under the lower bollinger band"
+        if closes[-1] > mean + band:
+            return -1, "over the upper bollinger band"
+        return 0, ""
+
+
+class ChaikinAgent(_TextbookAgent):
+    """Chaikin money flow: the volume-weighted position of each close in its
+    bar's range, summed over `n` bars. Above `threshold` money is flowing
+    in (buy); below minus it, out (sell)."""
+
+    DEFAULTS = {**TEXTBOOK, "n": 480, "threshold": 0.05}
+
+    def signal(self, symbol: str) -> tuple[int, str]:
+        n = int(self.params["n"])
+        h = self.history.get(symbol)
+        if not h or len(h) < n:
+            return 0, ""
+        flow = vol = 0.0
+        for c in list(h)[-n:]:
+            if c.high > c.low:
+                flow += c.volume * (2 * c.close - c.high - c.low) / (c.high - c.low)
+            vol += c.volume
+        cmf = flow / vol if vol > 0 else 0.0
+        t = float(self.params["threshold"])
+        if cmf > t:
+            return 1, f"chaikin money flow {cmf:+.2f}"
+        if cmf < -t:
+            return -1, f"chaikin money flow {cmf:+.2f}"
+        return 0, ""
+
+
 class BuyAndHoldAgent(ParamAgent):
     """The passive investor: buys `hold_symbols` (or everything) in equal
     weights on the first bar it can, then sits. No exits, no signals — the

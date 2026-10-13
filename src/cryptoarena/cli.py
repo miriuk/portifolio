@@ -250,6 +250,50 @@ def _signals(args) -> None:
     print(format_tear_sheet(tear_sheet(hold, frames, horizons, cfg.steps_per_day)))
 
 
+def _academy(args) -> None:
+    """The academy's curriculum, or one course's exam."""
+    from .arena.backtest import load_tape
+    from .floors import get_floor
+    from .learning import academy as ac
+
+    if not args.course:
+        print("Academia dos agentes — Algorithmic Trading with Python (Chris Conlan, 2020)")
+        for n, (title, chapter, what) in ac.COURSES.items():
+            print(f"  curso {n} · {title} ({chapter}): {what}")
+        print("  prova: cryptoarena academy --course N [--data DIR]")
+        return
+    floor = get_floor(args.floor)
+    data = args.data or floor.data_dir
+    cfg = floor.config(seed=args.seed)
+    if args.course == 1:
+        frames = load_tape(data, align=floor.name != "crypto")
+        cards = ac.colony_report_cards(
+            frames, lambda: build_agents(cfg.budget, False, "", floor=floor.name), cfg,
+            warmup_bars=720 if floor.name == "crypto" else 250,
+            benchmark="BTCUSD" if floor.name == "crypto" else "SPY")
+        print(ac.format_cards(cards))
+    elif args.course == 2:
+        kw = {"top_n": args.top, "always": ("SPY", "QQQ")} if args.top else {}
+        frames = load_tape(data, align=not args.top and floor.name != "crypto")
+        print(ac.format_exam(ac.graduate_exam({Path(data).name: (frames, kw)}, cfg)))
+    elif args.course in (3, 4):
+        from .arena import booksim as bs
+        px = ac.price_matrix(load_tape(data, align=False))
+        bench = px[args.benchmark].ffill()
+        pref = bs.rolling_sharpe(px)
+        for name, sig in (("bollinger 20", bs.bollinger_signal(px)), ("macd 5/34", bs.macd_signal(px))):
+            eq = bs.simulate(px, sig, pref)
+            print(f"{name}: {bs.excess_cagr(eq, bench):+.2%} a year against {args.benchmark}")
+            if args.course == 4:
+                print("  " + bs.white_noise_test(px, sig, pref, bench, runs=args.runs).summary())
+                print("  " + bs.bootstrap_test(px, sig, pref, bench, runs=args.runs // 2).summary())
+    elif args.course == 5:
+        from .forecast.events import ml_exam
+        for r in ml_exam(load_tape(data, align=False)):
+            print(f"{r.year}: {r.events} events · accuracy {r.accuracy:.1%} against guessing "
+                  f"{r.base_rate:.1%} · the ones it liked {r.liked_ret:+.2%} against all {r.all_ret:+.2%}")
+
+
 def _forecasters() -> dict:
     """name -> factory(stocks: bool): the models the forecast bench can run."""
     from .forecast import models as m
@@ -573,6 +617,16 @@ def main() -> None:
                     help="delayed fill: only the last N windows (default all)")
     la.add_argument("--seed", type=int, default=1)
 
+    ac = sub.add_parser("academy", help="the agents' courses (Algorithmic Trading with Python) "
+                                         "and their exams")
+    ac.add_argument("--course", type=int, default=0, choices=[0, 1, 2, 3, 4, 5])
+    ac.add_argument("--floor", default="stocks", choices=["crypto", "stocks"])
+    ac.add_argument("--data", default=None, help="directory of CSVs (default: the floor's)")
+    ac.add_argument("--top", type=int, default=None, help="course 2: a point-in-time top N")
+    ac.add_argument("--benchmark", default="SPY")
+    ac.add_argument("--runs", type=int, default=200, help="course 4: runs that know nothing")
+    ac.add_argument("--seed", type=int, default=1)
+
     sg = sub.add_parser("signals", help="tear sheet: does each strategy's book predict returns?")
     sg.add_argument("--floor", default="stocks", choices=["crypto", "stocks"])
     sg.add_argument("--data", default=None, help="directory of CSVs (default: the floor's)")
@@ -659,6 +713,8 @@ def main() -> None:
         _lookahead(args)
     elif args.command == "signals":
         _signals(args)
+    elif args.command == "academy":
+        _academy(args)
     elif args.command == "backtest":
         from .arena.backtest import (format_by_year, format_summary, load_sentiment, load_tape,
                                      run_backtest)
