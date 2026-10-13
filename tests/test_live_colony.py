@@ -295,3 +295,23 @@ def test_a_specialist_dropped_from_the_floor_is_retired_from_the_running_colony(
     # a bare resume (no founders given: status, dashboard) retires nobody
     bare = LiveColony.open(TradeJournal(tmp_path / "r.db"), [], cfg(), make_feed(client), verbose=False)
     assert bare.status()["alive"] == 1
+
+
+def test_a_real_tick_brings_the_floors_learning_policy(tmp_path):
+    """A colony founded under survival rules switches to the floor's
+    current policy (no dismissals, an annual target, no rent) on the next
+    real tick, while the rest of its saved config stays."""
+    client = FakeClient()
+    client.now = T0 + 120 * HOUR
+    db = tmp_path / "live.db"
+    journal = TradeJournal(db)
+    LiveColony.open(journal, build_agents(5.0, False, ""), cfg(daily_cost=0.0002), make_feed(client),
+                    warmup=100, verbose=False)
+    journal.close()
+    journal = TradeJournal(db)
+    new = cfg(budget=99.0, dismissals=False, annual_target=0.08, year_days=365, daily_cost=0.0)
+    colony = LiveColony.open(journal, build_agents(5.0, False, ""), new, make_feed(client),
+                             verbose=False)
+    assert colony.cfg.budget == 5.0                                   # the saved config still wins
+    assert (colony.cfg.dismissals, colony.cfg.annual_target, colony.cfg.daily_cost) == (False, 0.08, 0.0)
+    journal.close()

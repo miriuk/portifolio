@@ -131,7 +131,10 @@ FLOORS: dict[str, Floor] = {
         build_founders=crypto_founders,
         # the PM's shadow book: +0.11 pt per 30-day window over five years,
         # the fees saved when one agent sells what another buys
-        config_defaults=dict(endogenous=False, pm=True, pm_band=0.02),
+        # learning, not survival (owner's call, 13/10/2026): nobody is let go,
+        # the target is 8% a year on pace, and no daily rent
+        config_defaults=dict(endogenous=False, pm=True, pm_band=0.02, dismissals=False,
+                             annual_target=0.08, year_days=365, daily_cost=0.0),
         make_feed=_crypto_feed,
         default_db="live/colony.db", state_branch="colony-live", data_dir="data",
         warmup=700, backtest_days=30, backtest_stride=10,
@@ -149,7 +152,11 @@ FLOORS: dict[str, Floor] = {
         # book, which matched the colony there without beating it
         config_defaults=dict(endogenous=False, steps_per_day=1, week_days=5,
                              daily_target=0.002, fee_rate=0.0005,
-                             desk_symbol_cap=0.20, pm=True, pm_band=0.02),
+                             desk_symbol_cap=0.20, pm=True, pm_band=0.02,
+                             # learning, not survival (owner's call, 13/10/2026): nobody is
+                             # let go, the target is 8% a year on pace, and no daily rent
+                             dismissals=False, annual_target=0.08, year_days=252,
+                             daily_cost=0.0),
         make_feed=_stock_feed,
         default_db="live/stocks.db", state_branch="colony-live-stocks", data_dir="data/stocks",
         warmup=250, backtest_days=60, backtest_stride=20,

@@ -59,6 +59,12 @@ class SurvivalConfig:
     pm_band: float = 0.05           # the PM trades a symbol only when it is this far off its target weight
     pm_weighting: str = "votes"     # split the PM's total by the votes, or "equal" / "inverse_vol" / "hrp"
     fill: str = "close"             # "close": at the close the agent saw; "next_open": at the next bar's open
+    # learning, not survival: with dismissals off nobody is let go; with an
+    # annual target an agent is judged on being on pace for the year, not
+    # on one day (the misses that send it to a mentor count days behind pace)
+    dismissals: bool = True
+    annual_target: float = 0.0      # e.g. 0.08 = 8% a year; 0 = the daily_target decides
+    year_days: int = 365            # bars in a year (252 sessions for stocks)
 
 
 @dataclass
@@ -263,12 +269,19 @@ def _end_of_day(day: int, alive: list[Individual], ep, cfg: SurvivalConfig, rng,
                 else f"below {cfg.death_below:.0%} of budget")
             continue
 
-        if end >= start * (1 + cfg.daily_target):
+        if getattr(cfg, "annual_target", 0.0):
+            pace = ind.budget * (1 + target_over(cfg, day - ind.born_day))
+            on_target = end >= pace
+            detail = f"on pace for {cfg.annual_target:.0%} a year, streak {ind.streak + 1}"
+        else:
+            on_target = end >= start * (1 + cfg.daily_target)
+            detail = f"streak {ind.streak + 1}"
+        if on_target:
             ind.streak += 1
             ind.misses = 0
             journal.record_survival_event(
                 day, ind.agent_id, "target_hit", end, ind.parent_id, ind.generation,
-                ind.strategy, f"streak {ind.streak}")
+                ind.strategy, detail)
         else:
             ind.streak = 0
             ind.misses += 1
@@ -311,6 +324,14 @@ def _end_of_day(day: int, alive: list[Individual], ep, cfg: SurvivalConfig, rng,
     return births, deaths
 
 
+def target_over(cfg: SurvivalConfig, days: float) -> float:
+    """The return the colony asks for over `days`: the annual target on
+    pace, or the daily target compounded."""
+    if getattr(cfg, "annual_target", 0.0):
+        return (1 + cfg.annual_target) ** (days / max(1, cfg.year_days)) - 1
+    return (1 + cfg.daily_target) ** days - 1
+
+
 def _market_return(journal: TradeJournal, day: int) -> float | None:
     """Equal-weight move of the tape over the day, from the journal's snapshots."""
     rows = journal._conn.execute(
@@ -336,7 +357,7 @@ def _let_go(ind: Individual, end_equity: float, halted: bool, cfg: SurvivalConfi
     """Only interns can be dismissed; specialists stay, whatever their
     numbers, because their lessons are what the interns learn from.
     Last week's winners are immune: returns "spared" instead of True."""
-    if ind.generation == 0:
+    if ind.generation == 0 or not getattr(cfg, "dismissals", True):
         return False
     if not (halted or end_equity < ind.budget * cfg.death_below):
         return False
@@ -348,7 +369,7 @@ def _happy_hour(day: int, week: int, alive: list[Individual], cfg: SurvivalConfi
     """End of week: whoever beat the weekly target gets a party (praise,
     motivation); the best of them is employee of the week (ego). Returns
     the winners' ids, best first."""
-    weekly_target = (1 + cfg.daily_target) ** cfg.week_days - 1
+    weekly_target = target_over(cfg, cfg.week_days)
     scored = []
     for ind in alive:
         if not ind.week_start_equity:

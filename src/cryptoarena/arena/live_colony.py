@@ -42,6 +42,9 @@ STATE_KEY = "live_colony"
 # The desk is the floor's policy, not the colony's history: a tick applies
 # whatever the floor says today, like the list of founders.
 DESK_FIELDS = ("desk_symbol_cap", "desk_gross_cap", "pm", "pm_consensus", "pm_band")
+# the floor's policy on the agents themselves, applied on every real tick too:
+# whether anyone can be let go, what they are asked for, and the rent
+POLICY_FIELDS = ("dismissals", "annual_target", "year_days", "daily_target", "daily_cost")
 AGENT_CLASSES: dict[str, type] = {
     name: cls for name, cls in inspect.getmembers(rules, inspect.isclass)
     if issubclass(cls, rules.ParamAgent) and cls is not rules.ParamAgent
@@ -127,8 +130,8 @@ class LiveColony:
             colony.sources = list(sources or [])
             colony.chief = chief
             colony._restore(saved)
-            if founders:                          # a real tick: the floor's desk policy applies
-                for name in DESK_FIELDS:
+            if founders:                          # a real tick: the floor's policy applies
+                for name in DESK_FIELDS + POLICY_FIELDS:
                     setattr(colony.cfg, name, getattr(cfg, name))
             colony._hire(founders)
             colony._retire(founders)

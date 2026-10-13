@@ -1338,6 +1338,35 @@ bate segurar o índice em retorno sem depender de um universo com viés ou
 de um único ciclo. `cryptoarena academy --course 7 --data DIR` mostra as
 trajetórias e refaz as regras de tempo.
 
+### Aprender em vez de sobreviver (13/10/2026)
+
+Decisão do dono: por enquanto, **ninguém é mandado embora**, e a meta deixa
+de ser diária e passa a ser anual. Nos dois andares (`floors.py`):
+
+- **`dismissals` desligado**: nem o estagiário abaixo da linha, nem o que
+  acionou o kill switch é dispensado. O kill switch ainda o tira do resto
+  do dia. Os erros continuam virando lições todas as noites.
+- **`annual_target` 8% ao ano**, julgado pelo **ritmo**: no dia *d*, a
+  meta do agente é o orçamento × 1,08^(*d*/252) nas ações (365 no cripto).
+  Quem está abaixo do ritmo conta como "perdeu a meta", pede dica ao
+  mentor e, depois de 3 dias seguidos, ao sênior. O happy hour semanal
+  usa a mesma régua: o ritmo anual de uma semana, não 0,2% ao dia.
+- **Custo de vida zero** (`daily_cost` 0): o aluguel diário só fazia
+  sentido como pressão de sobrevivência e tirava cerca de 1,2 ponto a
+  cada 60 pregões.
+- A colônia ao vivo guarda a própria configuração, mas estes campos
+  (`POLICY_FIELDS`), como os da mesa, passam a valer no próximo tick real.
+
+O mesmo backtest das 6 ações, com as regras novas:
+
+- **Em janelas de 60 pregões**: +1,72% contra +0,52% antes, e o SPY fez
+  +2,70%.
+- **Em janelas de um ano** (16 janelas, 2021–2026): a colônia fez **+9,95%
+  em média** (mediana +7,6%; 75% das janelas positivas) contra +13,2% do
+  SPY. Chegou aos 8% em 8 das 16 janelas, e o SPY em 12.
+- **Nos anos de queda** a colônia perdeu bem menos: −3,5%, −12,6% e −2,1%
+  contra −17,7%, −18,9% e −12,5% do SPY. Nas altas ela fica para trás.
+
 ### Pronto para dinheiro de verdade?
 
 Cada tick a colônia pergunta à Kraken o **menor pedido aceito** por

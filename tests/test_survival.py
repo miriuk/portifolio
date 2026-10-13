@@ -1,3 +1,4 @@
+import pytest
 import numpy as np
 
 from cryptoarena.agents.rules import MeanReversionAgent, MomentumAgent
@@ -401,3 +402,29 @@ def test_tip_also_nudges_parameters(tmp_path):
     # learn() nudges cooldown up (overtrading), then imitation pulls halfway to the mentor's 4
     assert intern.agent.params["cooldown"] < 14
     journal.close()
+
+
+def test_learning_not_survival_nobody_is_let_go_and_the_target_is_annual():
+    """With dismissals off an intern far below the line stays (and keeps
+    learning); with an annual target an agent is judged on pace for the
+    year, not on one day."""
+    from cryptoarena.arena.survival import Individual, SurvivalConfig, _let_go, target_over
+    from cryptoarena.agents.rules import MomentumAgent
+    intern = Individual(MomentumAgent("momentum-3", 1.0), "momentum", 1.0, "momentum-1", 1, born_day=0)
+    strict = SurvivalConfig(death_below=0.6)
+    assert _let_go(intern, 0.1, False, strict) is True
+    gentle = SurvivalConfig(death_below=0.6, dismissals=False)
+    assert _let_go(intern, 0.1, False, gentle) is False
+    assert _let_go(intern, 0.1, True, gentle) is False                 # not even after a kill switch
+    annual = SurvivalConfig(annual_target=0.08, year_days=252)
+    assert target_over(annual, 252) == pytest.approx(0.08)
+    assert target_over(annual, 126) == pytest.approx(1.08 ** 0.5 - 1)
+    assert target_over(SurvivalConfig(daily_target=0.01), 2) == pytest.approx(0.0201)
+
+
+def test_the_floors_learn_instead_of_firing():
+    from cryptoarena.floors import get_floor
+    for name, year in (("stocks", 252), ("crypto", 365)):
+        cfg = get_floor(name).config()
+        assert cfg.dismissals is False and cfg.annual_target == 0.08
+        assert cfg.year_days == year and cfg.daily_cost == 0.0
