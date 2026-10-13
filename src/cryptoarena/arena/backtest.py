@@ -70,6 +70,20 @@ def window_symbols(tape: dict[str, pd.DataFrame], start: int, length: int) -> li
             if not df["close"].iloc[start:start + length].isna().any()]
 
 
+def point_in_time(tape: dict[str, pd.DataFrame], present: list[str], start: int, first: int,
+                  top_n: int, always: tuple[str, ...] = ()) -> list[str]:
+    """The `top_n` symbols that traded the most money (close × volume)
+    over rows [start, first), the warm-up before the window's first
+    trading day: a universe picked with what was known then, not with
+    today's list of winners. `always` symbols are kept on top of it."""
+    def traded(sym: str) -> float:
+        df = tape[sym].iloc[start:first]
+        return float((df["close"] * df["volume"]).mean())
+    keep = [s for s in present if s in always]
+    ranked = sorted((s for s in present if s not in always), key=traded, reverse=True)
+    return keep + ranked[:top_n]
+
+
 def load_sentiment(data_dir: str | Path) -> dict[int, int]:
     """The Crypto Fear & Greed index by UTC day (`sentiment/fng.csv` as the
     market-data workflow publishes it); empty when the file is absent."""
@@ -139,6 +153,7 @@ class WindowResult:
     pm_fees: float = 0.0
     pm_drawdown: float = 0.0                # the PM book's worst fall from a daily high in the window
     pm_vol: float = 0.0                     # the standard deviation of its daily returns
+    bench_return: float | None = None       # the benchmark held over the same bars, when given
     vetoes: int = 0                         # orders the desk's risk officer refused
     clipped: int = 0                        # orders it cut down to the room left
 
@@ -199,6 +214,13 @@ class BacktestReport:
     def _desk_summary(self) -> dict:
         out = {"vetoes": sum(w.vetoes for w in self.windows),
                "clipped": sum(w.clipped for w in self.windows)}
+        bench = [w for w in self.windows if w.bench_return is not None]
+        if bench:
+            out.update({
+                "bench_mean": statistics.fmean(w.bench_return for w in bench),
+                "beats_bench": sum(w.colony_return > w.bench_return for w in bench) / len(bench),
+                "hold_beats_bench": sum(w.hold_return > w.bench_return for w in bench) / len(bench),
+            })
         pm = [(w.pm_return, w) for w in self.windows if w.pm_return is not None]
         if pm:
             rets = [r for r, _ in pm]
@@ -218,9 +240,13 @@ class BacktestReport:
 def run_backtest(tape: dict[str, pd.DataFrame], make_founders, cfg: SurvivalConfig,
                  days: int = 30, stride_days: int = 10, warmup_bars: int = 150,
                  max_windows: int | None = None, verbose: bool = False,
-                 sentiment: dict[int, int] | None = None) -> BacktestReport:
+                 sentiment: dict[int, int] | None = None, top_n: int | None = None,
+                 always: tuple[str, ...] = (), benchmark: str | None = None) -> BacktestReport:
     """`make_founders()` returns a fresh list of founder agents each call.
-    `sentiment` (UTC day -> Fear & Greed) lets the agents' greed gate act."""
+    `sentiment` (UTC day -> Fear & Greed) lets the agents' greed gate act.
+    `top_n` trades, in each window, only the symbols that traded the most
+    money in its warm-up (`point_in_time`), plus `always`; `benchmark` is
+    a symbol held over the same bars for comparison (it need not be traded)."""
     bars_per_day = cfg.steps_per_day
     n = len(next(iter(tape.values())))
     window_bars = warmup_bars + days * bars_per_day
@@ -230,6 +256,8 @@ def run_backtest(tape: dict[str, pd.DataFrame], make_founders, cfg: SurvivalConf
     report = BacktestReport()
     for start in starts:
         present = window_symbols(tape, start, window_bars)
+        if top_n:
+            present = point_in_time(tape, present, start, start + warmup_bars, top_n, always)
         if len(present) < min(2, len(tape)):
             continue                                    # nothing listed yet: no market to trade
         sub = {sym: tape[sym] for sym in present}
@@ -241,6 +269,12 @@ def run_backtest(tape: dict[str, pd.DataFrame], make_founders, cfg: SurvivalConf
             res = run_survival(founders, journal, wcfg, verbose=False, market=market)
             w = _summarise(sub, start, warmup_bars, window_bars, res, journal)
             w.symbols = len(present)
+            if benchmark and benchmark in tape:
+                b = tape[benchmark]
+                first, last = start + warmup_bars, start + window_bars - 1
+                o, c = float(b.iloc[first]["open"]), float(b.iloc[last]["close"])
+                if o == o and c == c and o > 0:
+                    w.bench_return = c / o - 1
             if res.desk is not None:
                 w.vetoes, w.clipped = res.desk.vetoes, res.desk.clipped
                 if res.desk.pm is not None:
@@ -324,6 +358,10 @@ def format_summary(summary: dict) -> str:
         f"hires {summary['hires']} · let go {summary['dismissed']} · fees {summary['fees']:.2f} · "
         f"daily target hit {summary['target_hit_rate']:.0%} of agent-days",
     ]
+    if "bench_mean" in summary:
+        lines.append(f"benchmark held over the same windows: mean {summary['bench_mean']:+.2%} · "
+                     f"the colony beats it {summary['beats_bench']:.0%} · holding the traded "
+                     f"universe beats it {summary['hold_beats_bench']:.0%}")
     if summary.get("vetoes") or summary.get("clipped"):
         lines.append(f"desk risk: {summary['vetoes']} orders refused, {summary['clipped']} cut down")
     if "pm_mean" in summary:

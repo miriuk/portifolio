@@ -896,6 +896,56 @@ cryptoarena signals --floor crypto                         # o boletim das estra
 cryptoarena backtest --floor crypto --pm-weighting hrp     # o PM dividindo por risco
 ```
 
+### O teste justo: universo escolhido na época, contra o SPY
+
+As 6 ações do andar foram escolhidas hoje, então o histórico delas já
+carrega o vencedor. Para tirar essa vantagem, a mesma colônia (mesmos 9
+agentes, mesmos parâmetros, janelas de 60 pregões a cada 20) rodou em
+mais três universos. Todos são comparados com **segurar o SPY nas mesmas
+janelas** (`--benchmark SPY`):
+
+- **27 ETFs de índices do mundo** (2017–2026, branch `global-data`):
+  nenhuma ação escolhida com o benefício de hoje.
+- **As 100 maiores empresas dos EUA, escolhidas na época**
+  (`--top N --always SPY,QQQ`). Em cada janela entram só as N que mais
+  movimentaram dinheiro (preço × volume) nos 250 pregões anteriores, ou
+  seja, com o que se sabia antes da janela, mais SPY e QQQ para a Inês.
+
+| Universo (janelas) | colônia/janela | segurar o universo | SPY | colônia − SPY | t | colônia bate SPY |
+|---|---|---|---|---|---|---|
+| as 6 de hoje (60) | +0,52% | +5,08% | +2,70% | −2,19 pt | −1,9 | 35% |
+| 27 ETFs do mundo (111) | −0,68% | +1,82% | +3,30% | −3,98 pt | −4,1 | 17% |
+| top 6 da época + SPY/QQQ (111) | +1,42% | +6,69% | +3,30% | −1,88 pt | −1,9 | 31% |
+| top 20 da época + SPY/QQQ (111) | +1,81% | +5,06% | +3,30% | −1,49 pt | −1,6 | 37% |
+
+Em ritmo anual aproximado: a colônia faz de −2,8% (ETFs) a +7,8% (top
+20) ao ano; o SPY, +14,6% no mesmo período.
+
+- **Em nenhum universo a colônia bate o SPY.** Nos ETFs, onde não há
+  vencedor escolhido de antemão, ela perde 4 pontos a cada 60 pregões
+  (*t* −4,1): é o resultado mais limpo, e o pior.
+- **A melhor estratégia isolada também não se sustenta.** O Marco
+  Maratona (`momentum-2`) faz +1,37 pt contra o SPY no top 20 (*t* 0,7),
+  empata no top 6 e perde 4,3 pt nos ETFs. O Tomás Bússola (`trend-1`)
+  repete o padrão. Nenhuma diferença positiva passa perto de
+  significativa.
+- **O top 100 ainda tem um viés**: a lista é a das maiores de hoje, e
+  as que caíram ou sumiram desde 2016 não estão nela. Por isso segurar o
+  top 20 rende mais que o SPY (+5,06% contra +3,30%), e a colônia, mesmo
+  assim, fica abaixo dos dois. Sem esse viés, o resultado só pioraria.
+- **Os parâmetros do andar foram ajustados nas 6 ações de hoje.** Fora
+  delas, eles rendem menos, que é o sinal clássico de ajuste ao passado.
+
+**Veredito**: com as regras de hoje, os agentes não têm vantagem sobre
+segurar o índice, e o teste justo deixa isso mais claro, não menos. O
+andar de ações continua como laboratório no papel e na conta Practice;
+dinheiro de verdade vai para o índice.
+
+```bash
+cryptoarena backtest --floor stocks --data data/global/etf --benchmark SPY --quiet
+cryptoarena backtest --floor stocks --data <stocks + SPY + QQQ> --top 20 --always SPY,QQQ --benchmark SPY --quiet
+```
+
 ### Pronto para dinheiro de verdade?
 
 Cada tick a colônia pergunta à Kraken o **menor pedido aceito** por

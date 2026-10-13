@@ -84,3 +84,27 @@ def test_a_growing_universe_trades_the_coins_that_exist_in_each_window(tmp_path)
     years = report.by_year()
     assert set(years) == {2025} and years[2025]["windows"] == len(report.windows)
     assert "2025:" in format_by_year(years, ("trend-1",)) and "trend-1" in format_by_year(years, ("trend-1",))
+
+
+def test_a_point_in_time_universe_ranks_by_the_money_traded_before_the_window(tmp_path):
+    """Each window keeps the symbols that traded the most money during its
+    warm-up (known then), plus the ones always kept; a benchmark held over
+    the same bars is reported next to the colony."""
+    write_tape(tmp_path, bars=720 + 24 * 10 + 1)
+    tape = load_tape(tmp_path)
+    from cryptoarena.arena.backtest import point_in_time
+    present = list(tape)
+    # BTC trades the most money per bar (same volume, highest price)
+    assert point_in_time(tape, present, 0, 720, 1) == ["BTCUSD"]
+    assert point_in_time(tape, present, 0, 720, 1, always=("SOLUSD",)) == ["SOLUSD", "BTCUSD"]
+    tape["SOLUSD"].loc[:719, "volume"] = 1e9                  # SOL was the busiest before the window
+    assert point_in_time(tape, present, 0, 720, 1) == ["SOLUSD"]
+    cfg = SurvivalConfig(budget=5.0, seed=1, endogenous=False, learn=False)
+    report = run_backtest(tape, lambda: build_agents(5.0, False, ""), cfg, days=10, stride_days=10,
+                          warmup_bars=720, top_n=2, benchmark="ETHUSD")
+    w = report.windows[0]
+    assert w.symbols == 2 and w.bench_return is not None
+    eth = tape["ETHUSD"]
+    assert abs(w.bench_return - (eth["close"].iloc[720 + 240 - 1] / eth["open"].iloc[720] - 1)) < 1e-12
+    s = report.summary()
+    assert "bench_mean" in s and "benchmark held" in format_summary(s)

@@ -550,6 +550,13 @@ def main() -> None:
     bt.add_argument("--seed", type=int, default=1)
     bt.add_argument("--quiet", action="store_true")
 
+    bt.add_argument("--top", type=int, default=None,
+                    help="per window, trade only the N symbols that traded the most money "
+                         "in its warm-up (a point-in-time universe)")
+    bt.add_argument("--always", default="",
+                    help="comma-separated symbols kept in every window on top of --top")
+    bt.add_argument("--benchmark", default=None,
+                    help="a symbol held over the same windows for comparison (e.g. SPY)")
     bt.add_argument("--fill", default=None, choices=["close", "next_open"],
                     help="fill at the close the agents saw (default) or at the next bar's open")
 
@@ -656,7 +663,9 @@ def main() -> None:
         from .floors import get_floor
         floor = get_floor(args.floor)
         # crypto: the universe grows with the years (a coin joins at its listing)
-        tape = load_tape(args.data or floor.data_dir, align=args.aligned or floor.name != "crypto")
+        # a point-in-time universe (--top) keeps every symbol from its own listing on
+        tape = load_tape(args.data or floor.data_dir,
+                         align=args.aligned or (floor.name != "crypto" and not args.top))
         sentiment = load_sentiment(args.data or floor.data_dir) if floor.name == "crypto" else {}
         cfg = floor.config(**_overrides(args))
         report = run_backtest(tape, lambda: build_agents(cfg.budget, False, "", floor=floor.name),
@@ -664,7 +673,9 @@ def main() -> None:
                               stride_days=args.stride or floor.backtest_stride,
                               warmup_bars=args.warmup or (720 if floor.name == "crypto" else 250),
                               max_windows=args.windows, verbose=not args.quiet,
-                              sentiment=sentiment or None)
+                              sentiment=sentiment or None, top_n=args.top,
+                              always=tuple(s for s in args.always.split(",") if s),
+                              benchmark=args.benchmark)
         print()
         print(format_summary(report.summary()))
         years = report.by_year()
