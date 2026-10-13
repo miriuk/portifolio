@@ -70,7 +70,13 @@ def crypto_founders(cash: float) -> list:
 # run for these names) said the crypto floor's gates only cost
 # participation here: a short 3-month trend filter, full exposure allowed,
 # no market gate, no rank filter, bigger orders.
-STOCK_SHARED = {"wyckoff_range": 40, "trend_filter": 60, "cooldown": 3, "market_gate": 0, "rank_top": 0,
+# More aggression, same chart rules (owner's call, 13/10/2026): each agent may put
+# up to 50% of its equity in one name and in one order, and the seatbelt's 12%
+# stop-loss is off (each strategy keeps its own exits; the 50% kill switch stays).
+# Six years of daily bars: +12.4% a year against +10.7% before (SPY +13.2%), the
+# worst year -19.5% (SPY's worst -18.9%).
+STOCK_SHARED = {"risk_position": 0.5, "risk_order": 0.5, "risk_stop": 1.0,
+                "wyckoff_range": 40, "trend_filter": 60, "cooldown": 3, "market_gate": 0, "rank_top": 0,
                 "max_exposure": 1.0, "order_frac": 0.5}
 
 
@@ -92,7 +98,9 @@ def stock_founders(cash: float) -> list:
                                                     "vol_exit": 0.03}),
         TrendFollowerAgent("trend-1", cash, params={**p, "fast": 10, "slow": 50,
                                                     "exit_buffer": 0.02}),
-        BuyAndHoldAgent("index-1", cash, hold_symbols=["SPY", "QQQ"]),
+        # the index itself: half in each, no stop, topped up when the seatbelt cut a fill short
+        BuyAndHoldAgent("index-1", cash, hold_symbols=["SPY", "QQQ"],
+                        params={"risk_position": 0.5, "risk_order": 0.5, "risk_stop": 1.0}),
     ]
 
 
@@ -147,12 +155,12 @@ FLOORS: dict[str, Floor] = {
         caption="daily bars of SPY, QQQ, Apple, Microsoft, Nvidia and Amazon from Nasdaq, "
                 "paper wallets, one day per trading day",
         build_founders=stock_founders,
-        # the desk: a 20% cap per name across all agents (six years of bars
-        # never reached it: a seatbelt, not a strategy) and the PM's shadow
-        # book, which matched the colony there without beating it
+        # the desk: a 35% cap per name across all agents (raised from 20% with
+        # the agents' bigger seatbelts, 13/10/2026) and the PM's shadow book,
+        # which matched the colony there without beating it
         config_defaults=dict(endogenous=False, steps_per_day=1, week_days=5,
                              daily_target=0.002, fee_rate=0.0005,
-                             desk_symbol_cap=0.20, pm=True, pm_band=0.02,
+                             desk_symbol_cap=0.35, pm=True, pm_band=0.02,
                              # learning, not survival (owner's call, 13/10/2026): nobody is
                              # let go, the target is 8% a year on pace, and no daily rent
                              dismissals=False, annual_target=0.08, year_days=252,

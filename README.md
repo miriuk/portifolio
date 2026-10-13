@@ -1367,6 +1367,42 @@ O mesmo backtest das 6 ações, com as regras novas:
 - **Nos anos de queda** a colônia perdeu bem menos: −3,5%, −12,6% e −2,1%
   contra −17,7%, −18,9% e −12,5% do SPY. Nas altas ela fica para trás.
 
+### Mais agressividade, as mesmas regras de gráfico (13/10/2026)
+
+Decisão do dono: a Inês passa a ser o **índice inteiro** (versão C), e o
+resto da colônia fica **mais agressivo** sem mudar o que cada um lê no
+gráfico. No andar de ações:
+
+- **A Inês**: metade em SPY, metade em QQQ, sem stop, e completa a posição
+  quando o cinto cortou uma ordem. Antes ela só comprava zerada.
+- **Os outros 8 agentes**: até 50% do patrimônio num nome e numa ordem
+  (eram 35% e 25%) e **sem o stop de 12% do risco**. Cada estratégia mantém
+  as próprias saídas, e o kill switch de 50% continua.
+- **A mesa**: teto de 35% por nome na colônia (era 20%).
+- **Na colônia ao vivo**: os cintos de cada agente (`POLICY_PARAMS`) passam
+  a valer no próximo tick, por cima do estado salvo. O que cada agente
+  aprendeu sozinho (tamanho de ordem, limiares) continua dele.
+
+Testado antes de ligar, com a Inês C em todos (por janela; pior janela;
+quantas vezes bate o SPY):
+
+| | 6 ações, 1 ano | 6 ações, 60 pregões | top 20 da época, 60 | 27 ETFs, 60 |
+|---|---|---|---|---|
+| só a Inês C | +10,7% · −13,7% · 38% | +1,86% · −4,9% | +3,24% · −8,3% | +0,73% · −7,3% |
+| + posições e ordens até 50% | +11,5% · −18,5% · 50% | +2,11% · −7,2% | +3,86% · −12,5% | +0,68% · −10,4% |
+| + teto da mesa 35% | +12,3% · −19,0% · 44% | +2,32% · −7,3% | +4,04% · −13,7% | +0,67% · −10,4% |
+| **+ sem stop de 12% (o escolhido)** | **+12,4% · −19,5% · 44%** | **+2,36% · −7,5%** | **+4,32% · −13,7%** | +0,69% · −10,8% |
+| segurar o SPY | +13,2% · −18,9% | +2,70% | +3,30% | +3,30% |
+
+- **A agressividade aproxima a colônia do índice nas ações**: +12,4% ao
+  ano contra +13,2% do SPY, com uma pior janela (−19,5%) praticamente igual
+  à pior do SPY (−18,9%). No top 20 da época ela passa o SPY por janela
+  (+4,32% contra +3,30%), num universo que ainda favorece as sobreviventes.
+- **Nos ETFs não muda nada** (+0,7%): mais tamanho não cria vantagem onde
+  as regras não têm.
+- A Inês C rende como o índice que ela segura: +13,9% por ano e +2,76% por
+  janela de 60 pregões.
+
 ### Pronto para dinheiro de verdade?
 
 Cada tick a colônia pergunta à Kraken o **menor pedido aceito** por

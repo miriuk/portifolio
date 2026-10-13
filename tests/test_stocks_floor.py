@@ -148,7 +148,33 @@ def test_the_passive_investor_buys_once_and_never_sells(tmp_path):
     colony.run_once()
     trades = journal._conn.execute("SELECT symbol, side FROM trades ORDER BY id").fetchall()
     assert {t[0] for t in trades} == {"SPY", "QQQ"} and all(t[1] == "buy" for t in trades)
-    assert len(trades) == 2
+    # the default seatbelt caps each fill at 25%: she tops up towards her share
+    assert len(trades) >= 2
     journal.close()
     again = LiveColony.open(TradeJournal(tmp_path / "hold.db"), [], cfg, make_feed(fake), verbose=False)
     assert again.alive[0].agent.hold_symbols == ["SPY", "QQQ"]
+
+
+def test_ines_holds_the_whole_index_on_the_stocks_floor(tmp_path):
+    """Version C: half in SPY, half in QQQ, no stop; the live colony gives
+    every agent the floor's seatbelt on each real tick."""
+    from cryptoarena.floors import stock_founders
+    fake = FakeStooq(days=300)
+    journal = TradeJournal(tmp_path / "c.db")
+    # alone, the desk's cap (a share of the whole colony) would bind her: not here
+    cfg = get_floor("stocks").config(seed=1, desk_symbol_cap=0.0, budget=150.0)
+    # (a budget like the live one: _can_buy keeps at least one unit of cash)
+    ines = [a for a in stock_founders(150.0) if a.agent_id == "index-1"]
+    colony = LiveColony.open(journal, ines, cfg, make_feed(fake), warmup=250, verbose=False)
+    fake.now += 14 * DAY
+    colony.run_once()
+    a = colony.alive[0].agent
+    prices = colony.last_prices
+    assert a.wallet.exposure(prices) > 0.95                       # the index, whole
+    a.set_params({"risk_position": 0.0})                          # an old seatbelt in a saved state
+    journal.close()
+    journal = TradeJournal(tmp_path / "c.db")
+    again = LiveColony.open(journal, stock_founders(150.0), cfg, make_feed(fake), verbose=False)
+    by_id = {i.agent_id: i.agent for i in again.alive}
+    assert by_id["index-1"].params["risk_position"] == 0.5         # the floor's policy is back
+    journal.close()

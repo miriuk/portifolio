@@ -45,6 +45,10 @@ DESK_FIELDS = ("desk_symbol_cap", "desk_gross_cap", "pm", "pm_consensus", "pm_ba
 # the floor's policy on the agents themselves, applied on every real tick too:
 # whether anyone can be let go, what they are asked for, and the rent
 POLICY_FIELDS = ("dismissals", "annual_target", "year_days", "daily_target", "daily_cost")
+# and on each agent: the seatbelt it wears and the index investor's exit,
+# taken from the floor's founder of the same id (or, for an intern, of its
+# strategy); everything an agent learned on its own stays its own
+POLICY_PARAMS = ("risk_position", "risk_order", "risk_stop", "exit_ma")
 AGENT_CLASSES: dict[str, type] = {
     name: cls for name, cls in inspect.getmembers(rules, inspect.isclass)
     if issubclass(cls, rules.ParamAgent) and cls is not rules.ParamAgent
@@ -133,6 +137,7 @@ class LiveColony:
             if founders:                          # a real tick: the floor's policy applies
                 for name in DESK_FIELDS + POLICY_FIELDS:
                     setattr(colony.cfg, name, getattr(cfg, name))
+                colony._sync_policy(founders)
             colony._hire(founders)
             colony._retire(founders)
             colony._staff_desk(saved.get("desk"))
@@ -202,6 +207,23 @@ class LiveColony:
             retired = True
         if retired:
             self.save()
+
+    def _sync_policy(self, founders: list[TradingAgent]) -> None:
+        """Give every agent the floor's current seatbelt (POLICY_PARAMS)."""
+        by_id = {f.agent_id: f for f in founders if hasattr(f, "get_params")}
+        by_strategy: dict[str, TradingAgent] = {}
+        for f in by_id.values():
+            by_strategy.setdefault(f.agent_id.rsplit("-", 1)[0], f)
+        for ind in self.result.population:
+            agent = ind.agent
+            if not hasattr(agent, "set_params"):
+                continue
+            model = by_id.get(agent.agent_id) or by_strategy.get(agent.agent_id.rsplit("-", 1)[0])
+            if model is None:
+                continue
+            want = {k: v for k, v in model.get_params().items() if k in POLICY_PARAMS}
+            if want:
+                agent.set_params(want)
 
     def _hire(self, founders: list[TradingAgent]) -> None:
         """A specialist added to the floor after the founding joins the

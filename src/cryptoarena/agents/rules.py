@@ -765,7 +765,8 @@ class ChaikinAgent(_TextbookAgent):
 
 class BuyAndHoldAgent(ParamAgent):
     """The passive investor: buys `hold_symbols` (or everything) in equal
-    weights on the first bar it can, then sits. No exits, no signals — the
+    weights on the first bar it can (topping up what its seatbelt cut
+    short), then sits. No exits, no signals — the
     yardstick every active specialist on the floor is measured against,
     and in a long bull market the one the interns end up imitating.
     `exit_ma` (0 = off) adds Paul Tudor Jones' one rule: out of a symbol
@@ -798,10 +799,14 @@ class BuyAndHoldAgent(ParamAgent):
                     continue
                 if below:
                     continue
-            if held > 0 or not self._can_buy():
+            # top up to an equal share of the index (never trims): a fill the
+            # seatbelt cut short is completed on the next bars
+            equity = self.wallet.equity(view.prices)
+            gap = equity / len(wanted) - max(held, 0.0) * view.prices.get(symbol, 0.0)
+            if gap <= equity * 0.02 or not self._can_buy():
                 continue
             orders.append(Order(self.agent_id, symbol, "buy",
-                                self.wallet.equity(view.prices) * self.params["order_frac"],
+                                min(gap, equity * self.params["order_frac"]),
                                 reason="buy and hold" if not ma else f"above the {ma}-day average"))
         return orders
 
