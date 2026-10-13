@@ -159,10 +159,12 @@ def report(status: dict, activity: dict, start: dict | None, founding: float,
             "body": (f"Combinados antes dos resultados (arena/readiness.py), sob as mesmas regras "
                      f"desde o dia {readiness.get('rules_day')}:\n\n"
                      + "\n".join(f"- {c['label']}: {c['value']}" for c in readiness["criteria"])
-                     + "\n\nIsto não muda nada sozinho: o sistema nunca opera dinheiro real. "
-                     "Usar dinheiro real é uma decisão sua, à mão, na corretora — de preferência "
-                     "com pouco no começo. Se algum critério deixar de valer, esta issue fecha "
-                     "sozinha.")})
+                     + "\n\nIsto não muda nada sozinho: o sistema nunca opera dinheiro real "
+                     "por conta própria. O próximo passo, combinado em 13/10/2026, é decisão sua: "
+                     "construir o modo automático com a sua aprovação a cada noite (README, \"O "
+                     "próximo passo, também combinado antes\"), com ensaio na conta Practice, "
+                     "tetos por ordem, por dia e no total, e pouco dinheiro no começo. Se algum "
+                     "critério deixar de valer, esta issue fecha sozinha.")})
     last = status.get("last_candle")
     if last:
         age = ((now or datetime.now(timezone.utc).timestamp())

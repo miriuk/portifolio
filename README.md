@@ -1448,6 +1448,36 @@ uma linha traçada depois dos resultados cai onde eles estão.
 
 `cryptoarena live --floor stocks --status` mostra o placar em `go_live`.
 
+#### O próximo passo, também combinado antes: automático com aprovação
+
+Decisão do dono (13/10/2026): o dinheiro real entra **no modo automático
+com aprovação, e só depois que o placar for atingido**. Até a Cleo abrir a
+issue dos quatro critérios, não há dinheiro real e nenhum código de conta
+real no repositório: o cliente da Trading 212 só conhece a conta Practice.
+No dia em que o placar for atingido, o modo é construído assim:
+
+1. **Ensaio primeiro**: algumas semanas do fluxo de aprovação inteiro na
+   conta Practice, antes de qualquer libra real.
+2. **Uma aprovação por noite**: depois do tick, a Cleo abre uma issue com
+   as ordens da noite, já no tamanho do valor real escolhido pelo dono.
+   Nada sai sem a aprovação daquela noite; sem aprovação, as ordens da
+   noite caducam.
+3. **O que a conta do Reino Unido pode comprar**: SPY e QQQ trocados por
+   ETFs UCITS (S&P 500 e Nasdaq-100, de preferência cotados em libras e
+   dentro do ISA). O custo de câmbio das ações americanas (cerca de 0,15%
+   por lado) entra no cálculo.
+4. **Tetos e freio**: limite por ordem, por dia e no total investido, um
+   valor pequeno no começo, e uma variável que pausa tudo na hora.
+5. **Pausa automática**: se as regras mudarem (o relógio zera) ou se a
+   issue do placar fechar porque um critério deixou de valer, as ordens
+   reais param até o placar ser atingido de novo.
+6. **Chaves** só nos secrets do repositório, com o mínimo de permissão que
+   a corretora oferecer; nunca no chat nem no código.
+
+Pelo calendário da bolsa, o mais cedo é 14/04/2027 (o 126º pregão contado
+a partir de 13/10/2026), se os quatro critérios estiverem atingidos nesse
+dia e as regras não tiverem mudado; o ideal (252 pregões) cai em 13/10/2027.
+
 ### Pronto para dinheiro de verdade?
 
 Cada tick a colônia pergunta à Kraken o **menor pedido aceito** por
