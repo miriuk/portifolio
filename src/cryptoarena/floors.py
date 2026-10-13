@@ -16,6 +16,7 @@ from typing import Callable
 from .agents.rules import (BreakoutAgent, BuyAndHoldAgent, MeanReversionAgent, MomentumAgent,
                            RegimeSwitchAgent, TrendFollowerAgent, VolTargetAgent)
 from .arena.chief import ChiefPolicy
+from .arena.readiness import ReadinessPolicy
 from .arena.survival import SurvivalConfig
 from .market.sources import Source
 
@@ -38,6 +39,7 @@ class Floor:
     backtest_stride: int = 10
     sources: list = field(default_factory=list)    # accounts whose calls the colony judges
     chief: ChiefPolicy | None = None                # when the chief of staff calls the owner
+    readiness: ReadinessPolicy | None = None        # the go/no-go for real money, agreed beforehand
 
     @property
     def live_url(self) -> str:
@@ -172,6 +174,10 @@ FLOORS: dict[str, Floor] = {
         # a Monday holiday leaves Friday's bar as the newest on Tuesday night
         chief=ChiefPolicy(benchmark="SPY", min_days=10, behind_pts=0.03, drawdown=0.05,
                           stale_days=5.0),
+        # agreed with the owner on 13/10/2026, before any result: six months
+        # (ideally a year) under the same rules, ahead of SPY after costs, a
+        # worst fall no deeper than SPY's, the practice mirror in step
+        readiness=ReadinessPolicy(benchmark="SPY", min_days=126, ideal_days=252),
     ),
 }
 

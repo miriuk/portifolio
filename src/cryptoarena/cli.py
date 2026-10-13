@@ -43,7 +43,8 @@ def _live(args) -> None:
             feed = _StaticFeed(saved.get("timeframe", "1h"), saved.get("exchange", ""),
                                saved.get("symbols", []))
             colony = LiveColony.open(journal, [], SurvivalConfig(), feed, verbose=False,
-                                     sources=floor.sources, chief=floor.chief)
+                                     sources=floor.sources, chief=floor.chief,
+                                     readiness=floor.readiness)
             print(json.dumps(colony.status(), indent=2))
             return
         symbols = None
@@ -69,7 +70,7 @@ def _live(args) -> None:
         founders = build_agents(cfg.budget, False, "", floor=floor.name)
         colony = LiveColony.open(journal, founders, cfg, feed,
                                  warmup=args.warmup or floor.warmup, sources=floor.sources,
-                                 chief=floor.chief)
+                                 chief=floor.chief, readiness=floor.readiness)
         if args.once:
             n = 1 if founding else colony.run_once()
             if hasattr(feed, "min_costs"):              # real-money readiness, refreshed each tick
@@ -103,7 +104,8 @@ def _chief(args) -> None:
         feed = _StaticFeed(saved.get("timeframe", "1h"), saved.get("exchange", ""),
                            saved.get("symbols", []))
         colony = LiveColony.open(journal, [], SurvivalConfig(), feed, verbose=False,
-                                 sources=floor.sources, chief=floor.chief)
+                                 sources=floor.sources, chief=floor.chief,
+                                 readiness=floor.readiness)
         note = colony.chief_note()
     finally:
         journal.close()
@@ -410,10 +412,13 @@ def _qlib(args) -> None:
 
 
 def _t212(args) -> None:
-    """Trading 212's practice account: connection check, or mirror the colony."""
+    """Trading 212's practice account: connection check, or mirror the colony.
+    An executed run is logged in the colony's journal for the readiness
+    scorecard: counts and ratios, never the account's balances."""
     import os
+    import time
 
-    from .broker.mirror import colony_holdings, mirror, report
+    from .broker.mirror import colony_holdings, mirror, report, summarize
     from .broker.trading212 import PracticeAccount
     from .floors import get_floor
 
@@ -435,7 +440,34 @@ def _t212(args) -> None:
     target = colony_holdings(state)
     universe = list(state.get("symbols") or target)
     paused = os.environ.get("T212_PAUSE", "").lower() in ("1", "true", "yes")
-    print(report(mirror(account, target, universe, execute=args.execute, paused=paused)))
+    log = args.execute and not paused              # only a run that reaches the account counts
+    try:
+        steps = mirror(account, target, universe, execute=args.execute, paused=paused)
+    except Exception:
+        if log:                                    # the account could not even be read: an incident
+            _log_mirror_run(args.db or floor.default_db,
+                            {"orders": 0, "problems": 1, "tracking": None, "unlisted": None,
+                             "aim": {}}, time.time())
+        raise
+    print(report(steps))
+    if log:
+        journal = TradeJournal(args.db or floor.default_db)
+        try:
+            run = summarize(steps, state.get("last_prices") or {}, journal.last_mirror_aim())
+        finally:
+            journal.close()
+        _log_mirror_run(args.db or floor.default_db, run, time.time())
+        print(f"readiness log: {run['orders']} order(s) sent, {run['problems']} problem(s)"
+              + (f", {run['tracking']:.1%} of the last aim not held"
+                 if run["tracking"] is not None else ", first run (nothing to compare yet)"))
+
+
+def _log_mirror_run(db: str, run: dict, ts: float) -> None:
+    journal = TradeJournal(db)
+    try:
+        journal.record_mirror_run(int(ts), run)
+    finally:
+        journal.close()
 
 
 _OVERRIDES = {"budget": "budget", "target": "daily_target", "death": "death_below",

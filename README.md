@@ -1403,6 +1403,45 @@ quantas vezes bate o SPY):
 - A Inês C rende como o índice que ela segura: +13,9% por ano e +2,76% por
   janela de 60 pregões.
 
+### O placar para dinheiro real, combinado antes dos resultados (13/10/2026)
+
+Antes de ver um único dia de resultado sob as regras novas, o dono e a
+colônia combinaram o que precisa ser verdade para **sequer discutir**
+dinheiro real (`arena/readiness.py`). Escrever a linha antes é o ponto:
+uma linha traçada depois dos resultados cai onde eles estão.
+
+| Critério | O que pede (andar de ações) |
+|---|---|
+| **tempo** | 126 pregões (seis meses; o ideal é 252, um ano) **sob as mesmas regras** |
+| **retorno** | a colônia à frente de segurar o SPY no mesmo período, já descontadas as próprias taxas |
+| **queda** | a pior queda da colônia, de um pico ao fundo, não mais funda que a do SPY no período |
+| **espelho** | a conta Practice da Trading 212 acompanhando: 20 execuções no mínimo, nenhuma com ordem falhada ou sem resposta, e em média no máximo 5% do que a execução anterior mirou faltando na conta |
+
+- **O relógio zera sozinho** quando as regras mudam: a configuração do
+  andar, quem são os fundadores, o cinto que o andar dá a cada um e o
+  **código** das estratégias (sem comentários nem docstrings) viram uma
+  impressão digital. Mudou, a contagem recomeça do fechamento seguinte, e
+  a mudança aparece no feed da mesa. O que a impressão não enxerga (como as
+  ordens são executadas, a mesa, o gerente de risco) se declara à mão,
+  subindo `REVISION`.
+- **O espelho deixa um registro por execução** no diário da colônia:
+  ordens enviadas, ordens com problema, quanto do que a execução anterior
+  mirou a conta não tinha (pega ordem recusada na abertura, preenchimento
+  parcial, mão na conta) e quanto da carteira fica só no papel porque a
+  corretora não lista o papel (SPY e QQQ não são vendidos a contas do Reino
+  Unido). **Só contagens e proporções**: nenhum saldo da conta vai para o
+  banco público.
+- **A Cleo** (chefe de gabinete) põe uma linha do placar em toda nota do
+  dia e abre uma issue **só quando os quatro critérios forem atingidos**;
+  se um deixar de valer, a issue fecha sozinha.
+- **Nada aqui opera dinheiro real.** A colônia continua no papel e o
+  espelho na conta de prática. Atingir o placar é o começo de uma conversa,
+  e a decisão é do dono, à mão, na corretora. Para a parte do índice, a
+  conta real precisaria de um ETF UCITS equivalente (por exemplo um S&P 500
+  domiciliado na Irlanda) no lugar do SPY.
+
+`cryptoarena live --floor stocks --status` mostra o placar em `go_live`.
+
 ### Pronto para dinheiro de verdade?
 
 Cada tick a colônia pergunta à Kraken o **menor pedido aceito** por

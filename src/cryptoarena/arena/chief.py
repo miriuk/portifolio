@@ -14,6 +14,12 @@ where the desk feed shows it. On top of the note, a short list of
 - `pm_ahead`: the PM's shadow book leads the colony by more than
   `pm_lead` since it opened. Should the mirror follow the PM?
 - `stale`: no new bar for `stale_days`: the feed is broken or the job is.
+- `ready`: every criterion of the real-money scorecard agreed beforehand
+  (arena/readiness.py) is met. The issue only informs: real money stays a
+  decision the owner takes by hand, and nothing here trades it.
+
+Every note also carries the scorecard's line, and a change of the floor's
+rules (which starts its clock again) gets a line of its own.
 
 `sync_issues` turns decisions into GitHub issues on the repository: one
 issue per kind, opened when it first appears, its body kept current while
@@ -30,6 +36,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from ..world.personas import persona
+from .readiness import summary_line
 
 LABEL = "mesa"
 
@@ -71,15 +78,16 @@ def day_activity(journal, day: int) -> dict:
     sells = q("SELECT symbol, COUNT(*), SUM(quantity * price) FROM trades WHERE episode = ? "
               "AND side = 'sell' GROUP BY symbol ORDER BY 3 DESC", (day,)).fetchall()
     events = q("SELECT agent_id, event, detail FROM survival_events WHERE day = ? AND event IN "
-               "('vetoed', 'clipped', 'born', 'died', 'retired', 'senior', 'employee_of_week')"
-               " ORDER BY id", (day,)).fetchall()
+               "('vetoed', 'clipped', 'born', 'died', 'retired', 'senior', 'employee_of_week', "
+               "'rules_changed') ORDER BY id", (day,)).fetchall()
     return {"buys": [(s, n, v) for s, n, v in buys], "sells": [(s, n, v) for s, n, v in sells],
             "events": events}
 
 
 def report(status: dict, activity: dict, start: dict | None, founding: float,
-           policy: ChiefPolicy, now: float | None = None) -> dict:
-    """The day's note and the decisions it raises, from the colony's status."""
+           policy: ChiefPolicy, now: float | None = None, readiness: dict | None = None) -> dict:
+    """The day's note and the decisions it raises, from the colony's status
+    (and the real-money scorecard, `readiness`, when the floor keeps one)."""
     day = max(int(status.get("day", 1)) - (1 if status.get("hour", 0) == 0 else 0), 0)
     equity = float(status.get("colony_equity") or 0.0)
     colony_ret = equity / founding - 1 if founding else None
@@ -106,6 +114,8 @@ def report(status: dict, activity: dict, start: dict | None, founding: float,
                      "senior": "sênior da semana", "employee_of_week": "funcionário da semana"}
             lines.append(f"{persona(agent).name}: {label[event]}"
                          + (f" ({detail})" if detail else "") + ".")
+        elif event == "rules_changed":
+            lines.append(f"Mudança nas regras do andar: {detail}.")
     desk = status.get("desk") or {}
     pm = desk.get("pm") or {}
     pm_gap = None
@@ -113,6 +123,8 @@ def report(status: dict, activity: dict, start: dict | None, founding: float,
         pm_gap = pm["return"] - pm["colony_return"]
         lines.append(f"O livro do PM (desde o dia {pm.get('since_day')}): {_pct(pm['return'])}, "
                      f"a colônia no mesmo período {_pct(pm['colony_return'])}.")
+    if readiness:
+        lines.append(summary_line(readiness))
 
     decisions = []
     if gap is not None and day >= policy.min_days and gap < -policy.behind_pts:
@@ -139,6 +151,18 @@ def report(status: dict, activity: dict, start: dict | None, founding: float,
             "body": (f"Desde o dia {pm.get('since_day')}, o PM fez {_pct(pm['return'])} e a "
                      f"colônia {_pct(pm['colony_return'])}.\n\nOpção: o espelho da Trading 212 "
                      "passar a seguir o livro do PM em vez das carteiras dos agentes.")})
+    if readiness and readiness.get("ready"):
+        decisions.append({
+            "key": "ready",
+            "title": (f"Os {readiness['of']} critérios de prontidão para dinheiro real foram "
+                      "atingidos"),
+            "body": (f"Combinados antes dos resultados (arena/readiness.py), sob as mesmas regras "
+                     f"desde o dia {readiness.get('rules_day')}:\n\n"
+                     + "\n".join(f"- {c['label']}: {c['value']}" for c in readiness["criteria"])
+                     + "\n\nIsto não muda nada sozinho: o sistema nunca opera dinheiro real. "
+                     "Usar dinheiro real é uma decisão sua, à mão, na corretora — de preferência "
+                     "com pouco no começo. Se algum critério deixar de valer, esta issue fecha "
+                     "sozinha.")})
     last = status.get("last_candle")
     if last:
         age = ((now or datetime.now(timezone.utc).timestamp())
@@ -153,7 +177,7 @@ def report(status: dict, activity: dict, start: dict | None, founding: float,
         f"{len(decisions)} decisão(ões) para você: " + "; ".join(d["title"] for d in decisions)
     return {"day": day, "headline": headline, "lines": lines, "decisions": decisions,
             "colony_return": colony_ret, "hold_return": hold_ret, "benchmark": policy.benchmark,
-            "bench_start": start}
+            "bench_start": start, "readiness": readiness}
 
 
 def format_note(note: dict) -> str:
@@ -218,7 +242,7 @@ def sync_issues(gh, floor: str, note: dict) -> list[str]:
     standing = {d["key"]: d for d in note["decisions"]}
     open_by_key = {}
     for issue in gh.open_issues():
-        for key in list(standing) + ["behind", "drawdown", "pm_ahead", "stale"]:
+        for key in list(standing) + ["behind", "drawdown", "pm_ahead", "stale", "ready"]:
             if _marker(floor, key) in (issue.get("body") or ""):
                 open_by_key[key] = issue
     for key, d in standing.items():

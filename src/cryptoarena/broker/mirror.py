@@ -16,6 +16,10 @@ running it twice, or after a missed day, never doubles a trade.
 - If an order's fate is unknown (timeout, dropped connection), the run
   stops sending: the next one reads the account and carries on.
 - T212_PAUSE=true stops it.
+
+`summarize` keeps what the readiness scorecard (arena/readiness.py) needs
+of a run — orders sent, orders in trouble, and how closely the account
+followed the previous run's aim — as counts and ratios, never balances.
 """
 from __future__ import annotations
 
@@ -28,7 +32,7 @@ from .trading212 import OrderUncertain, PracticeAccount, T212Error
 @dataclass
 class Step:
     symbol: str
-    action: str            # buy | sell | would_buy | would_sell | hold | missing | error | uncertain
+    action: str            # buy | sell | would_buy | would_sell | hold | missing | error | uncertain | not_sent
     detail: dict = field(default_factory=dict)
 
 
@@ -77,7 +81,9 @@ def _trunc(x: float, decimals: int) -> float:
 
 def plan(target: dict[str, float], universe: list[str], instruments: list[dict],
          positions: list[dict], pending: list[dict], decimals: int = 2) -> tuple[list, list[Step]]:
-    """(orders to send as (symbol, ticker, quantity), sells first; notes)."""
+    """(orders to send as (symbol, ticker, quantity, book), sells first; notes).
+    `book` is {"want": the colony's shares, "have": the account's, pending
+    orders included}, kept on every step of a listed symbol."""
     held = {p.get("ticker") or (p.get("instrument") or {}).get("ticker"): p for p in positions}
     queued = _pending(pending)
     orders, notes = [], []
@@ -91,14 +97,15 @@ def plan(target: dict[str, float], universe: list[str], instruments: list[dict],
             continue
         pos = held.get(ticker) or {}
         have = float(pos.get("quantity") or 0.0) + queued.get(ticker, 0.0)
+        book = {"want": round(want, 6), "have": round(have, 6)}
         qty = _trunc(want - have, decimals)
         if qty < 0:
             sellable = float(pos.get("quantityAvailableForTrading", pos.get("quantity", 0.0)) or 0.0)
             qty = -min(-qty, _trunc(sellable, decimals))
         if abs(qty) < 10 ** -decimals:
-            notes.append(Step(sym, "hold", {"shares": round(have, 4)}))
+            notes.append(Step(sym, "hold", {"shares": round(have, 4), **book}))
             continue
-        orders.append((sym, ticker, qty))
+        orders.append((sym, ticker, qty, book))
     orders.sort(key=lambda o: o[2] > 0)             # sells first, then buys in universe order
     return orders, notes
 
@@ -110,22 +117,62 @@ def mirror(account: PracticeAccount, target: dict[str, float], universe: list[st
     orders, notes = plan(target, universe, account.instruments(), account.positions(),
                          account.pending_orders(), decimals)
     steps = list(notes)
-    for sym, ticker, qty in orders:
+    stopped = False
+    for sym, ticker, qty, book in orders:
         side = "buy" if qty > 0 else "sell"
+        if stopped:                                 # read the account again before anything else
+            steps.append(Step(sym, "not_sent", {"ticker": ticker, "quantity": qty, **book,
+                                                "reason": "an earlier order went unanswered"}))
+            continue
         if not execute:
-            steps.append(Step(sym, f"would_{side}", {"ticker": ticker, "quantity": qty}))
+            steps.append(Step(sym, f"would_{side}", {"ticker": ticker, "quantity": qty, **book}))
             continue
         try:
             order = account.market_order(ticker, qty)
         except OrderUncertain as exc:
-            steps.append(Step(sym, "uncertain", {"ticker": ticker, "quantity": qty, "error": str(exc)}))
-            break                                   # read the account again before anything else
-        except T212Error as exc:
-            steps.append(Step(sym, "error", {"ticker": ticker, "quantity": qty, "error": str(exc)}))
+            steps.append(Step(sym, "uncertain", {"ticker": ticker, "quantity": qty, **book,
+                                                 "error": str(exc)}))
+            stopped = True
             continue
-        steps.append(Step(sym, side, {"ticker": ticker, "quantity": qty, "order": order.get("id"),
-                                      "status": order.get("status")}))
+        except T212Error as exc:
+            steps.append(Step(sym, "error", {"ticker": ticker, "quantity": qty, **book,
+                                             "error": str(exc)}))
+            continue
+        steps.append(Step(sym, side, {"ticker": ticker, "quantity": qty, **book,
+                                      "order": order.get("id"), "status": order.get("status")}))
     return steps
+
+
+def summarize(steps: list[Step], prices: dict[str, float], previous: dict[str, float] | None) -> dict:
+    """What the readiness scorecard keeps of an executed run.
+
+    - `orders`: orders sent; `problems`: orders that failed or went
+      unanswered (a run with none is `ok`);
+    - `tracking`: before this run sent anything, how far the account (held
+      plus still queued) was from what the previous run aimed it at, as a
+      share of that aim's value at today's prices. It catches what the run
+      itself cannot see: an order rejected at the open, a partial fill, a
+      hand in the account. None on the first run;
+    - `unlisted`: the share of the colony's positions the broker does not
+      list, which stays on paper;
+    - `aim`: the shares this run aimed the account at, for tomorrow's
+      `tracking` (the colony's own paper numbers, nothing of the account's).
+    """
+    book = {s.symbol: s.detail for s in steps if "want" in s.detail}
+    tracking = None
+    if previous is not None and book:
+        base = sum(abs(previous.get(sym, 0.0)) * prices.get(sym, 0.0) for sym in book)
+        gap = sum(abs(previous.get(sym, 0.0) - d["have"]) * prices.get(sym, 0.0)
+                  for sym, d in book.items())
+        tracking = gap / base if base > 0 else (0.0 if gap <= 0 else 1.0)
+    listed = sum(d["want"] * prices.get(sym, 0.0) for sym, d in book.items())
+    paper = sum(float(s.detail.get("colony_shares", 0.0)) * prices.get(s.symbol, 0.0)
+                for s in steps if s.action == "missing")
+    return {"orders": sum(1 for s in steps if s.action in ("buy", "sell")),
+            "problems": sum(1 for s in steps if s.action in ("error", "uncertain")),
+            "tracking": None if tracking is None else round(tracking, 6),
+            "unlisted": round(paper / (listed + paper), 6) if listed + paper > 0 else 0.0,
+            "aim": {sym: d["want"] for sym, d in book.items()}}
 
 
 def report(steps: list[Step]) -> str:

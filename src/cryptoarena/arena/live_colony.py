@@ -35,6 +35,7 @@ from ..world.personas import persona
 from .chief import ChiefPolicy, bench_start, day_activity, report
 from .desk import PMBook
 from .episode import EpisodeResult, run_episode
+from .readiness import ReadinessPolicy, fingerprint, scorecard
 from .survival import (Individual, SurvivalConfig, SurvivalResult, _end_of_day,
                        _next_id_factory, _strategy_name, make_desk)
 
@@ -109,6 +110,9 @@ class LiveColony:
         self.chief: ChiefPolicy | None = None   # who reads it all and calls the owner (arena/chief.py)
         self.bench_start: dict | None = None    # the benchmark at the founding: the line to beat
         self.pm_start: dict | None = None       # when the PM's book opened, and the colony then
+        self.readiness_policy: ReadinessPolicy | None = None   # the go/no-go for real money (arena/readiness.py)
+        self.rules: dict | None = None          # the rules' fingerprint, and since when they hold
+        self.ledger: list[list] = []            # per closed session under them: close ts, equity, founding, benchmark
         if founders:
             for agent in founders:
                 agent.starting_cash = cfg.budget
@@ -121,7 +125,8 @@ class LiveColony:
     def open(cls, journal: TradeJournal, founders: list[TradingAgent],
              cfg: SurvivalConfig, feed, warmup: int = 700,
              verbose: bool = True, sources: list[Source] | None = None,
-             chief: ChiefPolicy | None = None) -> "LiveColony":
+             chief: ChiefPolicy | None = None,
+             readiness: ReadinessPolicy | None = None) -> "LiveColony":
         """Resume the colony saved in `journal`, or found a new one."""
         saved = journal.load_state(STATE_KEY)
         if saved is not None:
@@ -133,6 +138,7 @@ class LiveColony:
                 feed.symbols = dict(saved["symbol_map"])   # the colony keeps its own universe
             colony.sources = list(sources or [])
             colony.chief = chief
+            colony.readiness_policy = readiness
             colony._restore(saved)
             if founders:                          # a real tick: the floor's policy applies
                 for name in DESK_FIELDS + POLICY_FIELDS:
@@ -141,10 +147,19 @@ class LiveColony:
             colony._hire(founders)
             colony._retire(founders)
             colony._staff_desk(saved.get("desk"))
+            colony._check_rules(founders)
             return colony
         colony = cls(journal, cfg, feed, founders, warmup=warmup, verbose=verbose)
         colony.sources = list(sources or [])
         colony.chief = chief
+        colony.readiness_policy = readiness
+        if readiness is not None:                 # the clock starts with the first closed session
+            colony.rules = {"fingerprint": fingerprint(cfg, founders, POLICY_PARAMS),
+                            "since": None, "day": colony.day, "at": int(time.time())}
+            journal.record_survival_event(
+                colony.day, "chief", "rules_changed", sum(i.budget for i in colony.result.population),
+                detail=f"regras {colony.rules['fingerprint']}: o relógio da prontidão para "
+                       "dinheiro real começa")
         for ind in colony.result.population:
             journal.record_survival_event(0, ind.agent_id, "born", cfg.budget,
                                           generation=0, strategy=ind.strategy)
@@ -224,6 +239,62 @@ class LiveColony:
             want = {k: v for k, v in model.get_params().items() if k in POLICY_PARAMS}
             if want:
                 agent.set_params(want)
+
+    def _check_rules(self, founders: list[TradingAgent]) -> None:
+        """On a real tick, compare the floor's rules with the ones the
+        readiness clock has been counting (arena/readiness.py). Changed,
+        the clock starts again: the ledger keeps only the last close as
+        the new baseline, and the change goes on the desk feed."""
+        if not founders or self.readiness_policy is None:
+            return
+        fp = fingerprint(self.cfg, founders, POLICY_PARAMS)
+        if self.rules is not None and self.rules.get("fingerprint") == fp:
+            return
+        before = (self.rules or {}).get("fingerprint")
+        self.rules = {"fingerprint": fp, "since": None, "day": self.day, "at": int(time.time())}
+        self.ledger = []
+        self._ledger_row()                          # the last close is the new baseline
+        equity = sum(i.agent.wallet.equity(self.last_prices) for i in self.alive)
+        self.journal.record_survival_event(
+            self.day, "chief", "rules_changed", round(equity, 6),
+            detail=(f"regras {before} → {fp}: o relógio da prontidão para dinheiro real "
+                    "recomeça" if before else
+                    f"regras {fp}: o relógio da prontidão para dinheiro real começa"))
+        if self.verbose:
+            print(f"readiness: rules {before or '(none)'} -> {fp}, the clock starts again")
+        self.save()
+
+    def _ledger_row(self) -> None:
+        """The session that just closed, for the readiness scorecard: when
+        it closed, the colony's equity, the money the founders were given
+        (a change is money in or out, not return) and the benchmark."""
+        if self.readiness_policy is None or self.last_ts is None or not self.last_prices:
+            return
+        close = int(self.last_ts + getattr(self.feed, "seconds", 0))
+        equity = sum(i.agent.wallet.equity(self.last_prices) for i in self.alive)
+        founding = sum(i.budget for i in self.result.population if i.generation == 0)
+        row = [close, round(equity, 6), round(founding, 6),
+               self.last_prices.get(self.readiness_policy.benchmark)]
+        if self.ledger and self.ledger[-1][0] == close:
+            self.ledger[-1] = row
+        else:
+            self.ledger.append(row)
+        if self.rules is not None and self.rules.get("since") is None:
+            self.rules["since"] = close
+
+    def go_live(self) -> dict | None:
+        """The readiness scorecard under the current rules (None when the
+        floor has none)."""
+        if self.readiness_policy is None:
+            return None
+        rules = self.rules or {}
+        since = rules.get("since")
+        # the mirror's runs from the moment the rules took over: a run the
+        # night before still mirrored the old ones
+        runs = self.journal.mirror_runs(max(since or 0, rules.get("at") or 0))
+        return {**scorecard(self.ledger, since, runs, self.readiness_policy),
+                "fingerprint": (self.rules or {}).get("fingerprint"),
+                "rules_day": (self.rules or {}).get("day")}
 
     def _hire(self, founders: list[TradingAgent]) -> None:
         """A specialist added to the floor after the founding joins the
@@ -487,6 +558,7 @@ class LiveColony:
                     self.next_id, self.result, self.verbose)
         if self.desk is not None and self.desk.pm is not None:
             self.desk.pm.end_day(self.last_prices)
+        self._ledger_row()
         self.day += 1
         self.hour = 0
         self.day_curves = {}
@@ -509,7 +581,7 @@ class LiveColony:
         founding = sum(i.budget for i in self.result.population if i.generation == 0)
         day = max(self.day - (1 if self.hour == 0 else 0), 0)
         return report(status, day_activity(self.journal, day), self.bench_start, founding,
-                      self.chief, now=now)
+                      self.chief, now=now, readiness=status.get("go_live"))
 
     # ------------------------------------------------------------ persistence
     def save(self) -> None:
@@ -539,6 +611,8 @@ class LiveColony:
             "population": [_dump_individual(i) for i in self.result.population],
             "desk": self._desk_state(),
             "bench_start": self.bench_start,
+            "rules": self.rules,
+            "ledger": self.ledger,
         })
 
     def _desk_state(self) -> dict | None:
@@ -595,6 +669,8 @@ class LiveColony:
         self.day_curves = {k: list(v) for k, v in saved.get("day_curves", {}).items()}
         self.last_prices = dict(saved.get("last_prices", {}))
         self.bench_start = saved.get("bench_start")
+        self.rules = dict(saved["rules"]) if saved.get("rules") else None
+        self.ledger = [list(r) for r in saved.get("ledger") or []]
         self.min_costs = dict(saved.get("min_costs", {}))
         self.sentiment = saved.get("sentiment")
         self.source_cursor = {k: dict(v) for k, v in (saved.get("source_cursor") or {}).items()}
@@ -663,6 +739,7 @@ class LiveColony:
             "sources": self.sources_summary(),
             "readiness": self.readiness(),
             "desk": self.desk_status(),
+            "go_live": self.go_live(),
             "agents": [{"id": i.agent_id, "name": persona(i.agent_id, i.parent_id).name,
                         "title": persona(i.agent_id, i.parent_id).title,
                         "gen": i.generation, "budget": round(i.budget, 4),

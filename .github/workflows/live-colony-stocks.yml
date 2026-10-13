@@ -15,7 +15,9 @@
 # After each tick the colony's holdings are mirrored onto Trading 212's
 # PRACTICE account (virtual money; broker/mirror.py), when the repository
 # has the secrets T212_API_KEY and T212_API_SECRET of a practice-account
-# API key. The variable T212_PAUSE=true stops the mirror.
+# API key. The variable T212_PAUSE=true stops the mirror. Each run is logged
+# in the journal for the real-money readiness scorecard (arena/readiness.py),
+# which the chief's note carries; nothing here ever touches real money.
 name: Live colony (stocks)
 
 on:
@@ -82,6 +84,22 @@ jobs:
           SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}   # a secret: the logs are public
         run: cryptoarena live --floor stocks --once --db "$COLONY_DB" --deposit-gbp "${{ inputs.deposit_gbp || '1000' }}"
 
+      - name: Mirror to the Trading 212 practice account
+        # before publishing, so the run's log (counts and ratios only, for the
+        # real-money readiness scorecard) goes out with the colony
+        continue-on-error: true           # the colony is published either way; the mirror catches up next run
+        timeout-minutes: 5                # a hung broker never holds back the night's publish
+        env:
+          T212_API_KEY: ${{ secrets.T212_API_KEY }}
+          T212_API_SECRET: ${{ secrets.T212_API_SECRET }}
+          T212_PAUSE: ${{ vars.T212_PAUSE }}
+        run: |
+          if [ -z "$T212_API_KEY" ] || [ -z "$T212_API_SECRET" ]; then
+            echo "No practice-account key (secrets T212_API_KEY / T212_API_SECRET): the colony stays on paper only."
+            exit 0
+          fi
+          cryptoarena t212 mirror --floor stocks --db "$COLONY_DB" --execute
+
       - name: Status
         run: cryptoarena live --floor stocks --status --db "$COLONY_DB" | tee live/status.json
 
@@ -124,16 +142,3 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: cryptoarena chief --floor stocks --db "$COLONY_DB" --issues
-
-      - name: Mirror to the Trading 212 practice account
-        continue-on-error: true           # the colony is already saved; the mirror catches up next run
-        env:
-          T212_API_KEY: ${{ secrets.T212_API_KEY }}
-          T212_API_SECRET: ${{ secrets.T212_API_SECRET }}
-          T212_PAUSE: ${{ vars.T212_PAUSE }}
-        run: |
-          if [ -z "$T212_API_KEY" ] || [ -z "$T212_API_SECRET" ]; then
-            echo "No practice-account key (secrets T212_API_KEY / T212_API_SECRET): the colony stays on paper only."
-            exit 0
-          fi
-          cryptoarena t212 mirror --floor stocks --db "$COLONY_DB" --execute

@@ -93,6 +93,16 @@ CREATE TABLE IF NOT EXISTS source_calls (
     outcome REAL,                 -- return in the call's direction, once judged
     UNIQUE (source, post_id, symbol)
 );
+CREATE TABLE IF NOT EXISTS mirror_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts INTEGER NOT NULL,          -- when the practice-account mirror ran (unix seconds)
+    ok INTEGER NOT NULL,          -- 1: no order failed or went unanswered
+    orders INTEGER NOT NULL,      -- orders sent
+    problems INTEGER NOT NULL,    -- orders that failed, or whose fate is unknown
+    tracking REAL,                -- share of the last run's aim the account did not hold (NULL on the first)
+    unlisted REAL,                -- share of the colony's positions the broker does not list
+    aim TEXT DEFAULT '{}'         -- JSON: the shares this run aimed the account at, per symbol
+);
 CREATE INDEX IF NOT EXISTS idx_trades_agent ON trades (agent_id, episode);
 CREATE INDEX IF NOT EXISTS idx_equity_agent ON equity_snapshots (agent_id, episode, step);
 """
@@ -308,6 +318,33 @@ class TradeJournal:
                AVG(outcome) FROM source_calls WHERE source = ?""", (source,)).fetchone()
         return {"calls": row[0], "resolved": row[1], "hits": int(row[2]),
                 "avg_outcome": row[3]}
+
+    # ---------------------------------------------------------- the practice mirror
+    def record_mirror_run(self, ts: int, run: dict) -> None:
+        """One run of the Trading 212 practice mirror, as `broker.mirror.summarize`
+        reads it: counts and ratios, never the account's balances."""
+        self._conn.execute(
+            """INSERT INTO mirror_runs (ts, ok, orders, problems, tracking, unlisted, aim)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (int(ts), int(run["problems"] == 0), run["orders"], run["problems"],
+             run.get("tracking"), run.get("unlisted"), json.dumps(run.get("aim") or {})))
+        self._conn.commit()
+
+    def mirror_runs(self, since: int | None = None) -> list[dict]:
+        rows = self._conn.execute(
+            "SELECT ts, ok, orders, problems, tracking, unlisted, aim FROM mirror_runs "
+            "WHERE ts >= ? ORDER BY ts, id", (since if since is not None else 0,)).fetchall()
+        return [{"ts": r[0], "ok": bool(r[1]), "orders": r[2], "problems": r[3],
+                 "tracking": r[4], "unlisted": r[5], "aim": json.loads(r[6] or "{}")}
+                for r in rows]
+
+    def last_mirror_aim(self) -> dict | None:
+        """What the last run that reached the account aimed it at (None if
+        none did yet)."""
+        row = self._conn.execute(
+            "SELECT aim FROM mirror_runs WHERE aim != '{}' "
+            "ORDER BY ts DESC, id DESC LIMIT 1").fetchone()
+        return json.loads(row[0] or "{}") if row else None
 
     def save_state(self, key: str, value) -> None:
         """Persist a JSON-serialisable blob under `key` (live colonies keep

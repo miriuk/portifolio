@@ -116,7 +116,8 @@ def test_sells_first_capped_and_other_tickers_untouched():
 def test_an_uncertain_order_stops_the_run():
     fake = FakeDemo(errors=[408])
     steps = mirror(account(fake), {"AAPL": 1.0, "NVDA": 1.0}, UNIVERSE, execute=True)
-    assert len(fake.orders) == 1 and [s.action for s in steps][-1] == "uncertain"
+    assert len(fake.orders) == 1                                             # nothing after it
+    assert [s.action for s in steps][-2:] == ["uncertain", "not_sent"]
 
 
 def test_a_rehearsal_sends_nothing_and_a_pause_reads_nothing():

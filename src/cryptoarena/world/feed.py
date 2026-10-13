@@ -17,7 +17,7 @@ from .personas import DESK, persona
 EVENTS = {
     "vetoed": ("RISK", "red"), "clipped": ("RISK", "amber"),
     "pm_trade": ("PM", "gold"), "pm_opened": ("PM", "gold"),
-    "chief_note": ("CHIEF", "green"),
+    "chief_note": ("CHIEF", "green"), "rules_changed": ("CHIEF", "amber"),
     "born": ("HR", "plain"), "cloned": ("HR", "plain"), "died": ("HR", "red"),
     "retired": ("HR", "plain"), "consulted": ("MENTOR", "plain"), "trained": ("MENTOR", "plain"),
     "senior": ("AWARD", "gold"), "employee_of_week": ("AWARD", "gold"), "party": ("AWARD", "plain"),
