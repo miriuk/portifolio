@@ -44,8 +44,12 @@ import textwrap
 from dataclasses import MISSING, asdict, dataclass, fields
 
 # bump by hand when a change the fingerprint cannot see changes how the floor
-# trades (fills, the desk, the risk manager, a helper the strategies call)
-REVISION = 1
+# trades (fills, the desk, the risk manager, a helper the strategies call) or
+# how the scorecard is measured. Every bump, and why:
+#   2 (14/10/2026, owner's call): the mirror kept trying QQQ, which Trading 212
+#     refuses to a UK account, so its first night counted as an incident; fixed
+#     in broker/mirror.py, and the clock starts again with the fixed mirror
+REVISION = 2
 # what may vary between runs without being a change of rules
 _NOT_RULES = {"days", "seed", "budget", "warmup_bars"}
 # whose code counts: the strategies and their parents in this package (not

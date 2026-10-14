@@ -1531,6 +1531,14 @@ uma linha traçada depois dos resultados cai onde eles estão.
 
 `cryptoarena live --floor stocks --status` mostra o placar em `go_live`.
 
+**Reinícios do relógio.** 14/10/2026, decisão do dono: na primeira noite o
+espelho tentou comprar QQQ, que a Trading 212 lista mas recusa a contas do
+Reino Unido (HTTP 400, na rodada da 01:30 e na das 05:30). Era um defeito
+nosso: fundo americano precisa de versão UCITS. O espelho passou a deixar
+fundos listados nos EUA só no papel, e `REVISION` subiu para 2 para o
+relógio recomeçar com o espelho corrigido. Custou um pregão (13/10), o
+único contado até ali; nenhum resultado favorável foi descartado.
+
 #### O próximo passo, também combinado antes: automático com aprovação
 
 Decisão do dono (13/10/2026): o dinheiro real entra **no modo automático
