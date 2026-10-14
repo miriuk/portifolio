@@ -553,6 +553,70 @@ No GitHub Actions: **Forecast bench → Run workflow**, `tape: world`,
 `models: drift,kronos-mini,kronos,kronos-base`, com um `label` para não
 sobrescrever resultados anteriores.
 
+**Os três tamanhos, SPY e QQQ (14/10/2026).** Uma previsão por semana
+para a semana seguinte, out/2017 a out/2026, 0,05% por lado (branch
+`forecast-bench-world-kronos-sizes`). No período inteiro o mini parecia
+ganhar de segurar nos dois (SPY +15,4% ao ano contra +13,2%; QQQ +23,4%
+contra +19,8%, com metade da queda). Separando o que o modelo pode ter
+visto no pré-treino (até junho de 2024) do que veio depois:
+
+| IC semanal (t) | SPY até jun/2024 | SPY depois | QQQ até jun/2024 | QQQ depois |
+|---|---|---|---|---|
+| Kronos mini | **+0,244 (4,6)** | −0,037 (−0,4) | **+0,173 (3,2)** | +0,021 (0,2) |
+| Kronos small | +0,130 (2,4) | +0,194 (2,1) | +0,079 (1,5) | +0,205 (2,2) |
+| Kronos base | +0,109 (2,0) | +0,142 (1,5) | +0,051 (0,9) | +0,166 (1,8) |
+| volta à média de 1 ano (uma linha) | +0,068 | **+0,284** | +0,031 | **+0,234** |
+
+| Depois de jun/2024, ao ano (queda máx.) | SPY | QQQ |
+|---|---|---|
+| segurar | **+17,0% (19%)** | **+21,6% (23%)** |
+| Kronos mini | +11,4% (19%) | +20,8% (17%) |
+| Kronos small | +5,7% (7%) | +9,5% (16%) |
+| Kronos base | +6,3% (12%) | +13,2% (7%) |
+
+- **O mini decorou, não previu**: o acerto forte existe só no período
+  em que ele treinou e some exatamente depois do corte. É a assinatura
+  de memória, e é por isso que só o período depois do corte conta.
+- **O small e o base** repetem o que já sabíamos: o pouco de acerto que
+  têm depois do corte anda junto (correlação 0,6 a 0,9) com a regra de
+  volta à média de uma linha, que acerta mais que eles. Como passam a
+  maior parte do tempo prevendo queda num mercado que sobe, ficam de fora
+  e rendem muito menos que segurar.
+- **Veredito**: nenhum tamanho do Kronos ganha de segurar o índice no
+  período que ele não viu. Fica no banco de previsões, fora do andar.
+
+### TradingAgents: o artigo, as réplicas e o que veio de lá (14/10/2026)
+
+O [TradingAgents](https://github.com/TauricResearch/TradingAgents)
+(v0.6.0, Apache-2.0) é um gerador de recomendação: para cada ação e cada
+dia, cerca de 20 chamadas de LLM (quatro analistas, debate bull/bear,
+gerente de pesquisa, trader, debate de risco em três vozes e gerente de
+carteira) produzem uma nota de cinco níveis. Ele não executa, não dimensiona
+e não conta custos. O nosso debate bull/bear (`agents/debate.py`) já veio
+de lá.
+
+- **O artigo** (arXiv 2412.20138) relata Sharpe de 5,6 a 8,2 e queda
+  abaixo de 2% em **uma rodada, três ações, cerca de um trimestre de
+  2024**, sem custos, sem comparar com o índice e sem publicar o código da
+  avaliação; a janela de teste muda entre versões do artigo. O próprio
+  CHANGELOG lista vazamentos de dados do futuro corrigidos só em 2026.
+- **Nas réplicas depois do corte de treino dos modelos** a vantagem some:
+  um estudo de reprodutibilidade (ACM ICAIF 2026, GOOGL, mai–jul/2025) não
+  bateu segurar a GOOGL nem o QQQ; o *Profit Mirage* (2025) mede o Sharpe
+  caindo cerca de 56% depois do corte; nas arenas com dinheiro de verdade
+  a maioria dos modelos perdeu. Vários desses só foram lidos por trechos
+  de busca.
+- **O que ele tem de bom** é a higiene de dados na data da decisão
+  (notícias cortadas no dia, balanços da SEC como foram entregues, dados
+  macro na versão da época), útil se um dia usarmos texto ou balanços.
+- **A comparação achou dois defeitos nossos**, corrigidos antes do
+  relógio do placar começar: lições que empurravam o parâmetro para o lado
+  errado no andar de ações, e a fonte da SEC calada sem que a impressão
+  digital das regras soubesse.
+- Um teste honesto do TradingAgents só pode ser para frente, num andar de
+  laboratório, com as notas julgadas pelo placar das fontes (cerca de
+  US$7–11 por mês com Haiku 5.5 e Sonnet 5.5). Não ligado; decisão do dono.
+
 **2. Ranquear ações (a abordagem do [Microsoft Qlib](https://github.com/microsoft/qlib)).**
 O Qlib, a plataforma aberta mais completa de investimento quantitativo,
 não tenta adivinhar se o mercado sobe: todo dia ele ranqueia as ações
