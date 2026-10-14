@@ -105,11 +105,14 @@ def rules_config(cfg, baseline: dict | None = None) -> dict:
 
 
 def fingerprint(cfg, founders, params: tuple[str, ...] | None = None, sources=(),
-                policy: "ReadinessPolicy | None" = None) -> str:
+                policy: "ReadinessPolicy | None" = None, quiet: tuple[str, ...] = ()) -> str:
     """A short hash of the floor's rules: its configuration (`cfg`, or a
     `rules_config` dict), every founder's id and kind, the `params` the
     floor imposes on it (all of them when None), the code of each kind,
-    the sources' trust settings, this policy, and `REVISION`."""
+    the sources' trust settings and which of them are `quiet` (configured
+    but unable to read: SEC Form 4 without SEC_USER_AGENT), this policy,
+    and `REVISION`. A quiet source coming alive changes what the agents
+    see, so it starts the clock again too."""
     config = cfg if isinstance(cfg, dict) else rules_config(cfg)
     people, kinds = [], {}
     for f in sorted(founders, key=lambda a: a.agent_id):
@@ -118,7 +121,8 @@ def fingerprint(cfg, founders, params: tuple[str, ...] | None = None, sources=()
             given = {k: v for k, v in given.items() if k in params}
         people.append([f.agent_id, type(f).__name__, given])
         kinds.setdefault(type(f).__name__, _code(type(f)))
-    listen = sorted([s.handle, s.prior, s.horizon_days, s.min_resolved] for s in sources)
+    listen = sorted([s.handle, s.prior, s.horizon_days, s.min_resolved, s.handle in quiet]
+                    for s in sources)
     blob = json.dumps({"revision": REVISION, "config": config, "founders": people,
                        "code": kinds, "sources": listen,
                        "policy": asdict(policy) if policy is not None else None},

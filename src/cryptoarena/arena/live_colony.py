@@ -156,7 +156,8 @@ class LiveColony:
         if readiness is not None:                 # the clock starts with the first closed session
             config = rules_config(cfg)
             colony.rules = {"fingerprint": fingerprint(config, founders, POLICY_PARAMS,
-                                                       colony.sources, readiness),
+                                                       colony.sources, readiness,
+                                                       colony._quiet_sources()),
                             "config": config, "since": None, "day": colony.day,
                             "at": int(time.time())}
             journal.record_survival_event(
@@ -250,7 +251,8 @@ class LiveColony:
         the new baseline, and the change goes on the desk feed."""
         if not founders or self.readiness_policy is None:
             return
-        args = (founders, POLICY_PARAMS, self.sources, self.readiness_policy)
+        args = (founders, POLICY_PARAMS, self.sources, self.readiness_policy,
+                self._quiet_sources())
         if self.rules is not None and self.rules.get("config") is not None and \
                 fingerprint(rules_config(self.cfg, self.rules["config"]), *args) == \
                 self.rules.get("fingerprint"):
@@ -274,6 +276,13 @@ class LiveColony:
         if self.verbose:
             print(f"readiness: rules {before or '(none)'} -> {fp}, the clock starts again")
         self.save()
+
+    def _quiet_sources(self) -> tuple[str, ...]:
+        """The floor's sources that cannot read anything on this run: SEC
+        Form 4 without SEC_USER_AGENT, an X account with no posts feed."""
+        return tuple(s.handle for s in self.sources
+                     if (s.handle == sec.SOURCE and sec.user_agent() is None)
+                     or (s.handle != sec.SOURCE and not hasattr(self.feed, "posts")))
 
     def _ledger_row(self) -> None:
         """The session that just closed, for the readiness scorecard: when

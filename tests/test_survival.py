@@ -428,3 +428,21 @@ def test_the_floors_learn_instead_of_firing():
         cfg = get_floor(name).config()
         assert cfg.dismissals is False and cfg.annual_target == 0.08
         assert cfg.year_days == year and cfg.daily_cost == 0.0
+
+
+def test_a_lesson_never_pushes_a_floor_setting_the_wrong_way():
+    """The stocks floor sets 50% orders and a 3-day cooldown, beyond the
+    crypto-sized bands: 'lean into this setup' must not cut the orders to
+    30%, nor 'missed the move' stretch the cooldown to 12 days."""
+    from cryptoarena.agents.rules import MomentumAgent
+    from cryptoarena.floors import STOCK_SHARED
+    agent = MomentumAgent("momentum-1", 100.0, params={**STOCK_SHARED, "lookback": 20,
+                                                       "entry_threshold": 0.03})
+    agent.learn(["lean into this setup", "missed the move"])
+    p = agent.get_params()
+    assert p["order_frac"] == 0.5 and p["cooldown"] <= 3 and p["entry_threshold"] <= 0.03
+    agent.learn(["sizing too large"])
+    assert agent.get_params()["order_frac"] == pytest.approx(0.35)
+    small = MomentumAgent("momentum-9", 100.0, params={"order_frac": 0.2})
+    small.learn(["lean into this setup"])
+    assert small.get_params()["order_frac"] == pytest.approx(0.23)      # still grows inside the band

@@ -75,26 +75,35 @@ class ParamAgent(TradingAgent):
 
         Every nudge is clamped to a band around the strategy defaults so
         repeated lessons cannot drive the agent into total paralysis (or
-        recklessness); the 'too passive' lesson pushes the other way.
+        recklessness); the 'too passive' lesson pushes the other way. A
+        nudge only ever moves its way: an agent a floor already set beyond
+        the band (the stocks floor's 50% orders, its 3-day cooldown) is left
+        where it is, never pulled back across it by a lesson meant to push
+        it further.
         """
         base_entry = self.DEFAULTS.get("entry_threshold", 0.01)
         base_cd = self.DEFAULTS.get("cooldown", 4)
+
+        def up(key, now, factor, cap):              # never below where it is
+            self.params[key] = max(now, min(now * factor, cap))
+
+        def down(key, now, factor, floor):          # never above where it is
+            self.params[key] = min(now, max(now * factor, floor))
+
         for lesson in lessons:
             if "stop-losses" in lesson or "too aggressive" in lesson:
-                self.params["entry_threshold"] = min(
-                    self.params.get("entry_threshold", base_entry) * 1.1, base_entry * 2)
+                up("entry_threshold", self.params.get("entry_threshold", base_entry), 1.1,
+                   base_entry * 2)
             if "overtrading" in lesson:
-                self.params["cooldown"] = min(
-                    self.params.get("cooldown", base_cd) * 1.25, base_cd * 3)
+                up("cooldown", self.params.get("cooldown", base_cd), 1.25, base_cd * 3)
             if "missed the move" in lesson:
-                self.params["entry_threshold"] = max(
-                    self.params.get("entry_threshold", base_entry) * 0.9, base_entry * 0.6)
-                self.params["cooldown"] = max(
-                    self.params.get("cooldown", base_cd) * 0.8, base_cd * 0.5)
+                down("entry_threshold", self.params.get("entry_threshold", base_entry), 0.9,
+                     base_entry * 0.6)
+                down("cooldown", self.params.get("cooldown", base_cd), 0.8, base_cd * 0.5)
             if "sizing too large" in lesson:
-                self.params["order_frac"] = max(self.params.get("order_frac", 0.15) * 0.7, 0.02)
+                down("order_frac", self.params.get("order_frac", 0.15), 0.7, 0.02)
             if "lean into this setup" in lesson:
-                self.params["order_frac"] = min(self.params.get("order_frac", 0.15) * 1.15, 0.30)
+                up("order_frac", self.params.get("order_frac", 0.15), 1.15, 0.30)
 
     def _order_amount(self, view: MarketView) -> float:
         return self.wallet.equity(view.prices) * self.params.get("order_frac", 0.15)

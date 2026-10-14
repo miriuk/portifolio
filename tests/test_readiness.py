@@ -454,3 +454,25 @@ def test_a_change_of_rules_gets_a_line_in_the_note():
     note = report(status(1010.0, 101.0), activity, {"price": 100.0}, 1000.0,
                   ChiefPolicy(benchmark="SPY"), now=1_790_000_000.0)
     assert any("Mudança nas regras do andar" in line for line in note["lines"])
+
+
+def test_a_quiet_source_coming_alive_starts_the_clock_again(monkeypatch):
+    floor = FLOORS["stocks"]
+    founders = floor.build_founders(100.0)
+    quiet = fingerprint(floor.config(), founders, POLICY_PARAMS, floor.sources, floor.readiness,
+                        quiet=("sec-form4",))
+    alive = fingerprint(floor.config(), founders, POLICY_PARAMS, floor.sources, floor.readiness)
+    assert quiet != alive
+
+
+def test_the_live_colony_sees_whether_sec_form4_can_read(tmp_path, monkeypatch):
+    from cryptoarena.market.sources import Source
+    client = FakeClient()
+    client.now = T0 + 120 * HOUR
+    colony = _open(tmp_path / "q.db", client, build_agents(5.0, False, ""))
+    colony.sources = [Source("sec-form4")]
+    monkeypatch.delenv("SEC_USER_AGENT", raising=False)
+    assert colony._quiet_sources() == ("sec-form4",)
+    monkeypatch.setenv("SEC_USER_AGENT", "Owner owner@example.org")
+    assert colony._quiet_sources() == ()
+    colony.journal.close()
