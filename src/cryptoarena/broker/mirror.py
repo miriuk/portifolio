@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import http.client
 import math
+import re
 import urllib.error
 from dataclasses import dataclass, field
 
@@ -144,16 +145,28 @@ def mirror(account: PracticeAccount, target: dict[str, float], universe: list[st
             order = account.market_order(ticker, qty)
         except (OrderUncertain, ValueError) as exc:  # sent, but no answer that reads as one
             steps.append(Step(sym, "uncertain", {"ticker": ticker, "quantity": qty, **book,
-                                                 "error": str(exc)}))
+                                                 "error": str(exc), "reason": _reason(exc)}))
             stopped = True
             continue
         except T212Error as exc:
             steps.append(Step(sym, "error", {"ticker": ticker, "quantity": qty, **book,
-                                             "error": str(exc)}))
+                                             "error": str(exc), "reason": _reason(exc)}))
             continue
         steps.append(Step(sym, side, {"ticker": ticker, "quantity": qty, **book,
                                       "order": order.get("id"), "status": order.get("status")}))
     return steps
+
+
+def _reason(exc: Exception) -> str:
+    """What went wrong, as the broker's error code: the HTTP status and the
+    `code` field of its answer, never its free text (which could carry the
+    account's numbers into the public log)."""
+    status = getattr(exc, "status", None)
+    code = re.search(r'"(?:code|errorCode|type)"\s*:\s*"([A-Za-z0-9_.-]{1,60})"', str(exc))
+    parts = [f"HTTP {status}" if status else type(exc).__name__]
+    if code:
+        parts.append(code.group(1))
+    return " ".join(parts)
 
 
 def summarize(steps: list[Step], prices: dict[str, float], previous: dict[str, float] | None) -> dict:
@@ -170,7 +183,9 @@ def summarize(steps: list[Step], prices: dict[str, float], previous: dict[str, f
     - `unlisted`: the share of the colony's positions the broker does not
       list, which stays on paper;
     - `aim`: the shares this run aimed the account at, for tomorrow's
-      `tracking` (the colony's own paper numbers, nothing of the account's).
+      `tracking` (the colony's own paper numbers, nothing of the account's);
+    - `reasons`: per order in trouble, its symbol and the broker's error
+      code (`_reason`), so a failed night can be read without the job log.
     """
     book = {s.symbol: s.detail for s in steps if "want" in s.detail}
     tracking = None
@@ -188,7 +203,9 @@ def summarize(steps: list[Step], prices: dict[str, float], previous: dict[str, f
             "missed": 0,
             "tracking": None if tracking is None else round(tracking, 6),
             "unlisted": round(paper / (listed + paper), 6) if listed + paper > 0 else 0.0,
-            "aim": {sym: d["want"] for sym, d in book.items()}}
+            "aim": {sym: d["want"] for sym, d in book.items()},
+            "reasons": [f"{s.symbol} {s.action}: {s.detail.get('reason', '')}".strip()
+                        for s in steps if s.action in ("error", "uncertain")]}
 
 
 def report(steps: list[Step]) -> str:

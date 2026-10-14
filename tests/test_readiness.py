@@ -476,3 +476,20 @@ def test_the_live_colony_sees_whether_sec_form4_can_read(tmp_path, monkeypatch):
     monkeypatch.setenv("SEC_USER_AGENT", "Owner owner@example.org")
     assert colony._quiet_sources() == ()
     colony.journal.close()
+
+
+def test_a_failed_order_keeps_the_brokers_code_and_never_its_text(tmp_path):
+    from cryptoarena.broker.mirror import _reason
+    from cryptoarena.broker.trading212 import T212Error
+    exc = T212Error(400, '{"code": "InstrumentNotAvailable", "clarification": "free 1234.56 GBP"}')
+    assert _reason(exc) == "HTTP 400 InstrumentNotAvailable"
+    steps = [Step("QQQ", "error", {"ticker": "QQQ_US_EQ", "quantity": 0.04, "want": 0.18,
+                                   "have": 0.13, "queued": 0.0, "error": str(exc),
+                                   "reason": _reason(exc)})]
+    run = summarize(steps, {"QQQ": 745.0}, None)
+    assert run["reasons"] == ["QQQ error: HTTP 400 InstrumentNotAvailable"]
+    journal = TradeJournal(tmp_path / "r.db")
+    journal.record_mirror_run(5, run)
+    got = journal.mirror_runs()[0]
+    journal.close()
+    assert got["reasons"] == run["reasons"] and "1234" not in str(got)

@@ -471,7 +471,8 @@ def _t212(args) -> None:
         print(f"readiness log: {run['orders']} order(s) sent, {run['problems']} problem(s)"
               + (f", {run['tracking']:.1%} of the last aim not held"
                  if run["tracking"] is not None
-                 else ", tracking not measured (first run, or orders still waiting for the open)"))
+                 else ", tracking not measured (first run, or orders still waiting for the open)")
+              + ("; trouble: " + "; ".join(run["reasons"]) if run.get("reasons") else ""))
 
 
 def _log_mirror_run(db: str, run: dict, ts: float) -> None:

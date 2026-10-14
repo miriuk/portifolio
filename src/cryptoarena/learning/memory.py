@@ -102,7 +102,8 @@ CREATE TABLE IF NOT EXISTS mirror_runs (
     missed INTEGER DEFAULT 0,     -- 1: the account could not be read, nothing was sent
     tracking REAL,                -- share of the last run's aim the account did not hold (NULL on the first)
     unlisted REAL,                -- share of the colony's positions the broker does not list
-    aim TEXT DEFAULT '{}'         -- JSON: the shares this run aimed the account at, per symbol
+    aim TEXT DEFAULT '{}',        -- JSON: the shares this run aimed the account at, per symbol
+    reasons TEXT DEFAULT '[]'     -- JSON: symbol and broker error code of each order in trouble
 );
 CREATE INDEX IF NOT EXISTS idx_trades_agent ON trades (agent_id, episode);
 CREATE INDEX IF NOT EXISTS idx_equity_agent ON equity_snapshots (agent_id, episode, step);
@@ -142,8 +143,11 @@ class TradeJournal:
             self._conn.execute("ALTER TABLE lessons ADD COLUMN regime TEXT DEFAULT ''")
         if "importance" not in cols:
             self._conn.execute("ALTER TABLE lessons ADD COLUMN importance REAL DEFAULT 1.0")
-        if "missed" not in {r[1] for r in self._conn.execute("PRAGMA table_info(mirror_runs)")}:
+        mirror_cols = {r[1] for r in self._conn.execute("PRAGMA table_info(mirror_runs)")}
+        if "missed" not in mirror_cols:
             self._conn.execute("ALTER TABLE mirror_runs ADD COLUMN missed INTEGER DEFAULT 0")
+        if "reasons" not in mirror_cols:
+            self._conn.execute("ALTER TABLE mirror_runs ADD COLUMN reasons TEXT DEFAULT '[]'")
         self._conn.commit()
 
     def close(self) -> None:
@@ -327,20 +331,23 @@ class TradeJournal:
         """One run of the Trading 212 practice mirror, as `broker.mirror.summarize`
         reads it: counts and ratios, never the account's balances."""
         self._conn.execute(
-            """INSERT INTO mirror_runs (ts, ok, orders, problems, missed, tracking, unlisted, aim)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            """INSERT INTO mirror_runs (ts, ok, orders, problems, missed, tracking, unlisted, aim,
+               reasons) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (int(ts), int(run["problems"] == 0 and not run.get("missed")), run["orders"],
              run["problems"], int(bool(run.get("missed"))), run.get("tracking"),
-             run.get("unlisted"), json.dumps(run.get("aim") or {})))
+             run.get("unlisted"), json.dumps(run.get("aim") or {}),
+             json.dumps(run.get("reasons") or [])))
         self._conn.commit()
 
     def mirror_runs(self, since: int | None = None) -> list[dict]:
         rows = self._conn.execute(
-            "SELECT ts, ok, orders, problems, missed, tracking, unlisted, aim FROM mirror_runs "
-            "WHERE ts >= ? ORDER BY ts, id", (since if since is not None else 0,)).fetchall()
+            "SELECT ts, ok, orders, problems, missed, tracking, unlisted, aim, reasons "
+            "FROM mirror_runs WHERE ts >= ? ORDER BY ts, id",
+            (since if since is not None else 0,)).fetchall()
         return [{"ts": r[0], "ok": bool(r[1]), "orders": r[2], "problems": r[3],
                  "missed": bool(r[4]), "tracking": r[5], "unlisted": r[6],
-                 "aim": json.loads(r[7] or "{}")} for r in rows]
+                 "aim": json.loads(r[7] or "{}"), "reasons": json.loads(r[8] or "[]")}
+                for r in rows]
 
     def last_mirror_aim(self) -> dict | None:
         """What the last run that reached the account aimed it at (None if
