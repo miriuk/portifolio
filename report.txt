@@ -1,0 +1,32 @@
+SPY: 2512 daily closes, predicting from 2017-10-12, horizon 5 trading days, fee 0.05%
+  drift (252d mean): 1s
+  Kronos mini: 134s
+  Kronos small: 587s
+  Kronos base: 2163s
+model                      calls   hit  base     IC    CAGR max fall in mkt trades
+hold SPY                       —     —     —      —  +13.2%      34%   100%      0
+SPY, 20-day trend exit         —     —     —      —   +8.0%      14%    68%    181
+drift (252d mean)           100%   59%   63% -0.054  +10.3%      22%    84%     15
+Kronos mini                 100%   61%   63% +0.180  +15.4%      19%    75%    125
+Kronos small                100%   46%   63% +0.140   +8.0%      19%    26%     88
+Kronos base                 100%   44%   63% +0.113   +5.9%      20%    18%     52 
+
+QQQ: 2512 daily closes, predicting from 2017-10-12, horizon 5 trading days, fee 0.05%
+  drift (252d mean): 0s
+  Kronos mini: 129s
+  Kronos small: 586s
+  Kronos base: 2165s
+model                      calls   hit  base     IC    CAGR max fall in mkt trades
+hold QQQ                       —     —     —      —  +19.8%      36%   100%      0
+QQQ, 20-day trend exit         —     —     —      —  +15.2%      21%    66%    167
+drift (252d mean)           100%   59%   61% +0.005  +15.5%      29%    86%     13
+Kronos mini                 100%   61%   61% +0.138  +23.4%      20%    74%    141
+Kronos small                100%   45%   61% +0.103   +7.3%      23%    25%     76
+Kronos base                 100%   42%   61% +0.072   +5.9%      22%    17%     42 
+
+across 2 assets:
+model                        hit - base  mean IC  beats hold  beats trend  smaller fall
+drift (252d mean)                 -3.3%   -0.024      0 of 2        2 of 2         2 of 2   
+Kronos mini                       -0.9%   +0.159      2 of 2        2 of 2         2 of 2   
+Kronos small                     -16.6%   +0.121      0 of 2        0 of 2         2 of 2   
+Kronos base                      -19.2%   +0.093      0 of 2        0 of 2         2 of 2   
