@@ -11,8 +11,11 @@ running it twice, or after a missed day, never doubles a trade.
   is left alone. The mirror assumes the practice account holds nothing
   else in those symbols.
 - Sells go first (they free cash), never more than the account can sell.
-- A symbol Trading 212 does not list (US-domiciled ETFs are not sold to
-  UK accounts) stays on paper and is reported.
+- A symbol Trading 212 does not list, or lists but will not sell to this
+  account, stays on paper and is reported. US-listed funds are the case:
+  Trading 212 lists QQQ, but refuses the order (HTTP 400) to a UK
+  account, which needs a UCITS version (PRIIPs); the mirror no longer
+  tries them.
 - If an order's fate is unknown (timeout, dropped connection), the run
   stops sending: the next one reads the account and carries on.
 - T212_PAUSE=true stops it.
@@ -55,16 +58,27 @@ def colony_holdings(state: dict) -> dict[str, float]:
     return out
 
 
+# US-listed funds the floors hold: Trading 212 lists them, a UK account cannot buy them
+US_FUNDS = {"SPY", "QQQ"}
+
+
+def _us_fund(instrument: dict, symbol: str) -> bool:
+    return symbol in US_FUNDS or (str(instrument.get("type", "")).upper() == "ETF"
+                                  and str(instrument.get("ticker", "")).endswith("_US_EQ"))
+
+
 def resolve(instruments: list[dict], symbol: str) -> str | None:
     """Trading 212's ticker for a US symbol: SYM_US_EQ, else a USD listing
-    with that short name."""
-    tickers = {i.get("ticker") for i in instruments}
-    if f"{symbol}_US_EQ" in tickers:
-        return f"{symbol}_US_EQ"
-    for i in instruments:
-        if i.get("shortName") == symbol and i.get("currencyCode") == "USD":
-            return i.get("ticker")
-    return None
+    with that short name; None when it is not listed, or is a US-listed
+    fund this (UK) account cannot buy. A UCITS fund on the London
+    exchange, even quoted in dollars, resolves as usual."""
+    by_ticker = {i.get("ticker"): i for i in instruments}
+    inst = by_ticker.get(f"{symbol}_US_EQ") or next(
+        (i for i in instruments if i.get("shortName") == symbol and i.get("currencyCode") == "USD"),
+        None)
+    if inst is None or _us_fund(inst, symbol):
+        return None
+    return inst.get("ticker")
 
 
 def _pending(orders: list[dict]) -> dict[str, float]:
@@ -100,8 +114,10 @@ def plan(target: dict[str, float], universe: list[str], instruments: list[dict],
         want = target.get(sym, 0.0)
         if ticker is None:
             if want:
-                notes.append(Step(sym, "missing", {"reason": "not listed at Trading 212: stays on paper",
-                                                   "colony_shares": round(want, 4)}))
+                notes.append(Step(sym, "missing", {
+                    "reason": "not available to this account at Trading 212 (a US-listed fund "
+                              "needs a UCITS version): stays on paper",
+                    "colony_shares": round(want, 4)}))
             continue
         pos = held.get(ticker) or {}
         have = float(pos.get("quantity") or 0.0) + queued.get(ticker, 0.0)

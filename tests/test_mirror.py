@@ -15,7 +15,11 @@ from cryptoarena.broker.trading212 import DEMO, OrderUncertain, PracticeAccount
 
 INSTRUMENTS = [{"ticker": f"{s}_US_EQ", "shortName": s, "currencyCode": "USD", "type": "STOCK"}
                for s in ("AAPL", "MSFT", "NVDA", "AMZN")] + [
-               {"ticker": "TSCOl_EQ", "shortName": "TSCO", "currencyCode": "GBX", "type": "STOCK"}]
+               {"ticker": "TSCOl_EQ", "shortName": "TSCO", "currencyCode": "GBX", "type": "STOCK"},
+               # listed, but refused to a UK account (14/10/2026: HTTP 400 on every QQQ order)
+               {"ticker": "QQQ_US_EQ", "shortName": "QQQ", "currencyCode": "USD", "type": "ETF"},
+               {"ticker": "VTI_US_EQ", "shortName": "VTI", "currencyCode": "USD", "type": "ETF"},
+               {"ticker": "CSPXl_EQ", "shortName": "CSPX", "currencyCode": "USD", "type": "ETF"}]
 UNIVERSE = ["SPY", "QQQ", "AAPL", "MSFT", "NVDA", "AMZN"]
 
 
@@ -133,6 +137,8 @@ def test_a_rehearsal_sends_nothing_and_a_pause_reads_nothing():
 def test_symbols_resolve_to_trading212_tickers():
     assert resolve(INSTRUMENTS, "AAPL") == "AAPL_US_EQ"
     assert resolve(INSTRUMENTS, "SPY") is None
+    assert resolve(INSTRUMENTS, "QQQ") is None and resolve(INSTRUMENTS, "VTI") is None  # US funds
+    assert resolve(INSTRUMENTS, "CSPX") == "CSPXl_EQ"          # a UCITS fund in London, in dollars
     orders, _ = plan({"AAPL": 0.004}, UNIVERSE, INSTRUMENTS, [], [])
     assert orders == []                                                      # below 0.01 share
 
@@ -173,3 +179,11 @@ def test_a_pound_deposit_founds_the_stocks_colony(tmp_path, monkeypatch, capsys)
         cli.main()
     assert seen["n"] == 9 and seen["budget"] == pytest.approx(round(1000 * 1.35 / 9, 2))
     assert "deposit £1,000.00 at 1.3500 USD/GBP" in capsys.readouterr().out
+
+
+def test_a_us_fund_the_account_cannot_buy_stays_on_paper_and_is_never_sent():
+    fake = FakeDemo()
+    steps = mirror(account(fake), {"QQQ": 0.18, "AAPL": 1.0}, UNIVERSE, execute=True)
+    assert [o["ticker"] for o in fake.orders] == ["AAPL_US_EQ"]
+    qqq = next(s for s in steps if s.symbol == "QQQ")
+    assert qqq.action == "missing" and "UCITS" in qqq.detail["reason"]
