@@ -574,9 +574,15 @@ visto no pré-treino (até junho de 2024) do que veio depois:
 | Kronos small | +5,7% (7%) | +9,5% (16%) |
 | Kronos base | +6,3% (12%) | +13,2% (7%) |
 
-- **O mini decorou, não previu**: o acerto forte existe só no período
-  em que ele treinou e some exatamente depois do corte. É a assinatura
-  de memória, e é por isso que só o período depois do corte conta.
+- **O mais provável é memória, não previsão**: o acerto forte do mini se
+  concentra nos anos que ele pode ter visto no pré-treino (de 2020 a 2023,
+  o IC semestral chega a +0,62 no SPY) e não aparece no período depois do
+  corte. A queda, porém, não tem data exata: no SPY o IC já foi −0,28 no
+  1º semestre de 2024, ainda dentro do treino, e no QQQ ainda foi +0,22 no
+  2º semestre de 2024, depois dele. Com só dois anos depois do corte não dá
+  para separar memória de mudança de mercado (a volta à média passou a
+  funcionar no mesmo período). É por isso que só o período depois do corte
+  conta.
 - **O small e o base** repetem o que já sabíamos: o pouco de acerto que
   têm depois do corte anda junto (correlação 0,6 a 0,9) com a regra de
   volta à média de uma linha, que acerta mais que eles. Como passam a
