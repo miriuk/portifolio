@@ -1565,9 +1565,10 @@ No dia em que o placar for atingido, o modo é construído assim:
 6. **Chaves** só nos secrets do repositório, com o mínimo de permissão que
    a corretora oferecer; nunca no chat nem no código.
 
-Pelo calendário da bolsa, o mais cedo é 14/04/2027 (o 126º pregão contado
-a partir de 13/10/2026), se os quatro critérios estiverem atingidos nesse
-dia e as regras não tiverem mudado; o ideal (252 pregões) cai em 13/10/2027.
+Pelo calendário da bolsa, o mais cedo é 15/04/2027 (o 126º pregão contado
+a partir de 14/10/2026, depois do reinício do relógio), se os quatro
+critérios estiverem atingidos nesse dia e as regras não tiverem mudado; o
+ideal (252 pregões) cai em 14/10/2027.
 
 ### Pronto para dinheiro de verdade?
 
