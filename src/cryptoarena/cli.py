@@ -1,29 +1,517 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 from .agents.llm import ClaudeTraderAgent
-from .agents.rules import BreakoutAgent, MeanReversionAgent, MomentumAgent
 from .arena.tournament import run_tournament
 from .learning.memory import TradeJournal
 
 
-def build_agents(cash: float, with_llm: bool, llm_model: str) -> list:
-    agents = [
-        MomentumAgent("momentum-1", cash),
-        MomentumAgent("momentum-2", cash, params={"lookback": 48, "entry_threshold": 0.035}),
-        MeanReversionAgent("meanrev-1", cash),
-        MeanReversionAgent("meanrev-2", cash, params={"lookback": 96, "entry_threshold": 0.06}),
-        BreakoutAgent("breakout-1", cash),
-    ]
+def build_agents(cash: float, with_llm: bool, llm_model: str, journal=None,
+                 debate: bool = False, floor: str = "crypto") -> list:
+    from .floors import get_floor
+    agents = get_floor(floor).build_founders(cash)
     if with_llm:
         if ClaudeTraderAgent.available():
-            agents.append(ClaudeTraderAgent("claude-trader", cash, model=llm_model))
+            agents.append(ClaudeTraderAgent("claude-trader", cash, model=llm_model,
+                                            journal=journal, debate=debate))
         else:
             print("warning: no ANTHROPIC_API_KEY / auth profile found — "
                   "running without the LLM agent (rule agents still learn).")
     return agents
+
+
+def _live(args) -> None:
+    import json
+
+    from .arena.live_colony import LiveColony
+    from .arena.survival import SurvivalConfig
+    from .floors import get_floor
+
+    floor = get_floor(args.floor)
+    args.db = args.db or floor.default_db
+    Path(args.db).parent.mkdir(parents=True, exist_ok=True)
+    journal = TradeJournal(args.db)
+    try:
+        if args.status:
+            saved = journal.load_state("live_colony")
+            if saved is None:
+                print("no live colony in", args.db)
+                return
+            feed = _StaticFeed(saved.get("timeframe", "1h"), saved.get("exchange", ""),
+                               saved.get("symbols", []))
+            colony = LiveColony.open(journal, [], SurvivalConfig(), feed, verbose=False,
+                                     sources=floor.sources, chief=floor.chief,
+                                     readiness=floor.readiness)
+            print(json.dumps(colony.status(), indent=2))
+            return
+        symbols = None
+        if args.symbols:
+            symbols = dict(pair.split("=", 1) for pair in args.symbols.split(","))
+        feed_kw = {"symbols": symbols}
+        if args.exchange:
+            feed_kw["exchange_id"] = args.exchange
+        if args.timeframe:
+            feed_kw["timeframe"] = args.timeframe
+        feed = floor.make_feed(**feed_kw)
+        founding = journal.load_state("live_colony") is None
+        if founding and args.deposit_gbp:
+            # a deposit in pounds, split across the founders at today's rate
+            # (the floors trade in dollars): only the founding reads it
+            from .broker.fx import usd_per_gbp
+            rate = usd_per_gbp()
+            n = len(build_agents(1.0, False, "", floor=floor.name))
+            args.budget = round(args.deposit_gbp * rate / n, 2)
+            print(f"deposit £{args.deposit_gbp:,.2f} at {rate:.4f} USD/GBP: "
+                  f"{args.budget:,.2f} per founder ({n} founders)")
+        cfg = floor.config(days=args.days, **_overrides(args))
+        founders = build_agents(cfg.budget, False, "", floor=floor.name)
+        colony = LiveColony.open(journal, founders, cfg, feed,
+                                 warmup=args.warmup or floor.warmup, sources=floor.sources,
+                                 chief=floor.chief, readiness=floor.readiness)
+        if args.once:
+            n = 1 if founding else colony.run_once()
+            if hasattr(feed, "min_costs"):              # real-money readiness, refreshed each tick
+                colony.min_costs = feed.min_costs(colony.last_prices) or colony.min_costs
+                colony.save()
+            s = colony.status()
+            print(("founded the colony on " if founding else "processed ")
+                  + f"{n} new candle(s); day {s['day']} h{s['hour']}, "
+                  f"{s['alive']} alive ({s['interns']} interns), colony {s['colony_equity']:.2f}")
+        else:
+            colony.run_forever(args.days)
+    finally:
+        journal.close()
+
+
+def _chief(args) -> None:
+    """The chief of staff's note on the last closed day; with --issues, the
+    decisions it raises are synced to the repository's GitHub issues."""
+    from .arena.chief import GitHub, format_note, safe_sync
+    from .arena.live_colony import LiveColony
+    from .arena.survival import SurvivalConfig
+    from .floors import get_floor
+
+    floor = get_floor(args.floor)
+    journal = TradeJournal(args.db or floor.default_db)
+    try:
+        saved = journal.load_state("live_colony")
+        if saved is None:
+            print("no live colony in", args.db or floor.default_db)
+            return
+        feed = _StaticFeed(saved.get("timeframe", "1h"), saved.get("exchange", ""),
+                           saved.get("symbols", []))
+        colony = LiveColony.open(journal, [], SurvivalConfig(), feed, verbose=False,
+                                 sources=floor.sources, chief=floor.chief,
+                                 readiness=floor.readiness)
+        note = colony.chief_note()
+    finally:
+        journal.close()
+    if note is None:
+        print(f"the {floor.name} floor has no chief of staff")
+        return
+    print(format_note(note))
+    if args.issues:
+        gh = GitHub.from_env()
+        if gh is None:
+            print("\n(no GITHUB_REPOSITORY / GITHUB_TOKEN: issues not touched)")
+            return
+        for line in safe_sync(gh, floor.name, note) or ["no decision open or closed"]:
+            print(line)
+
+
+def _call(args) -> None:
+    """File a source's post by hand into the running colony's ledger."""
+    from datetime import datetime, timezone
+
+    from .arena.live_colony import LiveColony
+    from .arena.survival import SurvivalConfig
+    from .floors import get_floor
+    from .market.sources import Post, post_id_from_url
+
+    floor = get_floor(args.floor)
+    args.db = args.db or floor.default_db
+    journal = TradeJournal(args.db)
+    try:
+        saved = journal.load_state("live_colony")
+        if saved is None:
+            raise SystemExit(f"no live colony in {args.db}: found one first (cryptoarena live)")
+        feed = _StaticFeed(saved.get("timeframe", "1h"), saved.get("exchange", ""),
+                           saved.get("symbols", []))
+        colony = LiveColony.open(journal, [], SurvivalConfig(), feed, verbose=True,
+                                 sources=floor.sources)
+        ts = (int(datetime.fromisoformat(args.at.replace("Z", "+00:00")).timestamp())
+              if args.at else int(datetime.now(timezone.utc).timestamp()))
+        post_id = post_id_from_url(args.url) or f"manual-{ts}"
+        source = args.source.lstrip("@")
+        filed = colony.ingest([Post(source, post_id, ts, args.text, args.url or "")])
+        if filed:
+            print(f"filed {filed} call(s) from @{source}")
+        else:
+            print(f"no call in that post (no coin the colony trades, or no lean either way)")
+        summary = {s["handle"]: s for s in colony.sources_summary()}.get(source)
+        if summary:
+            print(f"@{source}: trust {summary['trust']:+.2f}, {summary['calls']} calls, "
+                  f"{summary['resolved']} judged"
+                  + (f", hit rate {summary['hit_rate']:.0%}" if summary['hit_rate'] is not None
+                     else ""))
+    finally:
+        journal.close()
+
+
+def _lookahead(args) -> None:
+    """Did a backtest peek at the future? (arena/lookahead.py)"""
+    import importlib.util
+
+    import pandas as pd
+
+    from .arena import trend_hold as th
+    from .arena.backtest import load_sentiment, load_tape
+    from .arena.lookahead import (audit_colony, audit_series, delay_report, format_delay,
+                                  universe_check)
+    from .floors import get_floor
+    from .forecast import daily_closes, walk_forward
+    from .forecast import models as fm
+
+    floor = get_floor(args.floor)
+    crypto = floor.name == "crypto"
+    data = args.data or floor.data_dir
+    frames = load_tape(data, align=not crypto)
+    sentiment = (load_sentiment(data) if crypto else {}) or None
+    cfg = floor.config(**_overrides(args))
+    days = args.days or floor.backtest_days
+    stride = args.stride or floor.backtest_stride
+    warm = args.warmup or (720 if crypto else 250)
+    spd = cfg.steps_per_day
+    make = lambda: build_agents(cfg.budget, False, "", floor=floor.name)   # noqa: E731
+    n = len(next(iter(frames.values())))
+    starts = list(range(0, n - (warm + days * spd) + 1, stride * spd))
+    k = max(1, min(args.probes, len(starts)))
+    picks = sorted({starts[round(i * (len(starts) - 1) / max(1, k - 1))] for i in range(k)})
+
+    print(f"1. scrambled future ({floor.name}: {len(picks)} colony windows, 3 cuts each)")
+    for s0 in picks:
+        a = audit_colony(frames, make, cfg, s0, days, warm, sentiment=sentiment)
+        checked = sum(p.trades_checked for p in a.probes), sum(p.events_checked for p in a.probes)
+        verdict = "clean" if a.clean else "; ".join(p.mismatch for p in a.probes if p.mismatch)
+        print(f"   window from {pd.Timestamp(a.start_ts, unit='s'):%Y-%m-%d}: {verdict} "
+              f"({checked[0]} trades, {checked[1]} colony events checked)")
+    lead = "SPY" if not crypto else None
+    trend_days = 28 if crypto else 20
+    cuts = [n // 3, n // 2, 4 * n // 5]
+    series = {f"trend exit ({kind}, {trend_days}d)": (lambda fr, kind=kind: pd.DataFrame(
+        th.signal(th.Tape.from_frames(fr, lead=lead), kind, trend_days).astype(float),
+        index=th.Tape.from_frames(fr, lead=lead).ts)) for kind in ("btc", "coin")}
+    models = {"drift": fm.Drift}
+    if importlib.util.find_spec("lightgbm"):
+        models["lgbm"] = fm.BoostedLags
+
+    def forecast(fr, model):
+        dl = daily_closes(th.Tape.from_frames(fr, lead=lead))
+        return pd.Series(walk_forward(dl, model(), start=400, horizon=7 if crypto else 5, every=5),
+                         index=dl.ts)
+    for name, model in models.items():
+        series[f"forecast ({name})"] = lambda fr, model=model: forecast(fr, model)
+    for name, compute in series.items():
+        found = audit_series(compute, frames, cuts)
+        print(f"   {name}: {'clean' if not found else '; '.join(found)}")
+
+    print(f"\n2. delayed fill: every window at the close the agents saw, then at the next open")
+    print(format_delay(delay_report(frames, make, cfg, days, stride, warm,
+                                    max_windows=args.windows, sentiment=sentiment)))
+
+    u = universe_check(frames, days, stride, warm, spd)
+    print(f"\n3. universe: {u['windows']} windows, {u['left_out']} times a symbol trading at a "
+          f"window's start was left out because it vanished before the end"
+          + (f" ({', '.join(f'{s} {c}' for s, c in u['symbols'].items())})" if u["symbols"] else ""))
+    print("   the symbols themselves were chosen today: the tape holds only what is still "
+          "listed (survivors), a hindsight no code audit removes")
+
+
+def _signals(args) -> None:
+    """The strategies' tear sheet over non-overlapping backtest windows."""
+    from .arena.backtest import load_sentiment, load_tape
+    from .arena.signals import format_tear_sheet, holdings, tear_sheet
+    from .floors import get_floor
+
+    floor = get_floor(args.floor)
+    crypto = floor.name == "crypto"
+    data = args.data or floor.data_dir
+    frames = load_tape(data, align=not crypto)
+    cfg = floor.config(**_overrides(args))
+    days = args.days or floor.backtest_days
+    hold = holdings(frames, lambda: build_agents(cfg.budget, False, "", floor=floor.name), cfg,
+                    days=days, warmup_bars=args.warmup or (720 if crypto else 250),
+                    max_windows=args.windows,
+                    sentiment=(load_sentiment(data) if crypto else {}) or None)
+    horizons = (1, 7, 28) if crypto else (1, 5, 20)
+    print(f"{hold['window'].nunique()} windows of {days} days, books read at every close; "
+          f"IC and pick spread over the next {', '.join(map(str, horizons))} days")
+    print(format_tear_sheet(tear_sheet(hold, frames, horizons, cfg.steps_per_day)))
+
+
+def _academy(args) -> None:
+    """The academy's curriculum, or one course's exam."""
+    from .arena.backtest import load_tape
+    from .floors import get_floor
+    from .learning import academy as ac
+
+    if not args.course:
+        print("Academia dos agentes — Algorithmic Trading with Python (Chris Conlan, 2020)")
+        for n, (title, chapter, what) in ac.COURSES.items():
+            print(f"  curso {n} · {title} ({chapter}): {what}")
+        print("  prova: cryptoarena academy --course N [--data DIR]")
+        return
+    floor = get_floor(args.floor)
+    data = args.data or floor.data_dir
+    cfg = floor.config(seed=args.seed)
+    if args.course == 1:
+        frames = load_tape(data, align=floor.name != "crypto")
+        cards = ac.colony_report_cards(
+            frames, lambda: build_agents(cfg.budget, False, "", floor=floor.name), cfg,
+            warmup_bars=720 if floor.name == "crypto" else 250,
+            benchmark="BTCUSD" if floor.name == "crypto" else "SPY")
+        print(ac.format_cards(cards))
+    elif args.course == 2:
+        kw = {"top_n": args.top, "always": ("SPY", "QQQ")} if args.top else {}
+        frames = load_tape(data, align=not args.top and floor.name != "crypto")
+        print(ac.format_exam(ac.graduate_exam({Path(data).name: (frames, kw)}, cfg)))
+    elif args.course in (3, 4):
+        from .arena import booksim as bs
+        px = ac.price_matrix(load_tape(data, align=False))
+        bench = px[args.benchmark].ffill()
+        pref = bs.rolling_sharpe(px)
+        for name, sig in (("bollinger 20", bs.bollinger_signal(px)), ("macd 5/34", bs.macd_signal(px))):
+            eq = bs.simulate(px, sig, pref)
+            print(f"{name}: {bs.excess_cagr(eq, bench):+.2%} a year against {args.benchmark}")
+            if args.course == 4:
+                print("  " + bs.white_noise_test(px, sig, pref, bench, runs=args.runs).summary())
+                print("  " + bs.bootstrap_test(px, sig, pref, bench, runs=args.runs // 2).summary())
+    elif args.course == 6:
+        from .agents.technical import to_daily
+        from .learning.ta_exam import correct, examine, format_results, grades, panel
+        frames = load_tape(data, align=False)
+        if floor.name == "crypto":
+            frames = {s: to_daily(df) for s, df in frames.items()}
+        frames = {s: df.dropna(subset=["close"]).reset_index(drop=True) for s, df in frames.items()}
+        res = correct(examine(panel(frames), Path(data).name))
+        print(format_results(res, 20))
+        for name, g in grades(res).items():
+            print(f"  {name:<14} nota {g['grade']} · confiança {g['confidence']:.2f}")
+    elif args.course == 7:
+        from .learning import wizards as wz
+        for prof in wz.PROFILES:
+            print(f"{prof['name']} — {prof['books']}\n  {prof['path']}\n  lições: "
+                  + "; ".join(prof["lessons"]))
+        frames = load_tape(data, align=False)
+        frames = {s: df.dropna(subset=["close"]).reset_index(drop=True) for s, df in frames.items()}
+        p = wz.panels(frames)
+        if args.benchmark in p["close"]:
+            for rule in ("schwartz10", "ptj200", "turtle20", "turtle55"):
+                sc = wz.timing_exam(p, args.benchmark, rule)
+                print(f"{wz.RULES[rule][0]} em {args.benchmark}: CAGR {sc.cagr:+.1%} (segurar "
+                      f"{sc.hold_cagr:+.1%}) · Sharpe {sc.sharpe:+.2f} ({sc.hold_sharpe:+.2f}) · queda "
+                      f"máx. {sc.max_drawdown:.0%} ({sc.hold_drawdown:.0%}) · supera "
+                      f"{sc.luck_pct:.0%} das entradas sorteadas")
+    elif args.course == 5:
+        from .forecast.events import ml_exam
+        for r in ml_exam(load_tape(data, align=False)):
+            print(f"{r.year}: {r.events} events · accuracy {r.accuracy:.1%} against guessing "
+                  f"{r.base_rate:.1%} · the ones it liked {r.liked_ret:+.2%} against all {r.all_ret:+.2%}")
+
+
+def _forecasters() -> dict:
+    """name -> factory(stocks: bool): the models the forecast bench can run."""
+    from .forecast import models as m
+    return {
+        "drift": lambda stocks: m.Drift(252 if stocks else 365),
+        "arima": lambda stocks: m.StatsModel("AutoARIMA"),
+        "ets": lambda stocks: m.StatsModel("AutoETS"),
+        "theta": lambda stocks: m.StatsModel("AutoTheta"),
+        "lgbm": lambda stocks: m.BoostedLags(min_train=250 if stocks else 300),
+        "chronos": lambda stocks: m.ChronosModel(),
+        # 256 days of context and 3 sampled paths keep Kronos within an Actions CPU
+        # budget; every size gets the same, so they compare on equal terms
+        **{name: (lambda stocks, ids=ids: m.KronosModel(*ids, context_days=256, samples=3))
+           for name, ids in (("kronos", m.KRONOS_SIZES["small"]),
+                             ("kronos-mini", m.KRONOS_SIZES["mini"]),
+                             ("kronos-base", m.KRONOS_SIZES["base"]))},
+    }
+
+
+FORECASTERS = ("drift", "arima", "ets", "theta", "lgbm", "chronos", "kronos", "kronos-mini",
+               "kronos-base")
+
+
+def _forecast(args) -> None:
+    """Price-prediction models against holding the asset, walk-forward, daily."""
+    import json
+    import time as _time
+
+    import pandas as pd
+
+    from .arena.backtest import load_tape
+    from .arena.trend_hold import Tape
+    from .forecast import (benchmarks, daily_closes, evaluate, format_verdicts, summarise,
+                           walk_forward)
+
+    frames = load_tape(args.data, align=False)
+    symbols = list(frames) if args.symbol == "all" else args.symbol.split(",")
+    report = {}
+    for sym in symbols:
+        tape = Tape.from_frames(frames, lead=sym)
+        stocks = tape.bars_per_day == 1
+        horizon = args.horizon or (5 if stocks else 7)
+        start = args.min_history or (252 if stocks else 365)
+        fee = args.fee if args.fee is not None else (0.0005 if stocks else 0.0026)
+        daily = daily_closes(tape)
+        if len(daily.close) < start + 60:
+            print(f"{sym}: {len(daily.close)} days, too short; skipped")
+            continue
+        print(f"{sym}: {len(daily.close)} daily closes, predicting from "
+              f"{pd.Timestamp(daily.ts[start], unit='s'):%Y-%m-%d}, horizon {horizon} "
+              f"{'trading ' if stocks else ''}days, fee {fee:.2%}", flush=True)
+        rows = benchmarks(tape, daily, start, fee=fee)
+        preds_out = {}
+        for key in args.models.split(","):
+            model = _forecasters()[key](stocks)
+            t = _time.time()
+            preds = walk_forward(daily, model, start, horizon,
+                                 context_days=getattr(model, "context_days", None) or args.context,
+                                 every=args.every)
+            rows.append(evaluate(tape, daily, preds, start, horizon, name=model.name, fee=fee))
+            preds_out[key] = [None if p != p else float(p) for p in preds]
+            print(f"  {model.name}: {_time.time() - t:.0f}s", flush=True)
+        print(format_verdicts(rows), "\n", flush=True)
+        report[sym] = {"horizon": horizon, "start": start, "fee": fee, "every": args.every,
+                       "ts": [int(x) for x in daily.ts],
+                       "verdicts": [v.__dict__ for v in rows], "preds": preds_out}
+        if args.out:                                   # written as it goes: a timeout keeps the rest
+            with open(args.out, "w") as fh:
+                json.dump(report, fh)
+    if len(report) > 1:
+        print(summarise(report))
+    if args.out:
+        with open(args.out, "w") as fh:
+            json.dump(report, fh)
+
+
+def _qlib(args) -> None:
+    """Microsoft Qlib's ranking pipeline on the world universe."""
+    import json
+
+    from .forecast.qlib_bench import MODELS, format_report, run, write_provider
+
+    groups = write_provider({"stocks": f"{args.data}/stocks", "etf": f"{args.data}/etf"},
+                            args.provider)
+    print({k: len(v) for k, v in groups.items()}, flush=True)
+    models = args.models.split(",") if args.models else list(MODELS)
+    rep = run(args.provider, universe=args.universe, benchmark=args.benchmark, models=models,
+              first_test_year=args.first_year, topk=args.topk, n_drop=args.n_drop, cost=args.fee)
+    print(format_report(rep))
+    if args.out:
+        with open(args.out, "w") as fh:
+            json.dump(rep, fh)
+
+
+def _t212(args) -> None:
+    """Trading 212's practice account: connection check, or mirror the colony.
+    An executed run is logged in the colony's journal for the readiness
+    scorecard: counts and ratios, never the account's balances."""
+    import os
+    import time
+
+    from .broker.mirror import AccountUnreadable, colony_holdings, mirror, report, summarize
+    from .broker.trading212 import PracticeAccount
+    from .floors import get_floor
+
+    account = PracticeAccount.from_env()
+    if args.action == "status":
+        s = account.account_summary()
+        cash = (s.get("cash") or {}).get("availableToTrade")
+        print(f"Trading 212 practice account: {s.get('currency')}, available {cash}, "
+              f"total {s.get('totalValue')}")
+        return
+    floor = get_floor(args.floor)
+    journal = TradeJournal(args.db or floor.default_db)
+    try:
+        state = journal.load_state("live_colony")
+    finally:
+        journal.close()
+    if state is None:
+        raise SystemExit("no colony to mirror")
+    target = colony_holdings(state)
+    universe = list(state.get("symbols") or target)
+    paused = os.environ.get("T212_PAUSE", "").lower() in ("1", "true", "yes")
+    log = args.execute and not paused              # only a run that reaches the account counts
+    try:
+        steps = mirror(account, target, universe, execute=args.execute, paused=paused)
+    except AccountUnreadable:
+        if log:                                    # nothing sent: a missed night, not an incident
+            _log_mirror_run(args.db or floor.default_db,
+                            {"orders": 0, "problems": 0, "missed": 1, "tracking": None,
+                             "unlisted": None, "aim": {}}, time.time())
+        raise
+    except Exception:
+        if log:                                    # something broke mid-run: an incident
+            _log_mirror_run(args.db or floor.default_db,
+                            {"orders": 0, "problems": 1, "tracking": None, "unlisted": None,
+                             "aim": {}}, time.time())
+        raise
+    print(report(steps))
+    if log:
+        journal = TradeJournal(args.db or floor.default_db)
+        try:
+            run = summarize(steps, state.get("last_prices") or {}, journal.last_mirror_aim())
+        finally:
+            journal.close()
+        _log_mirror_run(args.db or floor.default_db, run, time.time())
+        print(f"readiness log: {run['orders']} order(s) sent, {run['problems']} problem(s)"
+              + (f", {run['tracking']:.1%} of the last aim not held"
+                 if run["tracking"] is not None
+                 else ", tracking not measured (first run, or orders still waiting for the open)")
+              + ("; trouble: " + "; ".join(run["reasons"]) if run.get("reasons") else ""))
+
+
+def _log_mirror_run(db: str, run: dict, ts: float) -> None:
+    journal = TradeJournal(db)
+    try:
+        journal.record_mirror_run(int(ts), run)
+    finally:
+        journal.close()
+
+
+_OVERRIDES = {"budget": "budget", "target": "daily_target", "death": "death_below",
+              "cost": "daily_cost", "clone_at": "clone_at", "min_child": "min_child_budget",
+              "pressure": "pressure", "max_pop": "max_population", "seed": "seed",
+              "fee": "fee_rate", "learn": "learn", "desk_cap": "desk_symbol_cap",
+              "desk_gross": "desk_gross_cap", "pm": "pm", "pm_consensus": "pm_consensus",
+              "pm_band": "pm_band", "fill": "fill", "pm_weighting": "pm_weighting"}
+
+
+def _overrides(args) -> dict:
+    """Only the survival knobs the user actually set; the floor supplies the rest."""
+    out = {}
+    for flag, field in _OVERRIDES.items():
+        value = getattr(args, flag, None)
+        if value is not None:
+            out[field] = bool(value) if field in ("learn", "pm") else value
+    return out
+
+
+class _StaticFeed:
+    """Enough of a feed to reopen a saved colony without touching the network."""
+
+    def __init__(self, timeframe: str, exchange_id: str, symbols: list[str]):
+        from .market.live import TIMEFRAME_SECONDS
+        self.timeframe, self.exchange_id = timeframe, exchange_id
+        self.symbols = {s: s for s in symbols}
+        self.seconds = TIMEFRAME_SECONDS.get(timeframe, 3600)
+
+    def aligned(self, limit: int = 0, since=None):
+        return []
 
 
 def main() -> None:
@@ -43,7 +531,196 @@ def main() -> None:
     run.add_argument("--llm", action="store_true",
                      help="include the Claude trader agent (needs API credentials)")
     run.add_argument("--llm-model", default="claude-opus-5")
+    run.add_argument("--debate", action="store_true",
+                     help="LLM agent runs a bull/bear debate before each "
+                          "decision (3 extra API calls per decision)")
     run.add_argument("--no-evolve", action="store_true")
+    run.add_argument("--endogenous", action="store_true",
+                     help="agents trade against a shared order book and "
+                          "move prices with their own orders")
+
+    surv = sub.add_parser("survive", help="survival colony: daily target, death, cloning")
+    surv.add_argument("--days", type=int, default=30)
+    surv.add_argument("--budget", type=float, default=5.0,
+                      help="starting cash per founder (and per clone)")
+    surv.add_argument("--clone-at", type=float, default=1.1,
+                      help="hire a clone once equity reaches this multiple of the budget; "
+                           "the child is born with the surplus")
+    surv.add_argument("--min-child", type=float, default=0.2,
+                      help="smallest surplus (quote units) that becomes a child")
+    surv.add_argument("--target", type=float, default=0.005,
+                      help="daily return needed to earn the right to clone")
+    surv.add_argument("--death", type=float, default=0.6,
+                      help="dead when equity falls below this fraction of own budget")
+    surv.add_argument("--cost", type=float, default=0.0002,
+                      help="daily cost of living as a fraction of own budget")
+    surv.add_argument("--pressure", type=float, default=0.0,
+                      help="after each missed target, scale order size by (1+pressure)")
+    surv.add_argument("--max-pop", type=int, default=12)
+    surv.add_argument("--db", default="arena.db")
+    surv.add_argument("--seed", type=int, default=None)
+    surv.add_argument("--llm", action="store_true")
+    surv.add_argument("--llm-model", default="claude-opus-5")
+    surv.add_argument("--synthetic", action="store_true",
+                      help="use the synthetic price generator instead of the order book")
+
+    live = sub.add_parser("live", help="survival colony on real market data (paper trading)")
+    live.add_argument("--floor", default="crypto", choices=["crypto", "stocks"],
+                      help="which floor of the building: crypto (hourly, Kraken) or "
+                           "stocks (daily, Stooq)")
+    live.add_argument("--db", default=None, help="journal path (default: the floor's)")
+    live.add_argument("--exchange", default=None,
+                      help="CCXT exchange id for public candles (kraken, coinbase, binance…)")
+    live.add_argument("--timeframe", default=None)
+    live.add_argument("--symbols", default=None,
+                      help="comma list of ARENA=CCXT pairs, e.g. BTCUSD=BTC/USD,ETHUSD=ETH/USD")
+    live.add_argument("--once", action="store_true",
+                      help="process the candles that closed since the last run, save, exit "
+                           "(for cron / GitHub Actions)")
+    live.add_argument("--days", type=int, default=7,
+                      help="without --once: stay up and tick hourly for this many days")
+    live.add_argument("--status", action="store_true", help="print the colony's state as JSON")
+    live.add_argument("--warmup", type=int, default=None,
+                      help="closed candles of history the founders start with")
+    for flag, help_ in [("--budget", "cash per founder (5)"), ("--clone-at", "hire at × budget (1.1)"),
+                        ("--min-child", "smallest child (0.2)"), ("--target", "daily target (crypto 0.5%%, stocks 0.2%%)"),
+                        ("--death", "let go below this × budget (0.6)"), ("--cost", "cost of living/day (0.02%%)"),
+                        ("--fee", "taker fee per side (crypto 0.26%%, stocks 0.05%%)"), ("--pressure", "after a miss (0)")]:
+        live.add_argument(flag, type=float, default=None, help=help_)
+    live.add_argument("--learn", type=int, default=None, help="1 = nightly reflection nudges params")
+    live.add_argument("--deposit-gbp", type=float, default=None,
+                      help="found the colony with this many pounds, split across the founders "
+                           "at today's USD/GBP rate (ignored when resuming)")
+    live.add_argument("--max-pop", type=int, default=None)
+    live.add_argument("--seed", type=int, default=None)
+
+    ch = sub.add_parser("chief", help="the chief of staff's note on the last closed day")
+    ch.add_argument("--floor", default="stocks", choices=["crypto", "stocks"])
+    ch.add_argument("--db", default=None, help="journal path (default: the floor's)")
+    ch.add_argument("--issues", action="store_true",
+                    help="open/update/close a GitHub issue per decision (GITHUB_TOKEN)")
+
+    call = sub.add_parser("call", help="file a source's post (a call on a coin) by hand")
+    call.add_argument("--floor", default="crypto", choices=["crypto", "stocks"])
+    call.add_argument("--db", default=None, help="journal path (default: the floor's)")
+    call.add_argument("--source", required=True, help="the X handle, e.g. leshka_eth")
+    call.add_argument("--text", required=True, help="the post's text")
+    call.add_argument("--url", default="", help="the post's link (its id keeps it from "
+                                                "being filed twice)")
+    call.add_argument("--at", default=None, help="when it was posted, ISO 8601 (default: now)")
+
+    fc = sub.add_parser("forecast", help="price-prediction models against holding BTC")
+    fc.add_argument("--data", required=True, help="directory of hourly CSVs (the market-data branch)")
+    fc.add_argument("--symbol", default="BTCUSD",
+                    help="the asset to predict, a comma list, or 'all' (every CSV in --data)")
+    fc.add_argument("--models", default="drift,arima,ets,theta,lgbm",
+                    help=f"comma-separated: {', '.join(FORECASTERS)}")
+    fc.add_argument("--horizon", type=int, default=None,
+                    help="days ahead each prediction is for (7 for crypto, 5 trading days for stocks)")
+    fc.add_argument("--min-history", type=int, default=None,
+                    help="days of history before the first prediction (365 crypto, 252 stocks)")
+    fc.add_argument("--fee", type=float, default=None,
+                    help="per side (0.26%% Kraken for crypto, 0.05%% for stocks)")
+    fc.add_argument("--context", type=int, default=730,
+                    help="days of closes each prediction sees (models may use fewer)")
+    fc.add_argument("--every", type=int, default=1,
+                    help="predict every N days and hold in between (N = horizon: no overlap)")
+    fc.add_argument("--out", default=None, help="write predictions and verdicts as JSON")
+
+    ql = sub.add_parser("qlib", help="Microsoft Qlib's stock-ranking models on the world universe")
+    ql.add_argument("--data", required=True,
+                    help="the global-data branch checked out: <data>/stocks and <data>/etf")
+    ql.add_argument("--provider", default="qlib_data", help="where to write Qlib's binary data")
+    ql.add_argument("--universe", default="stocks", choices=["stocks", "etf"])
+    ql.add_argument("--benchmark", default="SPY")
+    ql.add_argument("--models", default=None, help="LightGBM,DoubleEnsemble,XGBoost,Linear")
+    ql.add_argument("--first-year", type=int, default=2020)
+    ql.add_argument("--topk", type=int, default=10)
+    ql.add_argument("--n-drop", type=int, default=2)
+    ql.add_argument("--fee", type=float, default=0.0005)
+    ql.add_argument("--out", default=None)
+
+    t2 = sub.add_parser("t212", help="Trading 212 practice account (virtual money): check the "
+                                     "connection, or mirror a colony's holdings")
+    t2.add_argument("action", choices=["status", "mirror"])
+    t2.add_argument("--floor", default="stocks", choices=["crypto", "stocks"])
+    t2.add_argument("--db", default=None, help="the colony journal (default: the floor's)")
+    t2.add_argument("--execute", action="store_true",
+                    help="send the orders (without it the run lists what it would send)")
+
+    bt = sub.add_parser("backtest", help="walk-forward survival colonies on real candles")
+    bt.add_argument("--floor", default="crypto", choices=["crypto", "stocks"])
+    bt.add_argument("--data", default=None, help="directory of ReplayMarket CSVs (default: the floor's)")
+    bt.add_argument("--days", type=int, default=None, help="colony days per window (crypto 30, stocks 60)")
+    bt.add_argument("--stride", type=int, default=None, help="days between window starts")
+    bt.add_argument("--windows", type=int, default=None, help="only the last N windows")
+    bt.add_argument("--aligned", action="store_true",
+                    help="a fixed universe: only the bars every coin has (crypto grows by default)")
+    bt.add_argument("--warmup", type=int, default=None, help="bars before day 1 (crypto 720, stocks 250)")
+    for flag in ("--fee", "--budget", "--clone-at", "--min-child", "--target", "--death", "--cost",
+                 "--pressure"):
+        bt.add_argument(flag, type=float, default=None)
+    bt.add_argument("--learn", type=int, default=None)
+    bt.add_argument("--max-pop", type=int, default=None)
+    bt.add_argument("--seed", type=int, default=1)
+    bt.add_argument("--quiet", action="store_true")
+
+    bt.add_argument("--top", type=int, default=None,
+                    help="per window, trade only the N symbols that traded the most money "
+                         "in its warm-up (a point-in-time universe)")
+    bt.add_argument("--always", default="",
+                    help="comma-separated symbols kept in every window on top of --top")
+    bt.add_argument("--benchmark", default=None,
+                    help="a symbol held over the same windows for comparison (e.g. SPY)")
+    bt.add_argument("--wyckoff", type=float, default=0.0,
+                    help="weight of the Wyckoff lens on every rule agent (0 = off, the default)")
+    bt.add_argument("--fill", default=None, choices=["close", "next_open"],
+                    help="fill at the close the agents saw (default) or at the next bar's open")
+
+    la = sub.add_parser("lookahead", help="audit the backtests for peeks at the future")
+    la.add_argument("--floor", default="stocks", choices=["crypto", "stocks"])
+    la.add_argument("--data", default=None, help="directory of CSVs (default: the floor's)")
+    la.add_argument("--days", type=int, default=None)
+    la.add_argument("--stride", type=int, default=None)
+    la.add_argument("--warmup", type=int, default=None)
+    la.add_argument("--probes", type=int, default=3, help="colony windows to scramble")
+    la.add_argument("--windows", type=int, default=None,
+                    help="delayed fill: only the last N windows (default all)")
+    la.add_argument("--seed", type=int, default=1)
+
+    ac = sub.add_parser("academy", help="the agents' courses (Algorithmic Trading with Python) "
+                                         "and their exams")
+    ac.add_argument("--course", type=int, default=0, choices=[0, 1, 2, 3, 4, 5, 6, 7])
+    ac.add_argument("--floor", default="stocks", choices=["crypto", "stocks"])
+    ac.add_argument("--data", default=None, help="directory of CSVs (default: the floor's)")
+    ac.add_argument("--top", type=int, default=None, help="course 2: a point-in-time top N")
+    ac.add_argument("--benchmark", default="SPY")
+    ac.add_argument("--runs", type=int, default=200, help="course 4: runs that know nothing")
+    ac.add_argument("--seed", type=int, default=1)
+
+    sg = sub.add_parser("signals", help="tear sheet: does each strategy's book predict returns?")
+    sg.add_argument("--floor", default="stocks", choices=["crypto", "stocks"])
+    sg.add_argument("--data", default=None, help="directory of CSVs (default: the floor's)")
+    sg.add_argument("--days", type=int, default=None, help="days per window (windows do not overlap)")
+    sg.add_argument("--warmup", type=int, default=None)
+    sg.add_argument("--windows", type=int, default=None, help="only the last N windows")
+    sg.add_argument("--seed", type=int, default=1)
+
+    for p in (live, bt):
+        p.add_argument("--desk-cap", type=float, default=None,
+                       help="the desk's cap on one symbol, all agents together, as a share of "
+                            "the colony's equity (0 = off)")
+        p.add_argument("--desk-gross", type=float, default=None,
+                       help="the desk's cap on the colony's total invested share (0 = off)")
+        p.add_argument("--pm", type=int, default=None,
+                       help="1 = keep the PM's shadow book (one portfolio from the agents' votes)")
+        p.add_argument("--pm-consensus", type=float, default=None,
+                       help="the PM holds a symbol only if this share of the agents do")
+        p.add_argument("--pm-band", type=float, default=None,
+                       help="the PM trades a symbol only when this far off its target weight")
+        p.add_argument("--pm-weighting", default=None,
+                       choices=["votes", "equal", "inverse_vol", "hrp"],
+                       help="how the PM splits its total among the names the votes chose")
 
     lessons = sub.add_parser("lessons", help="show an agent's learned lessons")
     lessons.add_argument("agent_id")
@@ -53,17 +730,94 @@ def main() -> None:
     reset = sub.add_parser("reset", help="wipe the journal (start learning from zero)")
     reset.add_argument("--db", default="arena.db")
 
+    dash = sub.add_parser("dashboard", help="launch a live web dashboard (Streamlit)")
+    dash.add_argument("--db", default="arena.db")
+    dash.add_argument("--db-url", default="", help="read a journal published at a URL")
+    dash.add_argument("--live", action="store_true",
+                      help="show the colony the hourly GitHub job publishes")
+    dash.add_argument("--floor", default="crypto", choices=["crypto", "stocks"],
+                      help="with --live: which floor to open first")
+    dash.add_argument("--port", type=int, default=8501)
+
     args = parser.parse_args()
 
     if args.command == "run":
         journal = TradeJournal(args.db)
-        agents = build_agents(args.cash, args.llm, args.llm_model)
+        agents = build_agents(args.cash, args.llm, args.llm_model, journal=journal,
+                              debate=args.debate)
         try:
             run_tournament(agents, journal, episodes=args.episodes,
                            steps_per_episode=args.steps, seed=args.seed,
-                           evolve=not args.no_evolve)
+                           evolve=not args.no_evolve,
+                           endogenous=args.endogenous)
         finally:
             journal.close()
+    elif args.command == "survive":
+        from .arena.survival import SurvivalConfig, run_survival
+        journal = TradeJournal(args.db)
+        founders = build_agents(args.budget, args.llm, args.llm_model, journal=journal)
+        try:
+            res = run_survival(founders, journal, SurvivalConfig(
+                days=args.days, budget=args.budget, daily_target=args.target,
+                death_below=args.death, daily_cost=args.cost, clone_at=args.clone_at,
+                min_child_budget=args.min_child,
+                pressure=args.pressure, max_population=args.max_pop,
+                seed=args.seed, endogenous=not args.synthetic))
+            print(f"\n{len(res.alive)} of {len(res.population)} agents alive after "
+                  f"{len(res.alive_per_day)} days; colony equity "
+                  f"{res.equity_per_day[-1] if res.equity_per_day else 0:,.0f}")
+        finally:
+            journal.close()
+    elif args.command == "live":
+        _live(args)
+    elif args.command == "call":
+        _call(args)
+    elif args.command == "forecast":
+        _forecast(args)
+    elif args.command == "qlib":
+        _qlib(args)
+    elif args.command == "t212":
+        _t212(args)
+    elif args.command == "chief":
+        _chief(args)
+    elif args.command == "lookahead":
+        _lookahead(args)
+    elif args.command == "signals":
+        _signals(args)
+    elif args.command == "academy":
+        _academy(args)
+    elif args.command == "backtest":
+        from .arena.backtest import (format_by_year, format_summary, load_sentiment, load_tape,
+                                     run_backtest)
+        from .floors import get_floor
+        floor = get_floor(args.floor)
+        # crypto: the universe grows with the years (a coin joins at its listing)
+        # a point-in-time universe (--top) keeps every symbol from its own listing on
+        tape = load_tape(args.data or floor.data_dir,
+                         align=args.aligned or (floor.name != "crypto" and not args.top))
+        sentiment = load_sentiment(args.data or floor.data_dir) if floor.name == "crypto" else {}
+        cfg = floor.config(**_overrides(args))
+        def founders():
+            agents = build_agents(cfg.budget, False, "", floor=floor.name)
+            if args.wyckoff:                     # the Wyckoff lens on every rule agent
+                for a in agents:
+                    if hasattr(a, "params"):
+                        a.params["wyckoff"] = args.wyckoff
+            return agents
+        report = run_backtest(tape, founders,
+                              cfg, days=args.days or floor.backtest_days,
+                              stride_days=args.stride or floor.backtest_stride,
+                              warmup_bars=args.warmup or (720 if floor.name == "crypto" else 250),
+                              max_windows=args.windows, verbose=not args.quiet,
+                              sentiment=sentiment or None, top_n=args.top,
+                              always=tuple(s for s in args.always.split(",") if s),
+                              benchmark=args.benchmark)
+        print()
+        print(format_summary(report.summary()))
+        years = report.by_year()
+        if len(years) > 1:
+            print()
+            print(format_by_year(years, ("bear-1",)))
     elif args.command == "lessons":
         journal = TradeJournal(args.db)
         try:
@@ -81,6 +835,21 @@ def main() -> None:
             print(f"removed {path}")
         else:
             print(f"{path} does not exist")
+    elif args.command == "dashboard":
+        import subprocess
+        try:
+            import streamlit  # noqa: F401
+        except ImportError:
+            print("Streamlit isn't installed. Run: pip install -e \".[ui]\"")
+            raise SystemExit(1)
+        dashboard_path = Path(__file__).parent / "dashboard.py"
+        extra = (["--live"] if args.live else []) + ["--floor", args.floor] + \
+            (["--db-url", args.db_url] if args.db_url else [])
+        subprocess.run([
+            sys.executable, "-m", "streamlit", "run", str(dashboard_path),
+            "--server.port", str(args.port),
+            "--", "--db", args.db, *extra,
+        ])
 
 
 if __name__ == "__main__":

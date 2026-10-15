@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 from ..market.exchange import Order
 from .base import MarketView, TradingAgent
+from .debate import run_debate
 
 DEFAULT_MODEL = "claude-opus-5"
 
@@ -57,14 +58,17 @@ class ClaudeTraderAgent(TradingAgent):
     def __init__(self, agent_id: str, starting_cash: float = 10_000.0,
                  persona: str = "disciplined swing trader; patient, hates leverage and hype",
                  model: str = DEFAULT_MODEL, decision_interval: int = 24,
-                 client=None):
+                 client=None, journal=None, debate: bool = False):
         super().__init__(agent_id, starting_cash)
         self.persona = persona
         self.model = model
         self.decision_interval = decision_interval
         self._lessons: list[str] = []
         self._client = client
+        self.journal = journal   # enables condition-matched lesson retrieval
+        self.debate = debate     # bull/bear debate before deciding (3 extra calls)
         self.api_calls = 0
+        self.last_debate = None
 
     @property
     def client(self):
@@ -80,6 +84,32 @@ class ClaudeTraderAgent(TradingAgent):
     def learn(self, lessons: list[str]) -> None:
         self._lessons.extend(lessons)
         self._lessons = self._lessons[-12:]
+
+    def perceive_regime(self, view: MarketView) -> str:
+        """Classify current conditions from public indicators only (the true
+        regime is hidden). Used to retrieve lessons learned under similar
+        conditions instead of merely recent ones."""
+        moms, vols = [], []
+        for symbol in view.candles:
+            m = self.momentum(symbol, 72)
+            v = self.volatility(symbol, 24)
+            if m is not None:
+                moms.append(m)
+            if v is not None:
+                vols.append(v)
+        if not moms:
+            return ""
+        mom = sum(moms) / len(moms)
+        vol = sum(vols) / len(vols) if vols else 0.0
+        if mom > 0.15 and vol > 0.02:
+            return "mania"
+        if mom < -0.15 and vol > 0.02:
+            return "crash"
+        if mom > 0.05:
+            return "bull"
+        if mom < -0.05:
+            return "bear"
+        return "chop"
 
     def _market_summary(self, view: MarketView) -> str:
         lines = []
@@ -108,11 +138,30 @@ class ClaudeTraderAgent(TradingAgent):
     def decide(self, view: MarketView) -> list[Order]:
         if view.step % self.decision_interval != 0 or view.step < 72:
             return []
-        lessons = "\n".join(f"- {l}" for l in self._lessons) or "- (no lessons yet)"
+        recalled = self._lessons
+        if self.journal is not None:
+            regime = self.perceive_regime(view)
+            recalled = self.journal.lessons_for(self.agent_id, limit=12,
+                                                regime=regime or None)
+        lessons = "\n".join(f"- {l}" for l in recalled) or "- (no lessons yet)"
         system = SYSTEM_PROMPT.format(agent_id=self.agent_id, persona=self.persona,
                                       lessons=lessons)
-        prompt = (f"Step {view.step}. Current market state:\n\n{self._market_summary(view)}\n\n"
-                  "Return your decisions.")
+        summary = self._market_summary(view)
+        verdict_text = ""
+        if self.debate:
+            try:
+                result = run_debate(self.client, self.model, summary, lessons)
+                self.api_calls += 3
+                self.last_debate = result
+                v = result.verdict
+                verdict_text = (f"\n\nYour research desk debated this market. "
+                                f"Judge's rating: {v.rating} "
+                                f"(conviction {v.conviction:.0%}). Plan: {v.plan}\n"
+                                f"Weigh this rating; deviate only with a strong reason.")
+            except Exception as exc:
+                print(f"[{self.agent_id}] debate failed, deciding without it: {exc}")
+        prompt = (f"Step {view.step}. Current market state:\n\n{summary}"
+                  f"{verdict_text}\n\nReturn your decisions.")
         try:
             response = self.client.messages.parse(
                 model=self.model,

@@ -1,0 +1,53 @@
+# Daily bars of the world universe (country and region index ETFs, the
+# largest US companies) from Nasdaq's public API, which answers GitHub
+# runners. Published to the `global-data` branch as one replaced commit.
+name: Global data
+
+on:
+  schedule:
+    - cron: "40 4 * * 1"         # Mondays, after the US week closed
+  workflow_dispatch:
+    inputs:
+      years:
+        description: "Years of history"
+        default: "10"
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: pip install -e .
+      - name: Fetch
+        run: python scripts/fetch_global.py --years "${{ inputs.years || '10' }}" --out data/global
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          cd data/global
+          {
+            echo "# Global data"
+            echo
+            echo "Daily bars from Nasdaq's public API (split-adjusted, not dividend-adjusted),"
+            echo "refreshed $(date -u +'%Y-%m-%d %H:%M UTC'). See src/cryptoarena/market/universe.py."
+            echo
+            echo "- etf/: $(ls etf | wc -l) index ETFs"
+            echo "- stocks/: $(ls stocks | wc -l) US large caps"
+          } > README.md
+          git init -q -b global-data
+          git config user.name "global-data[bot]"
+          git config user.email "global-data@users.noreply.github.com"
+          git add -A
+          git commit -q -m "global data $(date -u +'%Y-%m-%dT%H:%MZ')"
+          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}" global-data

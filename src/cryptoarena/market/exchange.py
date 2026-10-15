@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 
@@ -14,6 +14,7 @@ class Order:
     side: str          # "buy" | "sell"
     quote_amount: float  # buy: quote currency to spend; sell: base quantity to sell
     reason: str = ""
+    base_qty: float | None = None  # buy exactly this many base units (covering a short)
 
 
 @dataclass
@@ -48,13 +49,19 @@ class SimulatedExchange:
     def execute(self, order: Order, candle: Candle) -> Fill:
         mid = candle.close
         bar_quote_volume = max(candle.volume * mid, 1e-9)
-        order_quote = order.quote_amount if order.side == "buy" else order.quote_amount * mid
+        if order.side == "buy" and order.base_qty:
+            order_quote = order.base_qty * mid
+        else:
+            order_quote = order.quote_amount if order.side == "buy" else order.quote_amount * mid
         impact = self.slippage_base * (1 + 20 * min(order_quote / bar_quote_volume, 1.0))
         noise = abs(self.rng.standard_normal()) * self.slippage_base
         slip = impact + noise
         price = mid * (1 + slip) if order.side == "buy" else mid * (1 - slip)
 
-        if order.side == "buy":
+        if order.side == "buy" and order.base_qty:
+            quantity = order.base_qty
+            fee = quantity * price * self.fee_rate
+        elif order.side == "buy":
             fee = order.quote_amount * self.fee_rate
             quantity = (order.quote_amount - fee) / price
         else:
@@ -66,3 +73,23 @@ class SimulatedExchange:
             quantity=quantity, price=price, fee=fee,
             timestamp=candle.timestamp, reason=order.reason,
         )
+
+
+class NextOpenExchange(SimulatedExchange):
+    """Fills at the *next* bar's open instead of the close the agent just
+    saw. A decision made on a bar's close can only reach the market when it
+    opens again: an hour later on a crypto tape, the next session on a
+    daily stock tape, with the overnight gap in between. `next_open(symbol,
+    ts)` is the market's peek at that open (None at the tape's end, where
+    the close stands in). The fill keeps the decision bar's timestamp."""
+
+    def __init__(self, next_open, fee_rate: float = 0.001, slippage_base: float = 0.0005,
+                 seed: int | None = None):
+        super().__init__(fee_rate=fee_rate, slippage_base=slippage_base, seed=seed)
+        self.next_open = next_open
+
+    def execute(self, order: Order, candle: Candle) -> Fill:
+        px = self.next_open(candle.symbol, candle.timestamp)
+        if px is None or px != px or px <= 0:
+            return super().execute(order, candle)
+        return super().execute(order, replace(candle, close=float(px)))

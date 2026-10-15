@@ -1,0 +1,175 @@
+{
+ "exam": "cryptoarena academy --course 6 (learning/ta_exam.py)",
+ "data": "6 stocks 2020-2026, 27 index ETFs and 100 US large caps 2016-2026, 24 coins daily 2021-2026",
+ "measure": "return beyond the symbol's usual 20-bar return, entry at the next open; Benjamini-Hochberg over 332 tests",
+ "techniques": {
+  "fibonacci": {
+   "grade": "C",
+   "confidence": 0.0,
+   "edge_20d": 0.00285,
+   "universes_positive": 2,
+   "universes": 4,
+   "lowest_q": 0.759
+  },
+  "breakout": {
+   "grade": "D",
+   "confidence": 0.0,
+   "edge_20d": -0.01522,
+   "universes_positive": 0,
+   "universes": 4,
+   "lowest_q": 0.46
+  },
+  "reversal": {
+   "grade": "D",
+   "confidence": 0.0,
+   "edge_20d": -0.00127,
+   "universes_positive": 1,
+   "universes": 4,
+   "lowest_q": 0.326
+  },
+  "elliott": {
+   "grade": "D",
+   "confidence": 0.0,
+   "edge_20d": -0.00579,
+   "universes_positive": 1,
+   "universes": 4,
+   "lowest_q": 0.225
+  },
+  "fvg": {
+   "grade": "D",
+   "confidence": 0.0,
+   "edge_20d": -0.00581,
+   "universes_positive": 0,
+   "universes": 4,
+   "lowest_q": 0.648
+  },
+  "candles": {
+   "grade": "C",
+   "confidence": 0.0,
+   "edge_20d": 0.00045,
+   "universes_positive": 2,
+   "universes": 4,
+   "lowest_q": 0.469
+  },
+  "heikin_ashi": {
+   "grade": "D",
+   "confidence": 0.0,
+   "edge_20d": -0.00325,
+   "universes_positive": 0,
+   "universes": 4,
+   "lowest_q": 0.648
+  },
+  "moon": {
+   "grade": "C",
+   "confidence": 0.0,
+   "edge_20d": -0.00303,
+   "universes_positive": 2,
+   "universes": 4,
+   "lowest_q": 0.532
+  },
+  "renko": {
+   "grade": "D",
+   "confidence": 0.0,
+   "edge_20d": -0.00718,
+   "universes_positive": 0,
+   "universes": 4,
+   "lowest_q": 0.059
+  },
+  "harmonic": {
+   "grade": "B",
+   "confidence": 0.0,
+   "edge_20d": 0.00034,
+   "universes_positive": 2,
+   "universes": 3,
+   "lowest_q": 0.544
+  },
+  "sr": {
+   "grade": "B",
+   "confidence": 0.0,
+   "edge_20d": 0.00066,
+   "universes_positive": 3,
+   "universes": 4,
+   "lowest_q": 0.625
+  },
+  "dynamic": {
+   "grade": "D",
+   "confidence": 0.0,
+   "edge_20d": -0.00448,
+   "universes_positive": 0,
+   "universes": 4,
+   "lowest_q": 0.46
+  },
+  "trendline": {
+   "grade": "D",
+   "confidence": 0.0,
+   "edge_20d": -0.00921,
+   "universes_positive": 1,
+   "universes": 4,
+   "lowest_q": 0.393
+  },
+  "gann": {
+   "grade": "B",
+   "confidence": 0.0,
+   "edge_20d": 0.00125,
+   "universes_positive": 3,
+   "universes": 4,
+   "lowest_q": 0.396
+  },
+  "rsi": {
+   "grade": "B",
+   "confidence": 0.0,
+   "edge_20d": 0.00979,
+   "universes_positive": 4,
+   "universes": 4,
+   "lowest_q": 0.46
+  },
+  "divergence": {
+   "grade": "B",
+   "confidence": 0.0,
+   "edge_20d": 0.00207,
+   "universes_positive": 3,
+   "universes": 4,
+   "lowest_q": 0.777
+  },
+  "volume": {
+   "grade": "D",
+   "confidence": 0.0,
+   "edge_20d": -0.004,
+   "universes_positive": 0,
+   "universes": 4,
+   "lowest_q": 0.336
+  },
+  "supply_demand": {
+   "grade": "B",
+   "confidence": 0.0,
+   "edge_20d": 0.0016,
+   "universes_positive": 3,
+   "universes": 4,
+   "lowest_q": 0.469
+  },
+  "structure": {
+   "grade": "D",
+   "confidence": 0.0,
+   "edge_20d": -0.00463,
+   "universes_positive": 0,
+   "universes": 4,
+   "lowest_q": 0.46
+  },
+  "bos": {
+   "grade": "D",
+   "confidence": 0.0,
+   "edge_20d": -0.01537,
+   "universes_positive": 0,
+   "universes": 4,
+   "lowest_q": 0.225
+  },
+  "choch": {
+   "grade": "D",
+   "confidence": 0.0,
+   "edge_20d": -0.01118,
+   "universes_positive": 0,
+   "universes": 4,
+   "lowest_q": 0.385
+  }
+ }
+}

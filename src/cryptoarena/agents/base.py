@@ -8,7 +8,7 @@ from ..market.candle import Candle
 from ..market.exchange import Order
 from ..portfolio.wallet import Wallet
 
-HISTORY_LEN = 200
+HISTORY_LEN = 720   # 30 days of hourly bars: room for weekly-scale indicators
 
 
 @dataclass
@@ -20,15 +20,19 @@ class MarketView:
     prices: dict[str, float]
     step: int
     regimes: dict[str, str] = field(default_factory=dict)  # hidden by default
+    sentiment: float | None = None                   # Crypto Fear & Greed, 0 (fear) .. 100 (greed)
+    signals: dict[str, float] = field(default_factory=dict)  # per symbol, the sources' lean in [-1, 1]
 
 
 class TradingAgent(ABC):
     """observe -> decide -> (episode ends) -> learn."""
 
+    allow_short = False        # a short seller's wallet may go negative on a coin
+
     def __init__(self, agent_id: str, starting_cash: float = 10_000.0):
         self.agent_id = agent_id
         self.starting_cash = starting_cash
-        self.wallet = Wallet(cash=starting_cash)
+        self.wallet = Wallet(cash=starting_cash, allow_short=self.allow_short)
         self.history: dict[str, deque[Candle]] = {}
 
     def observe(self, candles: list[Candle]) -> None:
@@ -51,7 +55,17 @@ class TradingAgent(ABC):
         pass
 
     def reset_wallet(self) -> None:
-        self.wallet = Wallet(cash=self.starting_cash)
+        self.wallet = Wallet(cash=self.starting_cash, allow_short=self.allow_short)
+
+    def clone(self, agent_id: str, starting_cash: float, rng=None,
+              mutate: bool = False) -> "TradingAgent | None":
+        """A fresh offspring: a faithful copy by default (parameters and the
+        warmed-up indicator history), mutated only when asked. None if this
+        agent type cannot reproduce."""
+        return None
+
+    def imitate(self, params: dict, rate: float) -> None:
+        """Move own tunable parameters a fraction of the way towards `params`."""
 
     # --- indicator helpers ---------------------------------------------------
     def closes(self, symbol: str, n: int) -> list[float]:
