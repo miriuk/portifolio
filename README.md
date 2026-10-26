@@ -1443,12 +1443,13 @@ de ser diária e passa a ser anual. Nos dois andares (`floors.py`):
 - **Custo de vida zero** (`daily_cost` 0): o aluguel diário só fazia
   sentido como pressão de sobrevivência e tirava cerca de 1,2 ponto a
   cada 60 pregões.
-  - *Corrigido em 26/10/2026*: o livro do PM guarda a própria taxa e
-    continuou pagando aluguel por 9 pregões depois disso ($2,38 no andar de
-    ações). Agora ele segue o aluguel do andar a cada tick, e os $2,38
-    foram devolvidos uma vez no estado salvo, com uma linha no feed da
-    mesa. Desde 30/09, PM e colônia empatam (−1,73% cada). Os agentes, o
-    espelho e o placar não mudam.
+  - *Corrigido em 26/10/2026*: o livro do PM guardava o próprio valor de
+    aluguel e continuou pagando por 9 pregões depois que o aluguel acabou
+    ($2,38 no andar de ações). Agora ele segue o aluguel do andar a cada
+    tick, e os $2,38 voltaram para o livro numa correção única do estado
+    salvo, registrada no feed da mesa. No fechamento de 23/10, PM e colônia
+    empatavam desde 30/09 (−1,73% cada). Os agentes, o espelho e o placar
+    não mudaram.
 - A colônia ao vivo guarda a própria configuração, mas estes campos
   (`POLICY_FIELDS`), como os da mesa, passam a valer no próximo tick real.
 
