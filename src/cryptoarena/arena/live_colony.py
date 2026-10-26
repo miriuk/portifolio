@@ -193,6 +193,7 @@ class LiveColony:
             if saved.get("pm"):
                 book = PMBook.load(saved["pm"])
                 book.consensus, book.band = self.cfg.pm_consensus, self.cfg.pm_band
+                book.daily_cost = self.cfg.daily_cost      # the book pays the agents' rent, no more
                 book.exchange = self.desk.pm.exchange
                 self.desk.pm = book
             else:

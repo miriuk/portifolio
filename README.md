@@ -1443,6 +1443,12 @@ de ser diária e passa a ser anual. Nos dois andares (`floors.py`):
 - **Custo de vida zero** (`daily_cost` 0): o aluguel diário só fazia
   sentido como pressão de sobrevivência e tirava cerca de 1,2 ponto a
   cada 60 pregões.
+  - *Corrigido em 26/10/2026*: o livro do PM guarda a própria taxa e
+    continuou pagando aluguel por 9 pregões depois disso ($2,38 no andar de
+    ações). Agora ele segue o aluguel do andar a cada tick, e os $2,38
+    foram devolvidos uma vez no estado salvo, com uma linha no feed da
+    mesa. Desde 30/09, PM e colônia empatam (−1,73% cada). Os agentes, o
+    espelho e o placar não mudam.
 - A colônia ao vivo guarda a própria configuração, mas estes campos
   (`POLICY_FIELDS`), como os da mesa, passam a valer no próximo tick real.
 
@@ -1777,26 +1783,28 @@ estagiários, dispensa, happy hour, sênior, imitação) são as mesmas.
 
 | Andar | Fita | Um "dia" da colônia | Semana | Fonte | Estado publicado |
 |---|---|---|---|---|---|
-| `crypto` | velas horárias, 24 moedas principais (BTC, ETH, SOL, XRP, ADA, DOGE, …) | 24 velas, 7 dias por semana | 7 dias | Kraken (pública) | branch `colony-live` |
-| `stocks` (**pausado**) | barras diárias, SPY/QQQ/AAPL/MSFT/NVDA/AMZN | 1 barra, um pregão | 5 pregões | API da Nasdaq no GitHub; Stooq de uma conexão doméstica | branch `colony-live-stocks` |
+| `crypto` (**pausado** desde 25/09/2026) | velas horárias, 24 moedas principais (BTC, ETH, SOL, XRP, ADA, DOGE, …) | 24 velas, 7 dias por semana | 7 dias | Kraken (pública) | branch `colony-live` |
+| `stocks` (**rodando**, fundado em 25/09/2026) | barras diárias, SPY/QQQ/AAPL/MSFT/NVDA/AMZN | 1 barra, um pregão | 5 pregões | API da Nasdaq no GitHub; Stooq de uma conexão doméstica | branch `colony-live-stocks` |
 
 ```bash
-cryptoarena live --floor stocks --once --db live/stocks.db   # um pregão (andar pausado; à mão)
+cryptoarena live --floor stocks --once --db live/stocks.db   # um pregão à mão (o workflow faz isso toda noite)
 cryptoarena backtest --floor stocks                          # janelas de 60 pregões sobre 6 anos
 cryptoarena dashboard --live --floor stocks                  # o andar de ações; um seletor troca de andar
 ```
 
 No andar de ações os especialistas são os mesmos oito, com os parâmetros
 em escala diária (momentum de 20 e 60 pregões, rompimento da máxima de
-20 pregões, médias de 10 e 50), mais um nono, **`index-1`**, que compra
-SPY e QQQ no primeiro pregão e nunca vende — o investidor passivo dentro
-da colônia, para os outros terem com quem se comparar. Meta de 0,2% por
-pregão, taxa de 0,05% por lado (corretagem zero mais spread). O workflow
-`live-colony-stocks.yml` está **pausado** (o cron fica comentado no
-workflow; "Run workflow" ainda dá um tick à mão). Quando voltar: a API
-da Nasdaq só publica a barra do dia algumas horas depois do fechamento
-de Nova York (às 23:50 UTC ainda não está lá; à 01:30 está), por isso o
-horário é terça a sábado à 01:30 UTC, com uma passada às 05:30 de retry.
+20 pregões, médias de 10 e 50), mais um nono, **`index-1`**, que segura
+metade SPY e metade QQQ e nunca vende — o investidor passivo dentro
+da colônia, para os outros terem com quem se comparar. Meta de 8% ao
+ano, julgada pelo ritmo (era 0,2% por pregão até 13/10/2026), taxa de
+0,05% por lado (corretagem zero mais spread). O workflow
+`live-colony-stocks.yml` roda toda noite: a API da Nasdaq só publica a
+barra do dia algumas horas depois do fechamento de Nova York (às 23:50
+UTC ainda não está lá; à 01:30 está), por isso o horário é terça a
+sábado à 01:30 UTC, com uma passada às 05:30 de retry. O andar de cripto
+está **pausado** (o cron fica comentado em `live-colony.yml`; "Run
+workflow" ainda dá um tick à mão).
 
 O que seis anos de barras reais (2020–2026, mercado em alta) disseram:
 os portões do andar cripto (portão de mercado, ranking, exposição máxima

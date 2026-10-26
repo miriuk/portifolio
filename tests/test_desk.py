@@ -166,3 +166,38 @@ def test_a_running_colony_staffs_the_desk_from_the_floor_policy(tmp_path):
     assert reread.pm_start["day"] == opened_on
     assert len(_events(journal, "pm_opened")) == 1
     journal.close()
+
+
+def test_the_pm_stops_paying_rent_when_the_floor_stops_charging_it(tmp_path):
+    """The book's rent follows the floor's, like the agents': a book opened
+    while rent was due pays none after a tick under a rent-free policy
+    (the stocks floor's PM kept paying for 9 days after 13/10/2026)."""
+    client = FakeClient()
+    client.now = T0 + 120 * HOUR
+    db = tmp_path / "live.db"
+    base = dict(budget=5.0, seed=1, endogenous=False, pm=True, pm_band=0.02)
+    journal = TradeJournal(db)
+    colony = LiveColony.open(journal, build_agents(5.0, False, ""),
+                             SurvivalConfig(**base, daily_cost=0.0002), make_feed(client),
+                             warmup=100, verbose=False)
+    assert colony.desk.pm.daily_cost == 0.0002
+    journal.close()
+
+    client.now += 3 * HOUR
+    journal = TradeJournal(db)
+    colony = LiveColony.open(journal, build_agents(5.0, False, ""),
+                             SurvivalConfig(**base, daily_cost=0.0), make_feed(client),
+                             warmup=100, verbose=False)
+    assert colony.cfg.daily_cost == 0.0 and colony.desk.pm.daily_cost == 0.0
+    cash = colony.desk.pm.wallet.cash
+    colony.desk.pm.end_day({})
+    assert colony.desk.pm.wallet.cash == cash
+    colony.save()
+    journal.close()
+
+    journal = TradeJournal(db)
+    from cryptoarena.cli import _StaticFeed
+    reread = LiveColony.open(journal, [], SurvivalConfig(), _StaticFeed("1h", "kraken", []),
+                             verbose=False)
+    assert reread.desk.pm.daily_cost == 0.0
+    journal.close()
