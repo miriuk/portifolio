@@ -14,6 +14,21 @@ class RiskLimits:
     max_drawdown_pct: float = 0.50   # kill switch: liquidate & halt below peak equity
 
 
+def limits_for(agent) -> RiskLimits | None:
+    """An agent's own seatbelt, when its parameters ask for one:
+    `risk_position`, `risk_order` and `risk_stop` (fractions; 0 = the
+    default). The index investor uses it to hold the index whole."""
+    params = getattr(agent, "params", None) or {}
+    pos, order, stop = (float(params.get(k, 0) or 0) for k in ("risk_position", "risk_order", "risk_stop"))
+    if not (pos or order or stop):
+        return None
+    base = RiskLimits()
+    return RiskLimits(max_position_pct=pos or base.max_position_pct,
+                      max_order_pct=order or base.max_order_pct,
+                      stop_loss_pct=stop or base.stop_loss_pct,
+                      max_drawdown_pct=base.max_drawdown_pct)
+
+
 class RiskManager:
     """Hard limits outside the agent's control — the seatbelt.
 
@@ -42,10 +57,17 @@ class RiskManager:
         for symbol, qty in list(wallet.positions.items()):
             basis = wallet.cost_basis.get(symbol, 0.0)
             price = prices.get(symbol, 0.0)
-            if basis > 0 and price < basis * (1 - self.limits.stop_loss_pct):
+            if basis <= 0:
+                continue
+            if qty > 0 and price < basis * (1 - self.limits.stop_loss_pct):
                 orders.append(Order(
                     agent_id=agent_id, symbol=symbol, side="sell",
                     quote_amount=qty, reason="risk:stop_loss",
+                ))
+            elif qty < 0 and price > basis * (1 + self.limits.stop_loss_pct):
+                orders.append(Order(                       # a short that ran against us: cover
+                    agent_id=agent_id, symbol=symbol, side="buy",
+                    quote_amount=0.0, reason="risk:stop_loss", base_qty=-qty,
                 ))
         return orders
 
@@ -56,6 +78,12 @@ class RiskManager:
         equity = wallet.equity(prices)
         if equity <= 0:
             return None
+        held = wallet.positions.get(order.symbol, 0.0)
+        if order.side == "buy" and order.base_qty:           # covering a short: never blocked
+            if held >= 0:
+                return None
+            return Order(order.agent_id, order.symbol, "buy", 0.0, order.reason,
+                         base_qty=min(order.base_qty, -held))
         if order.side == "buy":
             max_order = equity * self.limits.max_order_pct
             held_value = wallet.positions.get(order.symbol, 0.0) * prices.get(order.symbol, 0.0)
@@ -64,8 +92,17 @@ class RiskManager:
             if amount < equity * 0.001:
                 return None
             return Order(order.agent_id, order.symbol, "buy", amount, order.reason)
-        held = wallet.positions.get(order.symbol, 0.0)
-        qty = min(order.quote_amount, held)
-        if qty <= 0:
+        if held > 0:
+            return Order(order.agent_id, order.symbol, "sell", min(order.quote_amount, held),
+                         order.reason)
+        if not wallet.allow_short:
             return None
-        return Order(order.agent_id, order.symbol, "sell", qty, order.reason)
+        price = prices.get(order.symbol, 0.0)                # a short: the same caps, on the short side
+        if price <= 0:
+            return None
+        max_order = equity * self.limits.max_order_pct
+        room = equity * self.limits.max_position_pct + held * price
+        value = min(order.quote_amount * price, max_order, room)
+        if value < equity * 0.001:
+            return None
+        return Order(order.agent_id, order.symbol, "sell", value / price, order.reason)
