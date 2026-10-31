@@ -1,0 +1,363 @@
+{
+  "day": 28,
+  "hour": 0,
+  "started_at": "2026-09-24T00:00:00+00:00",
+  "last_candle": "2026-10-30T00:00:00+00:00",
+  "alive": 9,
+  "population": 9,
+  "interns": 0,
+  "colony_equity": 1289.9968,
+  "invested": 840.7742,
+  "senior": "momentum-2",
+  "prices": {
+    "SPY": 755.72,
+    "QQQ": 690.49,
+    "AAPL": 344.63,
+    "MSFT": 521.91,
+    "NVDA": 204.64,
+    "AMZN": 240.35
+  },
+  "sentiment": null,
+  "signals": {},
+  "sources": [
+    {
+      "handle": "sec-form4",
+      "label": "SEC Form 4 \u00b7 insider purchases",
+      "url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=4",
+      "trust": 0.25,
+      "prior": 0.25,
+      "horizon_days": 30,
+      "calls": 0,
+      "resolved": 0,
+      "hits": 0,
+      "hit_rate": null,
+      "avg_outcome": null,
+      "active": []
+    }
+  ],
+  "readiness": {},
+  "desk": {
+    "symbol_cap": 0.35,
+    "gross_cap": 0.0,
+    "vetoes": 0,
+    "clipped": 0,
+    "exposure": {
+      "AAPL": 0.235,
+      "MSFT": 0.2123,
+      "SPY": 0.0826,
+      "QQQ": 0.0705,
+      "AMZN": 0.0265,
+      "NVDA": 0.0249
+    },
+    "holders": {
+      "AAPL": 6,
+      "MSFT": 6,
+      "NVDA": 1,
+      "AMZN": 1,
+      "QQQ": 2,
+      "SPY": 2
+    },
+    "pm": {
+      "since_day": 6,
+      "capital": 1322.01,
+      "equity": 1290.5917,
+      "return": -0.023766,
+      "colony_return": -0.023482,
+      "consensus": 0.0,
+      "band": 0.02,
+      "fees": 0.7679,
+      "weights": {
+        "AAPL": 0.235,
+        "MSFT": 0.2103,
+        "NVDA": 0.0308,
+        "QQQ": 0.0705,
+        "SPY": 0.0826,
+        "AMZN": 0.0265
+      },
+      "targets": {
+        "AAPL": 0.235,
+        "MSFT": 0.2123,
+        "NVDA": 0.0249,
+        "AMZN": 0.0265,
+        "QQQ": 0.0705,
+        "SPY": 0.0826
+      },
+      "fills": [
+        {
+          "ts": 1792454400,
+          "symbol": "AAPL",
+          "side": "sell",
+          "quantity": 0.10449257878492722,
+          "price": 338.998229673721,
+          "fee": 0.017711399611066075
+        },
+        {
+          "ts": 1792454400,
+          "symbol": "NVDA",
+          "side": "sell",
+          "quantity": 0.16054710948795253,
+          "price": 216.26397049556363,
+          "fee": 0.017360277674725297
+        },
+        {
+          "ts": 1792454400,
+          "symbol": "AMZN",
+          "side": "buy",
+          "quantity": 0.1890220467431611,
+          "price": 262.81989123032145,
+          "fee": 0.024851802783977157
+        },
+        {
+          "ts": 1792540800,
+          "symbol": "NVDA",
+          "side": "sell",
+          "quantity": 0.3415731179776183,
+          "price": 221.82447063522528,
+          "fee": 0.037884638039304266
+        },
+        {
+          "ts": 1792627200,
+          "symbol": "AAPL",
+          "side": "buy",
+          "quantity": 0.10266110599203938,
+          "price": 348.47062176967984,
+          "fee": 0.017896137787198084
+        },
+        {
+          "ts": 1792713600,
+          "symbol": "AMZN",
+          "side": "sell",
+          "quantity": 0.18915191762324904,
+          "price": 247.80752753361938,
+          "fee": 0.023436634517230097
+        },
+        {
+          "ts": 1792713600,
+          "symbol": "QQQ",
+          "side": "sell",
+          "quantity": 0.04804997516930632,
+          "price": 703.9384495253407,
+          "fee": 0.016912112510206308
+        },
+        {
+          "ts": 1792713600,
+          "symbol": "AAPL",
+          "side": "buy",
+          "quantity": 0.20031124239520148,
+          "price": 348.05766707796147,
+          "fee": 0.03487737054405297
+        },
+        {
+          "ts": 1793145600,
+          "symbol": "AAPL",
+          "side": "buy",
+          "quantity": 0.26690824541333596,
+          "price": 344.1012113913217,
+          "fee": 0.04594469763734922
+        },
+        {
+          "ts": 1793232000,
+          "symbol": "AMZN",
+          "side": "sell",
+          "quantity": 0.14024486606592784,
+          "price": 243.48670967412883,
+          "fee": 0.017073880493540826
+        }
+      ]
+    }
+  },
+  "go_live": {
+    "since": 1791936000,
+    "days": 13,
+    "criteria": [
+      {
+        "key": "time",
+        "label": "tempo sob as mesmas regras",
+        "met": false,
+        "value": "13 de 126 preg\u00f5es (ideal 252)"
+      },
+      {
+        "key": "return",
+        "label": "\u00e0 frente de segurar SPY",
+        "met": false,
+        "value": "col\u00f4nia -2.91% contra SPY -2.87%"
+      },
+      {
+        "key": "fall",
+        "label": "queda m\u00e1xima n\u00e3o pior que a de SPY",
+        "met": false,
+        "value": "col\u00f4nia 2.9% contra SPY 2.9%"
+      },
+      {
+        "key": "mirror",
+        "label": "conta Practice acompanhando, sem incidente",
+        "met": null,
+        "value": "13 noites do espelho (13 medidas), 0 com ordem falhada ou sem resposta, 1.1% do que a noite anterior mirou faltando em m\u00e9dia, 23% da carteira s\u00f3 no papel (fora da lista da corretora) (julga a partir de 20 noites medidas)"
+      }
+    ],
+    "met": 0,
+    "of": 4,
+    "ready": false,
+    "colony_return": -0.029117196394776723,
+    "benchmark_return": -0.028650017351962043,
+    "fingerprint": "4f7f979807693a81",
+    "rules_day": 15
+  },
+  "agents": [
+    {
+      "id": "momentum-1",
+      "name": "Rita Rush",
+      "title": "Trader de momentum (tiro curto)",
+      "gen": 0,
+      "budget": 146.89,
+      "equity": 142.3575,
+      "streak": 0,
+      "misses": 19,
+      "immune_until": 15
+    },
+    {
+      "id": "momentum-2",
+      "name": "Marco Maratona",
+      "title": "Trader de momentum (f\u00f4lego longo)",
+      "gen": 0,
+      "budget": 146.89,
+      "equity": 147.9378,
+      "streak": 0,
+      "misses": 1,
+      "immune_until": 20
+    },
+    {
+      "id": "meanrev-1",
+      "name": "Bea Bounce",
+      "title": "Ca\u00e7adora de quedas",
+      "gen": 0,
+      "budget": 146.89,
+      "equity": 148.949,
+      "streak": 8,
+      "misses": 0,
+      "immune_until": 25
+    },
+    {
+      "id": "meanrev-2",
+      "name": "Theo Paci\u00eancia",
+      "title": "Contrarian profundo",
+      "gen": 0,
+      "budget": 146.89,
+      "equity": 146.5081,
+      "streak": 0,
+      "misses": 27,
+      "immune_until": 0
+    },
+    {
+      "id": "breakout-1",
+      "name": "Nina Fa\u00edsca",
+      "title": "Ca\u00e7adora de rompimentos",
+      "gen": 0,
+      "budget": 146.89,
+      "equity": 139.0133,
+      "streak": 0,
+      "misses": 15,
+      "immune_until": 25
+    },
+    {
+      "id": "regime-1",
+      "name": "Otto Clima",
+      "title": "Estrategista de regime",
+      "gen": 0,
+      "budget": 146.89,
+      "equity": 140.8587,
+      "streak": 0,
+      "misses": 13,
+      "immune_until": 15
+    },
+    {
+      "id": "voltarget-1",
+      "name": "Vera Calma",
+      "title": "Gestora de volatilidade",
+      "gen": 0,
+      "budget": 146.89,
+      "equity": 143.4606,
+      "streak": 0,
+      "misses": 13,
+      "immune_until": 25
+    },
+    {
+      "id": "trend-1",
+      "name": "Tom\u00e1s B\u00fassola",
+      "title": "Seguidor de tend\u00eancia",
+      "gen": 0,
+      "budget": 146.89,
+      "equity": 141.3177,
+      "streak": 0,
+      "misses": 13,
+      "immune_until": 15
+    },
+    {
+      "id": "index-1",
+      "name": "In\u00eas \u00cdndice",
+      "title": "Investidora passiva",
+      "gen": 0,
+      "budget": 146.89,
+      "equity": 139.5942,
+      "streak": 0,
+      "misses": 15,
+      "immune_until": 0
+    }
+  ],
+  "chief": {
+    "day": 27,
+    "headline": "Col\u00f4nia $1,290.00 (-2.42% desde a funda\u00e7\u00e3o, 27 dias); segurar SPY no mesmo per\u00edodo: -1.49%.",
+    "lines": [
+      "Col\u00f4nia $1,290.00 (-2.42% desde a funda\u00e7\u00e3o, 27 dias); segurar SPY no mesmo per\u00edodo: -1.49%.",
+      "Hoje ningu\u00e9m operou.",
+      "O livro do PM (desde o dia 6): -2.38%, a col\u00f4nia no mesmo per\u00edodo -2.35%.",
+      "Prontid\u00e3o para dinheiro real: 0 de 4 crit\u00e9rios. \u274c tempo sob as mesmas regras: 13 de 126 preg\u00f5es (ideal 252); \u274c \u00e0 frente de segurar SPY: col\u00f4nia -2.91% contra SPY -2.87%; \u274c queda m\u00e1xima n\u00e3o pior que a de SPY: col\u00f4nia 2.9% contra SPY 2.9%; \u23f3 conta Practice acompanhando, sem incidente: 13 noites do espelho (13 medidas), 0 com ordem falhada ou sem resposta, 1.1% do que a noite anterior mirou faltando em m\u00e9dia, 23% da carteira s\u00f3 no papel (fora da lista da corretora) (julga a partir de 20 noites medidas)."
+    ],
+    "decisions": [],
+    "colony_return": -0.024215550563157495,
+    "hold_return": -0.014937824239422248,
+    "benchmark": "SPY",
+    "bench_start": {
+      "symbol": "SPY",
+      "ts": 1790208000,
+      "price": 767.18
+    },
+    "readiness": {
+      "since": 1791936000,
+      "days": 13,
+      "criteria": [
+        {
+          "key": "time",
+          "label": "tempo sob as mesmas regras",
+          "met": false,
+          "value": "13 de 126 preg\u00f5es (ideal 252)"
+        },
+        {
+          "key": "return",
+          "label": "\u00e0 frente de segurar SPY",
+          "met": false,
+          "value": "col\u00f4nia -2.91% contra SPY -2.87%"
+        },
+        {
+          "key": "fall",
+          "label": "queda m\u00e1xima n\u00e3o pior que a de SPY",
+          "met": false,
+          "value": "col\u00f4nia 2.9% contra SPY 2.9%"
+        },
+        {
+          "key": "mirror",
+          "label": "conta Practice acompanhando, sem incidente",
+          "met": null,
+          "value": "13 noites do espelho (13 medidas), 0 com ordem falhada ou sem resposta, 1.1% do que a noite anterior mirou faltando em m\u00e9dia, 23% da carteira s\u00f3 no papel (fora da lista da corretora) (julga a partir de 20 noites medidas)"
+        }
+      ],
+      "met": 0,
+      "of": 4,
+      "ready": false,
+      "colony_return": -0.029117196394776723,
+      "benchmark_return": -0.028650017351962043,
+      "fingerprint": "4f7f979807693a81",
+      "rules_day": 15
+    }
+  }
+}
