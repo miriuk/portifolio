@@ -1,0 +1,375 @@
+# Live colony
+
+Updated 2026-11-07 05:36 UTC by the nightly job.
+Paper trading on Nasdaq's daily bars, mirrored to a Trading 212 practice account.
+Read `colony.db` with the dashboard:
+
+```
+CRYPTOARENA_DB_URL=https://raw.githubusercontent.com/miriuk/portifolio/colony-live-stocks/colony.db
+```
+
+```json
+{
+  "day": 33,
+  "hour": 0,
+  "started_at": "2026-09-24T00:00:00+00:00",
+  "last_candle": "2026-11-06T00:00:00+00:00",
+  "alive": 9,
+  "population": 9,
+  "interns": 0,
+  "colony_equity": 1280.4546,
+  "invested": 669.8195,
+  "senior": "momentum-2",
+  "prices": {
+    "SPY": 735.29,
+    "QQQ": 656.1,
+    "AAPL": 342.37,
+    "MSFT": 530.61,
+    "NVDA": 186.64,
+    "AMZN": 259.3
+  },
+  "sentiment": null,
+  "signals": {},
+  "sources": [
+    {
+      "handle": "sec-form4",
+      "label": "SEC Form 4 \u00b7 insider purchases",
+      "url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=4",
+      "trust": 0.25,
+      "prior": 0.25,
+      "horizon_days": 30,
+      "calls": 0,
+      "resolved": 0,
+      "hits": 0,
+      "hit_rate": null,
+      "avg_outcome": null,
+      "active": []
+    }
+  ],
+  "readiness": {},
+  "desk": {
+    "symbol_cap": 0.35,
+    "gross_cap": 0.0,
+    "vetoes": 0,
+    "clipped": 0,
+    "exposure": {
+      "MSFT": 0.1852,
+      "AAPL": 0.1815,
+      "SPY": 0.0542,
+      "QQQ": 0.0505,
+      "AMZN": 0.0288,
+      "NVDA": 0.0228
+    },
+    "holders": {
+      "AAPL": 5,
+      "MSFT": 5,
+      "NVDA": 1,
+      "AMZN": 1,
+      "SPY": 1,
+      "QQQ": 1
+    },
+    "pm": {
+      "since_day": 6,
+      "capital": 1322.01,
+      "equity": 1279.5767,
+      "return": -0.032098,
+      "colony_return": -0.030705,
+      "consensus": 0.0,
+      "band": 0.02,
+      "fees": 0.9049,
+      "weights": {
+        "AAPL": 0.1818,
+        "MSFT": 0.1852,
+        "NVDA": 0.0283,
+        "QQQ": 0.0675,
+        "SPY": 0.0543,
+        "AMZN": 0.0288
+      },
+      "targets": {
+        "AAPL": 0.1815,
+        "MSFT": 0.1852,
+        "NVDA": 0.0228,
+        "AMZN": 0.0288,
+        "SPY": 0.0542,
+        "QQQ": 0.0505
+      },
+      "fills": [
+        {
+          "ts": 1792713600,
+          "symbol": "AMZN",
+          "side": "sell",
+          "quantity": 0.18915191762324904,
+          "price": 247.80752753361938,
+          "fee": 0.023436634517230097
+        },
+        {
+          "ts": 1792713600,
+          "symbol": "QQQ",
+          "side": "sell",
+          "quantity": 0.04804997516930632,
+          "price": 703.9384495253407,
+          "fee": 0.016912112510206308
+        },
+        {
+          "ts": 1792713600,
+          "symbol": "AAPL",
+          "side": "buy",
+          "quantity": 0.20031124239520148,
+          "price": 348.05766707796147,
+          "fee": 0.03487737054405297
+        },
+        {
+          "ts": 1793145600,
+          "symbol": "AAPL",
+          "side": "buy",
+          "quantity": 0.26690824541333596,
+          "price": 344.1012113913217,
+          "fee": 0.04594469763734922
+        },
+        {
+          "ts": 1793232000,
+          "symbol": "AMZN",
+          "side": "sell",
+          "quantity": 0.14024486606592784,
+          "price": 243.48670967412883,
+          "fee": 0.017073880493540826
+        },
+        {
+          "ts": 1793577600,
+          "symbol": "MSFT",
+          "side": "sell",
+          "quantity": 0.13176994386541696,
+          "price": 506.8630975321963,
+          "fee": 0.03339466095463444
+        },
+        {
+          "ts": 1793664000,
+          "symbol": "AAPL",
+          "side": "sell",
+          "quantity": 0.2005161735984552,
+          "price": 331.72770230685023,
+          "fee": 0.033258384771588524
+        },
+        {
+          "ts": 1793664000,
+          "symbol": "MSFT",
+          "side": "sell",
+          "quantity": 0.07105622924168678,
+          "price": 520.3706262567807,
+          "fee": 0.018487787254970963
+        },
+        {
+          "ts": 1793664000,
+          "symbol": "SPY",
+          "side": "sell",
+          "quantity": 0.04650415369401171,
+          "price": 753.365246175423,
+          "fee": 0.017517306597934417
+        },
+        {
+          "ts": 1793923200,
+          "symbol": "MSFT",
+          "side": "buy",
+          "quantity": 0.1291844866256528,
+          "price": 531.0846036524252,
+          "fee": 0.03432110649205945
+        }
+      ]
+    }
+  },
+  "go_live": {
+    "since": 1791936000,
+    "days": 18,
+    "criteria": [
+      {
+        "key": "time",
+        "label": "tempo sob as mesmas regras",
+        "met": false,
+        "value": "18 de 126 preg\u00f5es (ideal 252)"
+      },
+      {
+        "key": "return",
+        "label": "\u00e0 frente de segurar SPY",
+        "met": true,
+        "value": "col\u00f4nia -3.63% contra SPY -5.49%"
+      },
+      {
+        "key": "fall",
+        "label": "queda m\u00e1xima n\u00e3o pior que a de SPY",
+        "met": true,
+        "value": "col\u00f4nia 4.0% contra SPY 5.8%"
+      },
+      {
+        "key": "mirror",
+        "label": "conta Practice acompanhando, sem incidente",
+        "met": null,
+        "value": "18 noites do espelho (18 medidas), 0 com ordem falhada ou sem resposta, 1.1% do que a noite anterior mirou faltando em m\u00e9dia, 20% da carteira s\u00f3 no papel (fora da lista da corretora) (julga a partir de 20 noites medidas)"
+      }
+    ],
+    "met": 2,
+    "of": 4,
+    "ready": false,
+    "colony_return": -0.036298901776910975,
+    "benchmark_return": -0.054909319931620404,
+    "fingerprint": "4f7f979807693a81",
+    "rules_day": 15
+  },
+  "agents": [
+    {
+      "id": "momentum-1",
+      "name": "Rita Rush",
+      "title": "Trader de momentum (tiro curto)",
+      "gen": 0,
+      "budget": 146.89,
+      "equity": 139.7787,
+      "streak": 0,
+      "misses": 24,
+      "immune_until": 15
+    },
+    {
+      "id": "momentum-2",
+      "name": "Marco Maratona",
+      "title": "Trader de momentum (f\u00f4lego longo)",
+      "gen": 0,
+      "budget": 146.89,
+      "equity": 148.6831,
+      "streak": 3,
+      "misses": 0,
+      "immune_until": 35
+    },
+    {
+      "id": "meanrev-1",
+      "name": "Bea Bounce",
+      "title": "Ca\u00e7adora de quedas",
+      "gen": 0,
+      "budget": 146.89,
+      "equity": 148.949,
+      "streak": 13,
+      "misses": 0,
+      "immune_until": 25
+    },
+    {
+      "id": "meanrev-2",
+      "name": "Theo Paci\u00eancia",
+      "title": "Contrarian profundo",
+      "gen": 0,
+      "budget": 146.89,
+      "equity": 146.5081,
+      "streak": 0,
+      "misses": 32,
+      "immune_until": 0
+    },
+    {
+      "id": "breakout-1",
+      "name": "Nina Fa\u00edsca",
+      "title": "Ca\u00e7adora de rompimentos",
+      "gen": 0,
+      "budget": 146.89,
+      "equity": 139.2745,
+      "streak": 0,
+      "misses": 20,
+      "immune_until": 35
+    },
+    {
+      "id": "regime-1",
+      "name": "Otto Clima",
+      "title": "Estrategista de regime",
+      "gen": 0,
+      "budget": 146.89,
+      "equity": 137.9594,
+      "streak": 0,
+      "misses": 18,
+      "immune_until": 15
+    },
+    {
+      "id": "voltarget-1",
+      "name": "Vera Calma",
+      "title": "Gestora de volatilidade",
+      "gen": 0,
+      "budget": 146.89,
+      "equity": 143.3359,
+      "streak": 0,
+      "misses": 18,
+      "immune_until": 25
+    },
+    {
+      "id": "trend-1",
+      "name": "Tom\u00e1s B\u00fassola",
+      "title": "Seguidor de tend\u00eancia",
+      "gen": 0,
+      "budget": 146.89,
+      "equity": 141.6898,
+      "streak": 0,
+      "misses": 18,
+      "immune_until": 35
+    },
+    {
+      "id": "index-1",
+      "name": "In\u00eas \u00cdndice",
+      "title": "Investidora passiva",
+      "gen": 0,
+      "budget": 146.89,
+      "equity": 134.2761,
+      "streak": 0,
+      "misses": 20,
+      "immune_until": 0
+    }
+  ],
+  "chief": {
+    "day": 32,
+    "headline": "Col\u00f4nia $1,280.45 (-3.14% desde a funda\u00e7\u00e3o, 32 dias); segurar SPY no mesmo per\u00edodo: -4.16%.",
+    "lines": [
+      "Col\u00f4nia $1,280.45 (-3.14% desde a funda\u00e7\u00e3o, 32 dias); segurar SPY no mesmo per\u00edodo: -4.16%.",
+      "Hoje a mesa comprou MSFT (1\u00d7 $69.01).",
+      "O livro do PM (desde o dia 6): -3.21%, a col\u00f4nia no mesmo per\u00edodo -3.07%.",
+      "Prontid\u00e3o para dinheiro real: 2 de 4 crit\u00e9rios. \u274c tempo sob as mesmas regras: 18 de 126 preg\u00f5es (ideal 252); \u2705 \u00e0 frente de segurar SPY: col\u00f4nia -3.63% contra SPY -5.49%; \u2705 queda m\u00e1xima n\u00e3o pior que a de SPY: col\u00f4nia 4.0% contra SPY 5.8%; \u23f3 conta Practice acompanhando, sem incidente: 18 noites do espelho (18 medidas), 0 com ordem falhada ou sem resposta, 1.1% do que a noite anterior mirou faltando em m\u00e9dia, 20% da carteira s\u00f3 no papel (fora da lista da corretora) (julga a partir de 20 noites medidas)."
+    ],
+    "decisions": [],
+    "colony_return": -0.03143349899017389,
+    "hold_return": -0.04156781980760704,
+    "benchmark": "SPY",
+    "bench_start": {
+      "symbol": "SPY",
+      "ts": 1790208000,
+      "price": 767.18
+    },
+    "readiness": {
+      "since": 1791936000,
+      "days": 18,
+      "criteria": [
+        {
+          "key": "time",
+          "label": "tempo sob as mesmas regras",
+          "met": false,
+          "value": "18 de 126 preg\u00f5es (ideal 252)"
+        },
+        {
+          "key": "return",
+          "label": "\u00e0 frente de segurar SPY",
+          "met": true,
+          "value": "col\u00f4nia -3.63% contra SPY -5.49%"
+        },
+        {
+          "key": "fall",
+          "label": "queda m\u00e1xima n\u00e3o pior que a de SPY",
+          "met": true,
+          "value": "col\u00f4nia 4.0% contra SPY 5.8%"
+        },
+        {
+          "key": "mirror",
+          "label": "conta Practice acompanhando, sem incidente",
+          "met": null,
+          "value": "18 noites do espelho (18 medidas), 0 com ordem falhada ou sem resposta, 1.1% do que a noite anterior mirou faltando em m\u00e9dia, 20% da carteira s\u00f3 no papel (fora da lista da corretora) (julga a partir de 20 noites medidas)"
+        }
+      ],
+      "met": 2,
+      "of": 4,
+      "ready": false,
+      "colony_return": -0.036298901776910975,
+      "benchmark_return": -0.054909319931620404,
+      "fingerprint": "4f7f979807693a81",
+      "rules_day": 15
+    }
+  }
+}
+```
