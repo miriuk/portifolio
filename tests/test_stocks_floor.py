@@ -96,7 +96,7 @@ def test_floor_registry_and_live_urls():
 
 def test_cli_live_stocks_floor(tmp_path, monkeypatch, capsys):
     fake = FakeStooq(days=400)
-    monkeypatch.setattr("cryptoarena.market.stocks.fetch_daily", fake.rows)
+    monkeypatch.setattr("cryptoarena.market.stocks.fetch_daily", lambda t, **kw: fake.rows(t))
     monkeypatch.setattr("cryptoarena.market.stocks.time.time", lambda: fake.now)
     db = tmp_path / "stocks.db"
     sys.argv = ["cryptoarena", "live", "--floor", "stocks", "--once", "--db", str(db)]
@@ -178,3 +178,35 @@ def test_ines_holds_the_whole_index_on_the_stocks_floor(tmp_path):
     by_id = {i.agent_id: i.agent for i in again.alive}
     assert by_id["index-1"].params["risk_position"] == 0.5         # the floor's policy is back
     journal.close()
+
+
+def test_a_bar_waits_until_every_ticker_answers():
+    """Issue #2: Nasdaq refused five tickers, SPY alone came back and the
+    colony took a day from it. Now a partial bar is no bar."""
+    fake = FakeStooq(days=10)
+    full = make_feed(fake).aligned(limit=50)
+    rows = fake.rows
+
+    def flaky(ticker):
+        if ticker != "spy.us":
+            raise OSError("HTTP Error 403: Forbidden")
+        return rows(ticker)
+
+    assert StooqFeed(fetch=flaky, now=lambda: fake.now).aligned(limit=50) == []
+    assert make_feed(fake).aligned(limit=50) == full          # the next run catches up
+
+
+def test_the_live_feed_never_takes_an_index_level_for_an_etf(monkeypatch):
+    """Cboe's SPX (~7,500) stood in for SPY (~750) and made the colony look
+    834% behind. The live feed's fetch skips the index proxies."""
+    from cryptoarena.market import stocks
+
+    def refuse(ticker, years=6):
+        raise OSError("HTTP Error 403: Forbidden")
+
+    monkeypatch.setenv("CRYPTOARENA_DAILY_SOURCE", "nasdaq")
+    monkeypatch.setattr(stocks, "fetch_nasdaq", refuse)
+    monkeypatch.setattr(stocks, "fetch_cboe", lambda index: [[0, 7520.93, 7520.93, 7520.93, 7520.93, 0.0]])
+    assert stocks.fetch_daily("SPY", verbose=False)[0][4] == 7520.93      # a backtest may still use it
+    assert stocks.fetch_daily("SPY", verbose=False, proxies=False) == []
+    assert StooqFeed()._fetch("spy.us") == []

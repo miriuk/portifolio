@@ -210,9 +210,13 @@ def fetch_yahoo(ticker: str, range_: str = "10y") -> list[list[float]]:
     return rows
 
 
-def fetch_daily(ticker: str, min_rows: int = 100, verbose: bool = True) -> list[list[float]]:
+def fetch_daily(ticker: str, min_rows: int = 100, verbose: bool = True,
+                proxies: bool = True) -> list[list[float]]:
     """Stooq, then Yahoo, then FRED (index proxies only); or FRED straight
-    away when CRYPTOARENA_DAILY_SOURCE=fred."""
+    away when CRYPTOARENA_DAILY_SOURCE=fred. With `proxies=False` a failed
+    ETF is not replaced by its index: SPX levels are ~10x SPY's price, fine
+    for a backtest that reads one series, wrong for a live tape that already
+    holds the ETF's prices."""
     import os
     yahoo = ticker.split(".")[0].upper()
     source = os.environ.get("CRYPTOARENA_DAILY_SOURCE", "").lower()
@@ -227,7 +231,7 @@ def fetch_daily(ticker: str, min_rows: int = 100, verbose: bool = True) -> list[
         except Exception as exc:     # noqa: BLE001 — then the index proxies
             if verbose:
                 print(f"nasdaq {yahoo}: {exc}", flush=True)
-            return _fetch_index_proxy(yahoo, verbose)
+            return _fetch_index_proxy(yahoo, verbose) if proxies else []
     try:
         rows = fetch_stooq(ticker, verbose=verbose)
     except Exception as exc:     # noqa: BLE001 — fall through to the second source
@@ -251,7 +255,7 @@ def fetch_daily(ticker: str, min_rows: int = 100, verbose: bool = True) -> list[
         if verbose:
             print(f"yahoo {yahoo}: {exc}", flush=True)
         rows = []
-    if len(rows) >= min_rows:
+    if len(rows) >= min_rows or not proxies:
         return rows
     return _fetch_index_proxy(yahoo, verbose) or rows
 
@@ -314,7 +318,8 @@ class StooqFeed:
                  fetch: Callable[[str], list[list[float]]] | None = None,
                  now: Callable[[], float] | None = None, closed_after_hour: int = 22):
         self.symbols = symbols or dict(DEFAULT_STOCKS)
-        self._fetch = fetch or fetch_daily
+        # the live tape never takes an index level in place of an ETF's price
+        self._fetch = fetch or (lambda ticker: fetch_daily(ticker, proxies=False))
         self._now = now or time.time
         self.closed_after_hour = closed_after_hour
 
@@ -341,7 +346,12 @@ class StooqFeed:
 
     def aligned(self, limit: int = 250, since: int | None = None) -> list[list[Candle]]:
         per_symbol = self.history(limit, since)
-        if not per_symbol:
+        missing = sorted(set(self.symbols) - set(per_symbol))
+        if missing:
+            # a bar is the whole universe or nothing: a day built from the
+            # few tickers that answered would carry the rest flat and price
+            # the colony on half a market. The next run picks the day up.
+            print(f"[feed] no data for {', '.join(missing)}; waiting for the full bar", flush=True)
             return []
         by_ts = [{c.timestamp: c for c in candles} for candles in per_symbol.values()]
         common = set(by_ts[0])
