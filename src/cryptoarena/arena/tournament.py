@@ -7,6 +7,7 @@ from ..agents.llm import ClaudeTraderAgent
 from ..learning.evolution import evolve_population
 from ..learning.memory import TradeJournal
 from ..learning.reflection import compute_stats, reflect_on_episode
+from ..market.endogenous import EndogenousMarket
 from ..market.synthetic import SyntheticMarket
 from .episode import run_episode
 from .leaderboard import leaderboard_table
@@ -22,6 +23,7 @@ def run_tournament(
     evolve: bool = True,
     verbose: bool = True,
     market_factory=None,
+    endogenous: bool = False,
 ) -> dict[str, list]:
     """The full learning loop:
 
@@ -52,6 +54,8 @@ def run_tournament(
             print(f"\n=== episode {episode}/{episodes} ===")
         if market_factory is not None:
             market = market_factory(episode)
+        elif endogenous:
+            market = EndogenousMarket(symbols, seed=int(rng.integers(1 << 31)))
         else:
             market = SyntheticMarket(symbols, seed=int(rng.integers(1 << 31)))
         for agent in agents:
@@ -72,6 +76,7 @@ def run_tournament(
             episode_stats.append(stats)
             all_stats[agent.agent_id].append(stats)
             full_curves[agent.agent_id].extend(curve)
+            journal.record_episode_summary(stats, halted=result.halted[agent.agent_id])
 
             lessons = reflect_on_episode(journal, stats)
             if isinstance(agent, ClaudeTraderAgent):
@@ -104,6 +109,10 @@ def run_tournament(
             for line in log:
                 if verbose:
                     print(f"  {line}")
+
+        # memories fade unless reinforced; stale ones are forgotten
+        for agent in agents:
+            journal.decay_lessons(agent.agent_id)
 
         # persist current params every episode
         for agent in agents:

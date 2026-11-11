@@ -7,35 +7,48 @@ from ..market.exchange import Fill
 
 @dataclass
 class Wallet:
-    """Paper wallet: quote-currency cash plus base-asset positions."""
+    """Paper wallet: quote-currency cash plus base-asset positions. A
+    wallet that `allow_short` may sell what it does not hold: the position
+    goes negative (a paper margin short, the proceeds sit in cash) and a
+    buy covers it. `cost_basis` is the average entry price either way."""
 
     cash: float
-    positions: dict[str, float] = field(default_factory=dict)   # symbol -> base qty
+    positions: dict[str, float] = field(default_factory=dict)   # symbol -> base qty (< 0: short)
     cost_basis: dict[str, float] = field(default_factory=dict)  # symbol -> avg entry price
     fees_paid: float = 0.0
+    allow_short: bool = False
 
     def apply(self, fill: Fill) -> None:
+        held = self.positions.get(fill.symbol, 0.0)
+        prev_basis = self.cost_basis.get(fill.symbol, 0.0)
         if fill.side == "buy":
             spend = fill.quote_value + fill.fee
             if spend > self.cash + 1e-9:
                 raise ValueError(f"insufficient cash: need {spend:.2f}, have {self.cash:.2f}")
             self.cash -= spend
-            held = self.positions.get(fill.symbol, 0.0)
-            prev_basis = self.cost_basis.get(fill.symbol, 0.0)
             new_qty = held + fill.quantity
-            self.cost_basis[fill.symbol] = (
-                (held * prev_basis + fill.quantity * fill.price) / new_qty if new_qty > 0 else 0.0
-            )
-            self.positions[fill.symbol] = new_qty
+            if held < 0:                                   # covering a short
+                if new_qty > 1e-12:                        # over-covered: the rest is a long
+                    self.cost_basis[fill.symbol] = fill.price
+            elif new_qty > 0:
+                self.cost_basis[fill.symbol] = (
+                    (held * prev_basis + fill.quantity * fill.price) / new_qty)
         else:
-            held = self.positions.get(fill.symbol, 0.0)
-            if fill.quantity > held + 1e-9:
+            if fill.quantity > held + 1e-9 and not self.allow_short:
                 raise ValueError(f"insufficient {fill.symbol}: need {fill.quantity}, have {held}")
-            self.positions[fill.symbol] = held - fill.quantity
+            new_qty = held - fill.quantity
             self.cash += fill.quote_value - fill.fee
-            if self.positions[fill.symbol] <= 1e-12:
-                self.positions.pop(fill.symbol, None)
-                self.cost_basis.pop(fill.symbol, None)
+            if new_qty < -1e-12:                           # opening or adding to a short
+                short_held = max(-held, 0.0)
+                added = fill.quantity - max(held, 0.0)
+                self.cost_basis[fill.symbol] = (
+                    fill.price if short_held <= 0 else
+                    (short_held * prev_basis + added * fill.price) / (short_held + added))
+        if abs(new_qty) <= 1e-12:
+            self.positions.pop(fill.symbol, None)
+            self.cost_basis.pop(fill.symbol, None)
+        else:
+            self.positions[fill.symbol] = new_qty
         self.fees_paid += fill.fee
 
     def equity(self, prices: dict[str, float]) -> float:
@@ -43,8 +56,12 @@ class Wallet:
             qty * prices.get(sym, 0.0) for sym, qty in self.positions.items()
         )
 
+    def short_notional(self, prices: dict[str, float]) -> float:
+        return sum(-qty * prices.get(sym, 0.0) for sym, qty in self.positions.items() if qty < 0)
+
     def exposure(self, prices: dict[str, float]) -> float:
+        """Gross exposure: everything at risk, long or short, over equity."""
         eq = self.equity(prices)
         if eq <= 0:
             return 0.0
-        return 1.0 - self.cash / eq
+        return sum(abs(qty) * prices.get(sym, 0.0) for sym, qty in self.positions.items()) / eq
